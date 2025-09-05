@@ -1,1 +1,8 @@
 
+// Call the method
+        Response response = resourceSpy.getCrossConnect(crossConnect.getId());
+        com.oracle.pic.vpn.model.CrossConnect ccReturned = (com.oracle.pic.vpn.model.CrossConnect) response.getEntity();
+
+        // verify backfill was called and tenant Id is set
+        verify(blSpy, backfillTenantId(crossConnect.getId(), expectedTenantId));
+        assertThat(ccReturned.getTenancyId()).isEqualTo(expectedTenantId);
