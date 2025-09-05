@@ -1,1315 +1,2146 @@
-package com.oracle.pic.vpn.api.resources.management;
+package com.oracle.pic.vpn.db;
 
-import com.codahale.metrics.annotation.Timed;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.inject.Inject;
-import com.oracle.bmc.core.model.CreateCrossConnectDetails;
-import com.oracle.bmc.core.model.CrossConnectStatus;
-import com.oracle.bmc.core.model.MacsecState;
+import com.google.inject.Provider;
+import com.google.inject.name.Named;
 import com.oracle.pic.commons.exceptions.server.ErrorCode;
-import com.oracle.pic.commons.exceptions.server.RenderableException;
-import com.oracle.pic.commons.metrics.MetricsScope;
-import com.oracle.pic.commons.service.Headers;
-import com.oracle.pic.commons.service.Params;
-import com.oracle.pic.commons.service.model.PaginatedResponse;
-import com.oracle.pic.identity.authentication.error.AuthServerUnavailableException;
+import com.oracle.pic.commons.id.Id;
+import com.oracle.pic.commons.id.InvalidOCIDException;
+import com.oracle.pic.commons.id.OCIDParser;
+import com.oracle.pic.commons.id.RegionIdFactory;
+import com.oracle.pic.commons.util.EntityType;
+import com.oracle.pic.kiev.Bucket;
 import com.oracle.pic.kiev.Transaction;
 import com.oracle.pic.kiev.exceptions.CommitConflictException;
+import com.oracle.pic.kiev.mapping.Index;
+import com.oracle.pic.kiev.mapping.MappedDataStore;
+import com.oracle.pic.kiev.mapping.MappedHashBucket;
 import com.oracle.pic.kiev.mapping.PaginationToken;
 import com.oracle.pic.kiev.mapping.ScanPage;
-import com.oracle.pic.vpn.VpnRegion;
-import com.oracle.pic.vpn.api.auth.VpnSkipAuthorization;
-import com.oracle.pic.vpn.api.resources.util.CustomParams;
-import com.oracle.pic.vpn.api.resources.util.FastConnectCanaryUtils;
-import com.oracle.pic.vpn.api.resources.util.OptimisticConcurrencyUtils;
-import com.oracle.pic.vpn.api.resources.util.PaginationUtils;
-import com.oracle.pic.vpn.api.resources.util.PortMigrationUtils;
-import com.oracle.pic.vpn.api.resources.util.ResourceUtils;
-import com.oracle.pic.vpn.api.resources.v20160918.CrossConnectResource;
-import com.oracle.pic.vpn.api.service.VpnApiServiceConfiguration;
-import com.oracle.pic.vpn.common.MetricConstants;
-import com.oracle.pic.vpn.config.resources.FCAggForFCCanaryConfig;
-import com.oracle.pic.vpn.config.resources.FFabQfxCanaryConfig;
-import com.oracle.pic.vpn.db.ArchiveBl;
-import com.oracle.pic.vpn.db.BgpBl;
-import com.oracle.pic.vpn.db.CrossConnectBl;
-import com.oracle.pic.vpn.db.CrossConnectGroupBl;
-import com.oracle.pic.vpn.db.EventBl;
-import com.oracle.pic.vpn.db.InterfaceBl;
-import com.oracle.pic.vpn.db.LoaBl;
-import com.oracle.pic.vpn.db.LocationBl;
-import com.oracle.pic.vpn.db.PatchPanelBl;
-import com.oracle.pic.vpn.db.PatchPanelPortPairBl;
-import com.oracle.pic.vpn.db.PortMigrationBackupBl;
-import com.oracle.pic.vpn.db.PropertiesBl;
-import com.oracle.pic.vpn.db.TenancyMetadataBl;
-import com.oracle.pic.vpn.db.VirtualCircuitBl;
-import com.oracle.pic.vpn.db.WorkRequestBl;
-import com.oracle.pic.vpn.db.devices.ConfigSnippetBl;
+import com.oracle.pic.kiev.mapping.UniqueIndex;
+import com.oracle.pic.vpn.common.RoutingPolicy;
+import com.oracle.pic.vpn.db.NetworkTopologyDaoModule.Buckets;
 import com.oracle.pic.vpn.db.devices.DeviceBl;
 import com.oracle.pic.vpn.db.devices.model.DeviceDo;
-import com.oracle.pic.vpn.db.encryption.EncryptionManager;
 import com.oracle.pic.vpn.db.exception.ValidationException;
-import com.oracle.pic.vpn.db.metering.VpnMetering;
-import com.oracle.pic.vpn.db.model.Component;
+import com.oracle.pic.vpn.db.model.ArchiveDo;
 import com.oracle.pic.vpn.db.model.CrossConnectDo;
 import com.oracle.pic.vpn.db.model.CrossConnectGroupDo;
-import com.oracle.pic.vpn.db.model.GlobalPopCcMetadata;
-import com.oracle.pic.vpn.db.model.InterfaceDo;
-import com.oracle.pic.vpn.db.model.LoaDo;
+import com.oracle.pic.vpn.db.model.CrossConnectMappings;
+import com.oracle.pic.vpn.db.model.CrossConnectMappings.Mapping;
+import com.oracle.pic.vpn.db.model.DrgDo;
 import com.oracle.pic.vpn.db.model.LocationDo;
-import com.oracle.pic.vpn.db.model.MacsecKeyInternal;
-import com.oracle.pic.vpn.db.model.MacsecPropertiesInternal;
-import com.oracle.pic.vpn.db.model.PatchPanelPortPairDo;
-import com.oracle.pic.vpn.db.model.PortMigrationBackupDo;
+import com.oracle.pic.vpn.db.model.PrivateIPSecGatewayDo;
+import com.oracle.pic.vpn.db.model.ProviderServiceDo;
+import com.oracle.pic.vpn.db.model.PublicBaseDo.CompartmentIdKey;
+import com.oracle.pic.vpn.db.model.PublicNamedScanDo;
+import com.oracle.pic.vpn.db.model.ScanParamHelper;
+import com.oracle.pic.vpn.db.model.UnitNumberDo;
+import com.oracle.pic.vpn.db.model.VcAssociationManager;
+import com.oracle.pic.vpn.db.model.VcAssociationManager.VcAssociationHelper;
+import com.oracle.pic.vpn.db.model.VcBgpPeeringAddressManager;
+import com.oracle.pic.vpn.db.model.VcToVlanMappingDo;
 import com.oracle.pic.vpn.db.model.VirtualCircuitDo;
-import com.oracle.pic.vpn.db.model.WorkRequestDo;
-import com.oracle.pic.vpn.db.util.CrossConnectUtils;
-import com.oracle.pic.vpn.db.util.PaginationTokenUtils;
+import com.oracle.pic.vpn.db.model.VirtualCircuitDo.ProvCompartmentIdNameDateKey;
+import com.oracle.pic.vpn.db.model.VirtualCircuitDo.State;
+import com.oracle.pic.vpn.db.util.IpUtils;
 import com.oracle.pic.vpn.db.util.PublicValidation;
-import com.oracle.pic.vpn.db.util.RegionUtil;
-import com.oracle.pic.vpn.db.util.TagUtils;
 import com.oracle.pic.vpn.db.util.Validation;
-import com.oracle.pic.vpn.featurecontrol.FeatureController;
+import com.oracle.pic.vpn.db.util.VirtualCircuitValidationHelper;
+import com.oracle.pic.vpn.db.workflow.MplsTableLabelManager;
 import com.oracle.pic.vpn.identity.IdentityMetadataHelper;
-import com.oracle.pic.vpn.kmsSecrets.KmsSecretsManager;
-import com.oracle.pic.vpn.limits.VpnLimitsHelper;
-import com.oracle.pic.vpn.model.ConvertCrossConnectDetails;
-import com.oracle.pic.vpn.model.CreateCrossConnectInternalDetails;
-import com.oracle.pic.vpn.model.CrossConnectInternal;
-import com.oracle.pic.vpn.model.CrossConnectStatusInternal;
-import com.oracle.pic.vpn.model.Event;
-import com.oracle.pic.vpn.model.MacsecKey;
-import com.oracle.pic.vpn.model.MacsecProperties;
-import com.oracle.pic.vpn.model.MigratePortsForCrossConnectRequest;
-import com.oracle.pic.vpn.model.Qfx5120CanaryConfigDetails;
-import com.oracle.pic.vpn.model.UpdateCrossConnectInternalDetails;
-import com.oracle.pic.vpn.oci.GlobalPopHelper;
-import com.oracle.pic.vpn.status.StatusProvider;
-import com.oracle.pic.vpn.workflows.casemetric.PerformanceMetricHelper;
-import lombok.NonNull;
+import com.oracle.pic.vpn.rqs.RqsHelper;
+import com.oracle.pic.vpn.rqs.model.VirtualCircuitRqsModel;
+import com.oracle.pic.workflow.worker.exceptions.RetryableException;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.validation.Valid;
-import javax.ws.rs.DELETE;
-import javax.ws.rs.DefaultValue;
-import javax.ws.rs.GET;
-import javax.ws.rs.HeaderParam;
-import javax.ws.rs.POST;
-import javax.ws.rs.PUT;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.Response;
-import java.util.Collections;
+import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
-import java.util.function.Supplier;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import static com.oracle.pic.vpn.db.model.VirtualCircuitDo.ALLOWED_ROUTING_POLICY_FOR_PUBLIC_VC;
 
 /**
- * CrossConnectManagementResourceV1 manages CrossConnect objects.
+ * TODO: Fix default error message for getOrThrow lookup.
+ *
+ * DAO for operations on VirtualCircuit objects.
+ *
+ * Includes validation that is used by the API and the workflow.
+ *
+ * Right now we validate that everything must be set,
+ * in the future we might want to allow null options to mean
+ * that we generate the values.
  */
-@Path("/v1/management/crossConnects")
-@Produces("application/json")
 @Slf4j
-public class CrossConnectManagementResourceV1 {
+public class VirtualCircuitBl extends PublicNamedScanBl<VirtualCircuitDo> {
 
-    private final BgpBl bgpBl;
-    private final ConfigSnippetBl configSnippetBl;
+    // All VC's must have at least 1 crossConnect
+    public static final int MIN_CROSS_CONNECTS = 1;
+    // Right now we limit the number of crossConnects to two
+    // This could change in the future
+    public static final int MAX_CROSS_CONNECTS = 2;
+    // We start the VLAN limit at 100
+    public static final int MIN_VLAN = 100;
+    // 0xFFF is reserved
+    public static final int MAX_VLAN = 4094;
+
+    public static final int RD_RANGE_MIN = 2000000;
+    public static final int RD_RANGE_MAX = 2999999;
+
+    public static final int IP_MTU_9000 = 9000;
+
+    private static final int MAX_VLAN_BGP_TRIES = 50;
+
+    // Used to generate routeDistinguisher
+    // https://confluence.oci.oraclecorp.com/display/RSC/ECMP+for+GAP+Use+Case+-+Low+Level+Design
+    private static final SecureRandom RANDOM = new SecureRandom();
+    private static final int MAX_RETRIES = 50;
+    public static final String ECMP_DRGV1_ID_FOR_UNIT_NUMBER = "ECMP_DRGV1_ID";
+
+
+    private final RegionIdFactory regionIdFactory;
     private final CrossConnectBl crossConnectBl;
     private final CrossConnectGroupBl crossConnectGroupBl;
     private final DeviceBl deviceBl;
-    private final EventBl eventBl;
-    private final IdentityMetadataHelper identityHelper;
-    private final InterfaceBl interfaceBl;
-    private final LoaBl loaBl;
+    private final ProviderServiceBl providerServiceBl;
+    private final DrgBl drgBl;
+    private final PrivateIPSecGatewayBl privateIPSecGatewayBl;
+    private final UnitNumberBl unitNumberBl;
     private final LocationBl locationBl;
-    private final PatchPanelBl patchPanelBl;
-    private final PatchPanelPortPairBl patchPanelPortPairBl;
-    private final PortMigrationBackupBl portMigrationBackupBl;
-    private final VirtualCircuitBl virtualCircuitBl;
-    private final ArchiveBl archiveBl;
-    private final VpnLimitsHelper limitsHelper;
-    private final VpnLimitsHelper vpnLimitsHelper;
-    private final VpnMetering vpnMetering;
-    private final WorkRequestBl workRequestBl;
+    private final VcAssociationHelper associationHelper;
+    private final VcBgpPeeringAddressManager vcBgpPeeringAddressManager;
+    private final VcToVlanMappingBl vcToVlanMappingBl;
+    // VC unit number for QFX connection must be unique per PFab cluster
+    private final Index<VirtualCircuitDo.VcUnitNumberForQfxAndPFabClusterIdKey, VirtualCircuitDo> vcUnitNumberForQfxAndPFabClusterIdIndex;
+    private final Index<VirtualCircuitDo.VcGatewayIdKey, VirtualCircuitDo> vcGatewayIdVirtualCircuitDoIndex;
+    private final Provider<BgpBl> bgpBl;
     private final PropertiesBl propertiesBl;
-    private final EncryptionManager encryptionManager;
-    protected PerformanceMetricHelper perfMetric;
-    private KmsSecretsManager kmsSecretsManager;
-    private final FeatureController featureController;
-    private final VpnRegion vpnRegion;
-    private final Long regionBgpAsn;
-    private final GlobalPopHelper globalPopHelper;
-    private final StatusProvider statusProvider;
-    private final VpnApiServiceConfiguration vpnApiServiceConfiguration;
+    private final Index<VirtualCircuitDo.SVlanAndPFabClusterIdKey, VirtualCircuitDo> vcSVlanAndPFabClusterIdIndex;
+    private final Provider<MplsTableLabelManager> mplsTableLabelManager;
+    private final Index<VirtualCircuitDo.State, VirtualCircuitDo> stateIndex;
+    private final Index<String, VirtualCircuitDo> providerServiceIndex;
+    private final Index<String, VirtualCircuitDo> vcPFabClusterIdIndex;
+    private final VcTunnelAssociationBl vcTunnelAssociationBl;
     private final TenancyMetadataBl tenancyMetadataBl;
+    private final IdentityMetadataHelper identityMetadataHelper;
+
+    @VisibleForTesting
+    RqsHelper rqsHelper;
+
+    Index<VirtualCircuitDo.ProvCompartmentIdNameDateKey, VirtualCircuitDo> provCompIdNameDateIndex;
+    Index<VirtualCircuitDo.ProvCompartmentIdNameDateKey, VirtualCircuitDo> provCompIdDateIndex;
+    Index<String, VirtualCircuitDo> routeDistinguisherIndex;
+    Index<String, VirtualCircuitDo> internalVcIndex;
 
     @Inject
-    public CrossConnectManagementResourceV1(BgpBl bgpBl,
-                                            ConfigSnippetBl configSnippetBl,
-                                            CrossConnectBl crossConnectBl,
-                                            CrossConnectGroupBl crossConnectGroupBl,
-                                            DeviceBl deviceBl,
-                                            EventBl eventBl,
-                                            IdentityMetadataHelper identityHelper,
-                                            InterfaceBl interfaceBl,
-                                            LoaBl loaBl,
-                                            LocationBl locationBl,
-                                            PatchPanelBl patchPanelBl,
-                                            PatchPanelPortPairBl patchPanelPortPairBl,
-                                            PortMigrationBackupBl portMigrationBackupBl,
-                                            VirtualCircuitBl virtualCircuitBl,
-                                            VpnLimitsHelper limitsHelper,
-                                            VpnLimitsHelper vpnLimitsHelper,
-                                            VpnMetering vpnMetering,
-                                            WorkRequestBl workRequestBl,
-                                            PropertiesBl propertiesBl,
-                                            ArchiveBl archiveBl,
-                                            EncryptionManager encryptionManager,
-                                            KmsSecretsManager kmsSecretsManager,
-                                            FeatureController featureController,
-                                            VpnRegion vpnRegion,
-                                            RegionUtil regionUtil,
-                                            GlobalPopHelper globalPopHelper,
-                                            StatusProvider statusProvider,
-                                            VpnApiServiceConfiguration vpnApiServiceConfiguration,
-                                            TenancyMetadataBl tenancyMetadataBl) {
-        this.bgpBl = bgpBl;
-        this.configSnippetBl = configSnippetBl;
+    /*package*/ VirtualCircuitBl(MappedDataStore mappedDataStore,
+                                 MappedHashBucket<String, VirtualCircuitDo> bucket,
+                                 MappedHashBucket<String, ArchiveDo> archiveBucket,
+                                 UniqueIndex<String, VirtualCircuitDo> publicIdIndex,
+                                 Index<CompartmentIdKey, VirtualCircuitDo> compartmentIndex,
+                                 RegionIdFactory regionIdFactory, CrossConnectBl crossConnectBl, CrossConnectGroupBl crossConnectGroupBl,
+                                 DrgBl drgBl,
+                                 PrivateIPSecGatewayBl privateIPSecGatewayBl,
+                                 DeviceBl deviceBl,
+                                 ProviderServiceBl providerServiceBl,
+                                 VcBgpPeeringAddressManager vcBgpPeeringAddressManager,
+                                 VcToVlanMappingBl vcToVlanMappingBl,
+                                 @Named(VirtualCircuitDo.VC_COMP_NAME_DATE_INDEX) Index<PublicNamedScanDo.CompartmentIdNameDateKey, VirtualCircuitDo> vcCompIdNameDateIndex,
+                                 @Named(VirtualCircuitDo.VC_COMP_DATE_INDEX) Index<PublicNamedScanDo.CompartmentIdNameDateKey, VirtualCircuitDo> vcCompIdDateIndex,
+                                 @Named(VirtualCircuitDo.VC_PROV_COMP_NAME_DATE_INDEX) Index<ProvCompartmentIdNameDateKey, VirtualCircuitDo> provCompIdNameDateIndex,
+                                 @Named(VirtualCircuitDo.VC_PROV_COMP_DATE_INDEX) Index<ProvCompartmentIdNameDateKey, VirtualCircuitDo> provCompIdDateIndex,
+                                 @Named(VirtualCircuitDo.VC_VCUNITNUM_PFABCLUSTERID_IDX) Index<VirtualCircuitDo.VcUnitNumberForQfxAndPFabClusterIdKey, VirtualCircuitDo> vcUnitNumberForQfxAndPFabClusterIdIndex,
+                                 @Named(VirtualCircuitDo.VC_SVLAN_PFABCLUSTERID_IDX) Index<VirtualCircuitDo.SVlanAndPFabClusterIdKey, VirtualCircuitDo> vcSVlanAndPFabClusterIdIndex,
+                                 @Named(VirtualCircuitDo.VC_GATEWAY_ID_IDX) Index<VirtualCircuitDo.VcGatewayIdKey, VirtualCircuitDo> vcGatewayIdVirtualCircuitDoIndex,
+                                 @Named(VirtualCircuitDo.VC_ROUTE_DISTINGUISHER_IDX) Index<String, VirtualCircuitDo> routeDistinguisherIndex,
+                                 @Named(VirtualCircuitDo.VC_INTERNAL_VC_IDX) Index<String, VirtualCircuitDo> internalVcIndex,
+                                 @Named(VirtualCircuitDo.VC_STATE_IDX) Index<State, VirtualCircuitDo> stateIndex,
+                                 @Named(VirtualCircuitDo.VC_PROVIDER_SERVICE_IDX) Index<String, VirtualCircuitDo> providerServiceIndex,
+                                 @Named(VirtualCircuitDo.VC_PFABCLUSTERID_IDX) Index<String, VirtualCircuitDo> vcPFabClusterIdIndex,
+                                 Provider<BgpBl> bgpBl,
+                                 RqsHelper rqsHelper,
+                                 PropertiesBl propertiesBl,
+                                 IdentityMetadataHelper identityMetadataHelper,
+                                 TenancyMetadataBl tenancyMetadataBl,
+                                 Provider<MplsTableLabelManager> mplsTableLabelManager,
+                                 UnitNumberBl unitNumberBl,
+                                 LocationBl locationBl,
+                                 VcTunnelAssociationBl vcTunnelAssociationBl) {
+
+        super(mappedDataStore, bucket, Buckets.VIRTUAL_CIRCUIT.getKievName(),
+                archiveBucket, publicIdIndex, false, compartmentIndex,
+                vcCompIdNameDateIndex, vcCompIdDateIndex);
+
+        this.regionIdFactory = regionIdFactory;
         this.crossConnectBl = crossConnectBl;
         this.crossConnectGroupBl = crossConnectGroupBl;
+        this.drgBl = drgBl;
+        this.privateIPSecGatewayBl = privateIPSecGatewayBl;
         this.deviceBl = deviceBl;
-        this.eventBl = eventBl;
-        this.interfaceBl = interfaceBl;
-        this.loaBl = loaBl;
-        this.locationBl = locationBl;
-        this.patchPanelBl = patchPanelBl;
-        this.patchPanelPortPairBl = patchPanelPortPairBl;
-        this.identityHelper = identityHelper;
-        this.portMigrationBackupBl = portMigrationBackupBl;
-        this.limitsHelper = limitsHelper;
-        this.virtualCircuitBl = virtualCircuitBl;
-        this.vpnLimitsHelper = vpnLimitsHelper;
-        this.vpnMetering = vpnMetering;
-        this.workRequestBl = workRequestBl;
+        this.providerServiceBl = providerServiceBl;
+        this.bgpBl = bgpBl;
+        this.rqsHelper = rqsHelper;
         this.propertiesBl = propertiesBl;
-        this.archiveBl = archiveBl;
-        this.encryptionManager = encryptionManager;
+        this.associationHelper = new VcAssociationManager.VcAssociationHelper(
+                drgBl, privateIPSecGatewayBl, crossConnectBl, crossConnectGroupBl,
+                propertiesBl, vcToVlanMappingBl);
+        this.vcBgpPeeringAddressManager = vcBgpPeeringAddressManager;
+        this.vcToVlanMappingBl = vcToVlanMappingBl;
+
+        this.provCompIdNameDateIndex = provCompIdNameDateIndex;
+        this.provCompIdDateIndex = provCompIdDateIndex;
+        this.vcUnitNumberForQfxAndPFabClusterIdIndex = vcUnitNumberForQfxAndPFabClusterIdIndex;
+        this.vcSVlanAndPFabClusterIdIndex = vcSVlanAndPFabClusterIdIndex;
+        this.vcGatewayIdVirtualCircuitDoIndex = vcGatewayIdVirtualCircuitDoIndex;
+        this.routeDistinguisherIndex = routeDistinguisherIndex;
+        this.internalVcIndex = internalVcIndex;
+        this.mplsTableLabelManager = mplsTableLabelManager;
+        this.unitNumberBl = unitNumberBl;
+        this.stateIndex = stateIndex;
+        this.locationBl = locationBl;
+        this.providerServiceIndex = providerServiceIndex;
+        this.vcPFabClusterIdIndex = vcPFabClusterIdIndex;
+        this.vcTunnelAssociationBl = vcTunnelAssociationBl;
         this.tenancyMetadataBl = tenancyMetadataBl;
-        this.perfMetric = new PerformanceMetricHelper();
-        this.kmsSecretsManager = kmsSecretsManager;
-        this.featureController = featureController;
-        this.vpnRegion = vpnRegion;
-        this.regionBgpAsn = regionUtil.getRegionBgpAsn(vpnRegion);
-        this.globalPopHelper = globalPopHelper;
-        this.statusProvider = statusProvider;
-        this.vpnApiServiceConfiguration = vpnApiServiceConfiguration;
+        this.identityMetadataHelper = identityMetadataHelper;
     }
 
-    public static CrossConnectInternal toModel(PatchPanelPortPairBl patchPanelPortPairBl,
-                                               LocationBl locationBl,
-                                               CrossConnectDo crossConnectDo,
-                                               EncryptionManager encryptionManager,
-                                               CrossConnectGroupBl crossConnectGroupBl,
-                                               DeviceBl deviceBl) {
-
-        String portName = null;
-        String locationName = null;
-        if (crossConnectDo.getGlobalPopCcMetadata() != null) {
-            locationName = crossConnectDo.getGlobalPopCcMetadata().getLocationName();
-            portName = crossConnectDo.getGlobalPopCcMetadata().getPortName();
-        } else {
-            try (Transaction t = patchPanelPortPairBl.beginTransaction("get-interface")) {
-                Optional<PatchPanelPortPairDo> pppDo = patchPanelPortPairBl.getPortPairByInterface(t, crossConnectDo.getInterfaceId());
-                if (pppDo.isPresent()) {
-                    portName = pppDo.get().getCustomerPatchPanelPort();
-                }
-            }
-
-            try (Transaction t = locationBl.beginTransaction("get-location")) {
-
-                Optional<LocationDo> locDo = locationBl.get(t, crossConnectDo.getLocation());
-                if (locDo.isPresent()) {
-                    locationName = locDo.get().getName();
-                } else {
-                    // This should never happen but log in case
-                    log.error("CC {} is referring to location {} which doesn't exist",
-                            crossConnectDo.getId(), crossConnectDo.getLocation());
-                    throw new RenderableException(ErrorCode.InternalError,
-                            "Error finding location of CrossConnect");
-                }
-            }
-        }
-
-        String vcsToVlans;
+    // This is a raw create that creates the DO with no validation. This should used with caution and is
+    // currently used only for test purpose.
+    public VirtualCircuitDo createDo(Transaction t, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        String tenantId = null;
         try {
-            vcsToVlans = new ObjectMapper().registerModule(new Jdk8Module()).writeValueAsString(crossConnectDo.getVcsToVlans());
-        } catch (JsonProcessingException e) {
-            String errorMessage = "Error converting vcsToVlans map to JSON:" + e;
-            throw new RenderableException(ErrorCode.InternalError, errorMessage);
-        }
-
-        MacsecProperties macsecProperties = null;
-
-        if(CrossConnectUtils.isMacsecCapableDevice(crossConnectDo.getDeviceId(), deviceBl)) {
-
-            MacsecProperties.State state = crossConnectDo.isMacsecEnabled() ? MacsecProperties.State.Enabled : MacsecProperties.State.Disabled;
-
-            MacsecKeyInternal macsecKeyInternal = crossConnectDo.getMacsecKey();
-            MacsecPropertiesInternal macsecPropertiesInternal = crossConnectDo.getMacsecPropertiesInternal();
-            DeviceDo.EncryptionCipher encryptionCipher = crossConnectDo.getEncryptionCipher();
-
-            if(crossConnectDo.getCrossConnectGroupId() != null) {
-                Optional<CrossConnectGroupDo> crossConnectGroupDos = crossConnectGroupBl.get(crossConnectDo.getCrossConnectGroupId());
-
-                if(crossConnectGroupDos.isPresent()) {
-                    CrossConnectGroupDo crossConnectGroupDo = crossConnectGroupDos.get();
-
-                    state = crossConnectGroupDo.isMacsecEnabled() ? MacsecProperties.State.Enabled : MacsecProperties.State.Disabled;
-                    macsecKeyInternal = crossConnectGroupDo.getMacsecKey();
-                    encryptionCipher = crossConnectGroupDo.getEncryptionCipher();
-                    macsecPropertiesInternal = crossConnectGroupDo.getMacsecPropertiesInternal();
-                }
-            }
-
-            MacsecKey macsecKey = null;
-            if(macsecKeyInternal != null) {
-                macsecKey = MacsecKey.builder()
-                        .connectivityAssociationNameSecretId(macsecKeyInternal.getCustomerCknSecretOcid())
-                        .connectivityAssociationNameSecretVersion(macsecKeyInternal.getCustomerCknSecretVersion())
-                        .connectivityAssociationKeySecretId(macsecKeyInternal.getCustomerCakSecretOcid())
-                        .connectivityAssociationKeySecretVersion(macsecKeyInternal.getCustomerCakSecretVersion())
-                        .serviceSecretOcid(macsecKeyInternal.getServiceSecretOcid())
-                        .build();
-            }
-
-            macsecProperties = MacsecProperties.builder()
-                    .state(state)
-                    .primaryKey(macsecKey)
-                    .encryptionCipher(encryptionCipher != null ? MacsecProperties.EncryptionCipher.create(encryptionCipher.name()) : null)
-                    .bypassLldp(macsecPropertiesInternal != null?  macsecPropertiesInternal.getBypassLldp() : false)
-                    .rekeyPeriod(macsecPropertiesInternal != null? macsecPropertiesInternal.getRekeyPeriod() : 3600)
-                    .replayProtectionWindow(macsecPropertiesInternal != null? macsecPropertiesInternal.getReplayProtectionWindow() : 0L)
-                    .mkaServerPriority(macsecPropertiesInternal != null? macsecPropertiesInternal.getMkaServerPriority() : 0)
-                    .allowUnprotectedTraffic(Optional.ofNullable(macsecPropertiesInternal).map(MacsecPropertiesInternal::getAllowUnprotectedTraffic).orElse(false))
+            tenantId = identityMetadataHelper.getTenantId(virtualCircuitDo.getCompartmentId());
+            log.debug("Getting tenantId for virtualCircuitDo {} tenantId {}", virtualCircuitDo, tenantId);
+            virtualCircuitDo = virtualCircuitDo.toBuilder()
+                    .tenantId(tenantId)
                     .build();
+        } catch (Exception e) {
+            log.warn("Issue getting tenantId for vcDo {}", virtualCircuitDo, e);
         }
-
-        com.oracle.pic.vpn.model.GlobalPopCcMetadata globalPopCcMetadata = null;
-        com.oracle.pic.vpn.db.model.GlobalPopCcMetadata globalPop = crossConnectDo.getGlobalPopCcMetadata();
-
-        if (globalPop != null) {
-            globalPopCcMetadata = globalPopCcMetadata.builder()
-                    .agentDirectRegion(globalPop.getAgentDirectRegion() != null? globalPop.getAgentDirectRegion().getName() : null)
-                    .agentTargetRegion(globalPop.getAgentTargetRegion() != null? globalPop.getAgentTargetRegion().getName() : null)
-                    .agentTargetCcId(globalPop.getAgentTargetCcId() != null? globalPop.getAgentTargetCcId() : null)
-                    .status(globalPop.getStatus() != null? globalPop.getStatus().toString() : null)
-                    .portName(globalPop.getPortName() != null ? globalPop.getPortName() : null)
-                    .locationName(globalPop.getLocationName() != null ? globalPop.getLocationName() : null)
-                    .build();
-        }
-
-
-        CrossConnectInternal.LifecycleState effectiveState = CrossConnectInternal.LifecycleState.create(crossConnectDo.getState().name());
-        TagUtils.Tags tagSet = TagUtils.decodeTags(crossConnectDo.getTags());
-        try {
-            return CrossConnectInternal.builder()
-                    .id(crossConnectDo.getId())
-                    .compartmentId(crossConnectDo.getCompartmentId())
-                    .portId(crossConnectDo.getPortId())
-                    .deviceId(crossConnectDo.getDeviceId())
-                    .interfaceId(crossConnectDo.getInterfaceId())
-                    .vcsToVlans(vcsToVlans)
-                    .portName(portName)
-                    .locationName(locationName)
-                    .portSpeedShapeName(crossConnectDo.getPortSpeed())
-                    .lifecycleState(effectiveState)
-                    .crossConnectGroupId(crossConnectDo.getCrossConnectGroupId())
-                    .displayName(crossConnectDo.getDisplayName())
-                    .customerReferenceId(crossConnectDo.getCustomerReferenceId())
-                    .timeCreated(crossConnectDo.getDateCreated())
-                    .freeformTags(tagSet.getFreeformTags())
-                    .definedTags(tagSet.getDefinedTags())
-                    .interfaceDescr(crossConnectDo.getInterfaceDescr())
-                    .macsecProperties(macsecProperties)
-                    .globalPopCcMetadata(globalPopCcMetadata)
-                    .ociPhysicalDeviceName(CrossConnectUtils.getPhysicalDeviceName(crossConnectDo.getDeviceId(), deviceBl))
-                    .ociLogicalDeviceName(CrossConnectUtils.getLogicalDeviceName(crossConnectDo.getDeviceId(), deviceBl))
-                    .build();
-        } catch (ValidationException e) {
-            e.printStackTrace();
-            log.error("Failed to read DeviceName.", e);
-            throw new RuntimeException("Unexpected ValidationError", e);
-        }
+        return super.create(t, virtualCircuitDo);
     }
 
-    public static CrossConnectStatusInternal crossConnectStatusToModel(CrossConnectStatus status) {
+    /**
+     * This method created DO in DB and also records create with RQS service
+     */
+    private VirtualCircuitDo doCreate(Transaction t, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
 
-        CrossConnectStatusInternal.EncryptionStatus encryptionStatus = null;
-        if (status.getEncryptionStatus() != null) {
-            encryptionStatus = CrossConnectStatusInternal.EncryptionStatus.create(status.getEncryptionStatus().getValue());
+        String tenantId = null;
+        try {
+            tenantId = identityMetadataHelper.getTenantId(virtualCircuitDo.getCompartmentId());
+            virtualCircuitDo = virtualCircuitDo.toBuilder()
+                    .tenantId(tenantId)
+                    .build();
+        } catch (Exception e) {
+            log.warn("Issue getting tenantId for vcDo {}", virtualCircuitDo, e);
         }
 
-        return CrossConnectStatusInternal.builder()
-                .id(status.getCrossConnectId())
-                .interfaceState(CrossConnectStatusInternal.InterfaceState.create(status.getInterfaceState().getValue()))
-                .lightLevelIndBm(status.getLightLevelIndBm())
-                .lightLevelIndicator(CrossConnectStatusInternal.LightLevelIndicator.create(status.getLightLevelIndicator().getValue()))
-                .encryptionStatus(encryptionStatus)
+        VirtualCircuitDo effectivelyFinal = super.create(t, virtualCircuitDo);
+
+        if (rqsHelper.isRQSEnabled()) {
+            VirtualCircuitRqsModel virtualCircuitRqsModel = VirtualCircuitRqsModel.createFrom(effectivelyFinal.toModel(providerServiceBl, vcTunnelAssociationBl,tenancyMetadataBl, identityMetadataHelper, null, null, null));
+            rqsHelper.createOrUpdate(virtualCircuitRqsModel, VirtualCircuitRqsModel.TYPE, String.valueOf(virtualCircuitRqsModel.getChecksum()), t);
+        }
+        return effectivelyFinal;
+    }
+    @Override
+    public VirtualCircuitDo create(Transaction t, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        return create(t, virtualCircuitDo, false);
+    }
+
+    public VirtualCircuitDo create(Transaction t, VirtualCircuitDo virtualCircuitDo, boolean whitelistedForIpv6) throws ValidationException {
+        virtualCircuitDo = virtualCircuitDo.toBuilder()
+                .id(regionIdFactory.generate(EntityType.VpnVirtualCircuit).serialize())
+                .groupId(UUID.randomUUID().toString())
+                .state(State.PROVISIONING)
+                .lastStateChanged(new Date())
                 .build();
-    }
 
-    private void validateInterfaceHoldTimerRequest(
-            Boolean enableInterfaceHoldTimer,
-            Integer interfaceDownTimerValue) throws ValidationException{
-
-        if (enableInterfaceHoldTimer != null && enableInterfaceHoldTimer) {
-            if (interfaceDownTimerValue == null || interfaceDownTimerValue < 0 || interfaceDownTimerValue > 3000 || interfaceDownTimerValue%500 != 0){
-                PublicValidation.failInvalidDownTimerValue();
-            }
-        }
-    }
-
-    private void validateManagementCreateCrossConnectRequest(
-            CreateCrossConnectInternalDetails request,
-            String deviceId) throws ValidationException {
-
-        // Make sure near/far fields are not provided.
-        if (request.getFarCrossConnectOrCrossConnectGroupId() != null ||
-                request.getNearCrossConnectOrCrossConnectGroupId() != null) {
-            PublicValidation.failInvalidCreateRequestForCrossConnect();
+        if (virtualCircuitDo.isPublic()) {
+            virtualCircuitDo = allocateBgpPeerIps(t, virtualCircuitDo, Optional.empty(), whitelistedForIpv6);
         }
 
-        // If CC is part of a group make sure group deviceId is same as deviceId passed in
-        if (StringUtils.isNotBlank(request.getCrossConnectGroupId())) {
-
-            String ccgDeviceId =
-                    crossConnectBl.getDeviceIdFromCrossConnectOrGroup(request.getCrossConnectGroupId());
-            if (ccgDeviceId != null && !ccgDeviceId.equals(deviceId)) {
-                PublicValidation.failInvalidCreateRequestForCrossConnect();
-            }
+        baseValidate(t, virtualCircuitDo);
+        validateCreateForCustomer(virtualCircuitDo);
+        if (virtualCircuitDo.getGlobalPopVcMetadata() == null) {
+            validateNetworking(virtualCircuitDo, t);
         }
+        virtualCircuitDo = associationHelper.addAssociations(t, virtualCircuitDo);
+        return doCreate(t, virtualCircuitDo);
     }
 
-    @POST
-    @Timed(name = "create-crossconnect")
-    @VpnSkipAuthorization
-    public Response createCrossConnect(
-            @NonNull @HeaderParam("deviceId") String deviceId,
-            @HeaderParam("interfaceName") String interfaceName,
-            @HeaderParam("isQinQ") String isQinQ,
-            @Valid @NonNull CreateCrossConnectInternalDetails requestInternal) throws Exception {
 
-        validateManagementCreateCrossConnectRequest(requestInternal, deviceId);
-        TagUtils.validateTags(requestInternal.getFreeformTags(), requestInternal.getDefinedTags());
+    public VirtualCircuitDo createWithL2Provider(Transaction t, VirtualCircuitDo virtualCircuitDo, boolean whitelistedForIpv6) throws ValidationException {
+        virtualCircuitDo = virtualCircuitDo.toBuilder()
+                .id(regionIdFactory.generate(EntityType.VpnVirtualCircuit).serialize())
+                .groupId(UUID.randomUUID().toString())
+                .state(getInitialStateForCreateWithProvider(virtualCircuitDo, providerServiceBl, propertiesBl))
+                .build();
 
-        CreateCrossConnectDetails request = convert(requestInternal);
-
-        try (MetricsScope scope = MetricsScope.parent(MetricConstants.CrossConnect.API_CREATE_CROSSCONNECT, true, false);
-             Transaction t = crossConnectBl.beginTransaction("create-CrossConnect")) {
-
-            Optional<InterfaceDo> interfaceDoOpt = interfaceBl.getInterfaceByName(t, interfaceName, deviceId);
-            if (!interfaceDoOpt.isPresent()) {
-                PublicValidation.failInvalidCreateRequestForCrossConnect();
-            }
-
-            boolean enableQinQ = false;
-
-            if (isQinQ != null) {
-                enableQinQ = Boolean.parseBoolean(isQinQ);
-            }
-            String tenantId = identityHelper.getTenantId(requestInternal.getCompartmentId());
-            InterfaceDo interfaceDo = interfaceDoOpt.get();
-            InterfaceDo.PortSpeed portSpeed = CrossConnectResource.validateAndReturnPortSpeed(request, tenantId, tenancyMetadataBl);
-            Optional<LocationDo> optionalLocationDo = locationBl.getLocation(t, requestInternal.getLocationName());
-            if (!optionalLocationDo.isPresent()) {
-                PublicValidation.failInvalidLocation(requestInternal.getLocationName());
-            }
-
-            DeviceDo deviceDo = deviceBl.getOrThrow(interfaceDo.getDeviceId());
-            if (enableQinQ) {
-                // QinQ supported only on QFX devices.
-                if (!deviceBl.isQfxSwitchRole(deviceDo)) {
-                    throw new ValidationException(ErrorCode.InvalidParameter, "CrossConnect with QinQ is supported only on QFX devices.");
-                }
-
-                if (requestInternal.getCrossConnectGroupId() != null) {
-                    throw new ValidationException(ErrorCode.InvalidParameter,
-                            "Crossconnect with QinQ is not supported for crossconnects which are part of CrossConnectGroup.");
-                }
-            }
-
-            MacsecProperties macsecProperties = requestInternal.getMacsecProperties();
-            MacsecPropertiesInternal macsecPropertiesInternal = null;
-
-            if(macsecProperties != null && macsecProperties.getState().equals(MacsecProperties.State.Enabled)){
-                if(request.getCrossConnectGroupId() != null) {
-                    PublicValidation.failInvalidCrossConnectUpdateRequest();
-                }
-
-                if(macsecProperties.getEncryptionCipher() == null) {
-                    PublicValidation.failNullEncryptionCipher();
-                }
-                macsecPropertiesInternal = MacsecPropertiesInternal.builder()
-                        .bypassLldp(macsecProperties.getBypassLldp() != null? macsecProperties.getBypassLldp() : false)
-                        .mkaServerPriority(macsecProperties.getMkaServerPriority() != null? macsecProperties.getMkaServerPriority() : 0)
-                        .replayProtectionWindow(macsecProperties.getReplayProtectionWindow() != null ? macsecProperties.getReplayProtectionWindow() : 0L)
-                        .rekeyPeriod(macsecProperties.getRekeyPeriod() != null ? macsecProperties.getRekeyPeriod() : 3600)
-                        .allowUnprotectedTraffic(Optional.ofNullable(macsecProperties).map(MacsecProperties::getAllowUnprotectedTraffic).orElse(false))
-                        .build();
-            }
-            if (StringUtils.isNotBlank(requestInternal.getCrossConnectGroupId())) {
-                CrossConnectResource.validateCrossConnectGroup(
-                        crossConnectBl,
-                        crossConnectGroupBl,
-                        virtualCircuitBl,
-                        requestInternal.getCrossConnectGroupId(),
-                        portSpeed);
-            }
-
-            Map<String, String> properties = new HashMap<>();
-
-            Boolean isFcStaticCanary = requestInternal.getCreateQfxStaticCanarySnippetDetails() != null;
-            Boolean isFcMx10kStaticCanary = propertiesBl.isTenantWhitelistedForFastConnectStaticCanary(identityHelper.getTenantId(requestInternal.getCompartmentId()))
-                    && requestInternal.getFreeformTags() !=null  && requestInternal.getFreeformTags().get(PublicValidation.IS_FC_MX10K_STATIC_CANARY) != null
-                    && requestInternal.getFreeformTags().get(PublicValidation.IS_FC_MX10K_STATIC_CANARY_LOOPBACK)!=null;
-
-            if (isFcStaticCanary) {
-                // FC static canary supported only on QFX Switches currently
-                if (!deviceBl.isCanarySupportedRole(deviceDo)) {
-                    throw new ValidationException(ErrorCode.InvalidParameter, "CrossConnect with FC static canary is supported only on QFX Switch devices.");
-                }
-                // FC static canary supported only on single crossconnects.
-                if (StringUtils.isNotEmpty(requestInternal.getCrossConnectGroupId())) {
-                    throw new ValidationException(ErrorCode.InvalidParameter, "CrossConnect with FC static canary is supported only on non LAG crossconnects.");
-                }
-
-                ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module());
-                FCAggForFCCanaryConfig fcAggForFCCanaryConfig = FastConnectCanaryUtils.createFcStaticCanaryConfig(
-                        requestInternal.getCreateQfxStaticCanarySnippetDetails(),
-                        deviceDo,
-                        interfaceDo,
-                        regionBgpAsn,
-                        vpnApiServiceConfiguration.getFastConnectCanaryBootstrapConfiguration()
-                );
-
-                properties.put(CrossConnectDo.CC_FC_STATIC_CANARY_PROPERTY, mapper.writeValueAsString(fcAggForFCCanaryConfig));
-            }
-
-            if (requestInternal.getQfx5120CanaryConfigDetails() != null) {
-                // FFAB Qfx5120 canary supported only on QFX 5120 devices.
-                if (!deviceDo.getRoles().contains(DeviceDo.Role.Qfx5120)) {
-                    throw new ValidationException(ErrorCode.InvalidParameter, "CrossConnect with Qfx5120 canary is supported only on QFX 5120 devices.");
-                }
-                // FFAB Qfx5120 canary supported only on single crossconnects.
-                if (StringUtils.isNotEmpty(requestInternal.getCrossConnectGroupId())) {
-                    throw new ValidationException(ErrorCode.InvalidParameter, "CrossConnect with Qfx5120 canary is supported only on non LAG crossconnects.");
-                }
-
-                ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).enable(SerializationFeature.INDENT_OUTPUT);
-                FFabQfxCanaryConfig fFabQfxCanaryConfig = createCanaryConfig(requestInternal.getQfx5120CanaryConfigDetails());
-
-                properties.put(CrossConnectDo.CC_FFAB_QFX_CANARY_PROPERTY, mapper.writeValueAsString(fFabQfxCanaryConfig));
-            }
-
-
-            CrossConnectDo crossConnectDo = CrossConnectResource.processCreateCrossConnectRequest(
-                    t,
-                    request,
-                    patchPanelBl,
-                    patchPanelPortPairBl,
-                    interfaceBl,
-                    crossConnectBl,
-                    crossConnectGroupBl,
-                    eventBl,
-                    loaBl,
-                    optionalLocationDo.get(),
-                    portSpeed,
-                    identityHelper.getTenantId(requestInternal.getCompartmentId()),
-                    identityHelper.getTenantName(requestInternal.getCompartmentId()),
-                    Collections.singletonList(deviceId),
-                    true,
-                    interfaceDo.getId(),
-                    limitsHelper,
-                    TagUtils.encodeTags(requestInternal.getFreeformTags(),
-                            requestInternal.getDefinedTags()),
-                    enableQinQ,
-                    propertiesBl,
-                    properties,
-                    MacsecState.Disabled,
-                    null,
-                    null,
-                    macsecPropertiesInternal,
-                    deviceBl,
-                    featureController,
-                    workRequestBl,
-                    vpnRegion,
-                    tenancyMetadataBl,
-                    request.getDisplayName());
-
-            if (isFcStaticCanary) {
-                log.info("Activating the FC static canary CrossConnect. Triggering the workflow");
-                crossConnectDo = CrossConnectResource.processUpdateCrossConnectRequest(
-                        crossConnectBl,
-                        crossConnectGroupBl,
-                        eventBl,
-                        workRequestBl,
-                        deviceBl,
-                        t,
-                        crossConnectDo,
-                        vpnMetering,
-                        false,
-                        false,
-                        false);
-            }
-
-            if (isFcMx10kStaticCanary) {
-                log.info("Moving the MX10K Static Canary CC into Provisioned");
-                CrossConnectDo updated = crossConnectDo.toBuilder()
-                        .state(CrossConnectDo.State.PROVISIONED)
-                        .dateCreated(new Date())
-                        .build();
-                crossConnectBl.update(t,updated);
-                crossConnectDo = updated;
-            }
-
-            validateInterfaceHoldTimerRequest(requestInternal.getEnableInterfaceHoldTimer(), requestInternal.getInterfaceDownTimerValue());
-            if (requestInternal.getEnableInterfaceHoldTimer() != null && requestInternal.getEnableInterfaceHoldTimer()){
-                log.info("Activating the interface hold timer while creating the crossconnect %s.", crossConnectDo.getId());
-                crossConnectDo = crossConnectDo.toBuilder()
-                        .enableInterfaceHoldTimer(requestInternal.getEnableInterfaceHoldTimer())
-                        .interfaceDownTimeValue(requestInternal.getInterfaceDownTimerValue())
-                        .build();
-                crossConnectBl.update(t,crossConnectDo);
-            }
-
-            if (requestInternal.getInterfaceDescr()!= null) {
-                log.info("Adding interface description while creating the crossconnect {}.", crossConnectDo.getId());
-                crossConnectDo = crossConnectDo.toBuilder()
-                        .interfaceDescr(requestInternal.getInterfaceDescr())
-                        .build();
-                crossConnectBl.update(t,crossConnectDo);
-            }
-
-            Boolean isFakeDevice = deviceDo.isFakeDevice();
-            perfMetric.setupScopeDimensions(scope, null, isFakeDevice, null);
-
-            t.commit();
-            scope.emit(MetricConstants.SUCCESS, 1);
-
-            CrossConnectInternal.builder()
-                    .compartmentId(crossConnectDo.getCompartmentId());
-
-            return Response.ok(toModel(patchPanelPortPairBl, locationBl, crossConnectDo, encryptionManager, crossConnectGroupBl, deviceBl)).build();
-        }
-    }
-
-    @GET
-    @Timed(name = "list-crossConnects")
-    @VpnSkipAuthorization
-    public PaginatedResponse<CrossConnectInternal> listCrossConnects(
-            @DefaultValue("16") @QueryParam(Params.LIMIT) int limit,
-            @QueryParam(Params.PAGE) String opaqueToken,
-            @QueryParam(CustomParams.COMPARTMENT_ID) String compartmentId,
-            @QueryParam(CustomParams.CROSSCONNECT_GROUP_ID) String crossConnectGroupId,
-            @QueryParam(CustomParams.LIFECYCLE_STATE_INTERNAL) String lifecycleStateInternal) throws ValidationException {
-
-        Supplier<ScanPage<CrossConnectDo>> initial = null;
-        Function<PaginationToken, ScanPage<CrossConnectDo>> fromToken = null;
-
-        if (compartmentId != null) {
-            initial = () -> crossConnectBl.scanForList(compartmentId, null, limit, Optional.empty(), Optional.empty(), Optional.empty());
-            fromToken = (PaginationToken p) -> crossConnectBl.scanForList(compartmentId, null, limit,
-                    PaginationTokenUtils.deserializeAndValidate(opaqueToken, crossConnectBl.getMappedDataStore()), Optional.empty(), Optional.empty());
-
-        } else if (lifecycleStateInternal != null) {
-            CrossConnectDo.State effectiveState = crossConnectBl.getAndValidateLifecycleStateInternal(lifecycleStateInternal);
-            initial = () -> crossConnectBl.scanByState(effectiveState, limit, Optional.empty());
-            fromToken = (PaginationToken p) -> crossConnectBl.scanByState(effectiveState, limit,
-                    PaginationTokenUtils.deserializeAndValidate(opaqueToken, crossConnectBl.getMappedDataStore()));
+        if (virtualCircuitDo.isPublic()) {
+            virtualCircuitDo = allocateBgpPeerIps(t, virtualCircuitDo, Optional.empty(), whitelistedForIpv6);
         }
 
-        if (initial != null) {
-            return PaginationUtils.getScanPage(
-                    opaqueToken,
-                    initial,
-                    fromToken,
-                    CrossConnectResource.filterCrossConnect(crossConnectGroupId, Optional.empty()),
-                    crossConnectDo -> toModel(patchPanelPortPairBl, locationBl, crossConnectDo, encryptionManager, crossConnectGroupBl, deviceBl),
-                    crossConnectBl.getMappedDataStore()
-            );
+            baseValidate(t, virtualCircuitDo);
+        validatePreActiveNetworkSettingsForL2(virtualCircuitDo);
+        virtualCircuitDo = associationHelper.addAssociations(t, virtualCircuitDo);
+
+        return doCreate(t, virtualCircuitDo);
+    }
+
+    public VirtualCircuitDo createWithL3Provider(Transaction t, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        virtualCircuitDo = virtualCircuitDo.toBuilder()
+                .id(regionIdFactory.generate(EntityType.VpnVirtualCircuit).serialize())
+                .groupId(UUID.randomUUID().toString())
+                .state(getInitialStateForCreateWithProvider(virtualCircuitDo, providerServiceBl, propertiesBl))
+                .build();
+
+        baseValidate(t, virtualCircuitDo);
+        validatePreActiveNetworkSettingsForL3(virtualCircuitDo);
+        virtualCircuitDo = associationHelper.addAssociations(t, virtualCircuitDo);
+
+        return doCreate(t, virtualCircuitDo);
+    }
+
+    @Override
+    public VirtualCircuitDo update(Transaction t, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        baseValidate(t, virtualCircuitDo);
+
+        virtualCircuitDo = associationHelper.addAssociations(t, virtualCircuitDo);
+        VirtualCircuitDo effectivelyFinal = super.update(t, virtualCircuitDo);
+
+        if (rqsHelper.isRQSEnabled()) {
+            VirtualCircuitRqsModel virtualCircuitRqsModel = VirtualCircuitRqsModel.createFrom(
+                    effectivelyFinal.toModel(providerServiceBl, bgpBl.get(), bgpBl.get().prepareBgpStateMap(), vcTunnelAssociationBl,
+                            tenancyMetadataBl, identityMetadataHelper, null, null, null));
+            rqsHelper.createOrUpdate(virtualCircuitRqsModel, VirtualCircuitRqsModel.TYPE, String.valueOf(virtualCircuitRqsModel.getChecksum()), t);
         }
-
-        return PaginationUtils.getScanPage(
-                opaqueToken,
-                limit,
-                crossConnectBl,
-                (crossConnectDo) -> toModel(patchPanelPortPairBl, locationBl, crossConnectDo, encryptionManager, crossConnectGroupBl, deviceBl));
-
+        return effectivelyFinal;
     }
 
-    @GET
-    @Timed(name = "get-crossConnect")
-    @Path("/{crossConnectId}")
-    @VpnSkipAuthorization
-    public Response getCrossConnect(@PathParam("crossConnectId") String id) throws Exception {
-
-        return Response.ok(toModel(patchPanelPortPairBl,
-                locationBl,
-                crossConnectBl.getOrThrowForAuth(id), encryptionManager, crossConnectGroupBl, deviceBl)).build();
-    }
-
-    @GET
-    @Timed(name="list-cc-events")
-    @Path("/{crossConnectId}/events")
-    @Produces({ "application/json", "application/x-json-stream" })
-    @VpnSkipAuthorization
-    public PaginatedResponse<Event> listCrossConnectEvents(
-            @PathParam("crossConnectId") String id,
-            @DefaultValue("100") @QueryParam(Params.LIMIT) int limit,
-            @QueryParam(Params.PAGE) String opaqueToken) throws ValidationException {
-
-        Validation.OCIDValidate(id);
-        Validation.limitParamValidate(limit);
-
-        return ResourceUtils.getEventPaginatedResponse(id, limit, opaqueToken,
-                eventBl, archiveBl, crossConnectBl);
-    }
-
-    @GET
-    @Timed(name = "get-crossConnectStatus")
-    @Path("/{crossConnectId}/status")
-    @VpnSkipAuthorization
-    public Response getCrossConnectStatus(@PathParam("crossConnectId") String id) throws Exception {
-
-        CrossConnectDo crossConnectDo = crossConnectBl.getOrThrowForAuth(id);
-
-        CrossConnectStatus status = null;
-
-        if(crossConnectDo.isGlobalPopControllerVirtualCc() && propertiesBl.isJwccGlobalPopEnabled()) {
-
-            GlobalPopCcMetadata globalPopCcMetadata = crossConnectDo.getGlobalPopCcMetadata();
-
-            if (globalPopCcMetadata == null || globalPopCcMetadata.getAgentTargetCcId() == null) {
-                PublicValidation.failKeyNotFound(getClass().getSimpleName(), crossConnectDo.getId());
+    public VirtualCircuitDo backfillTenantId(String vcId, String tenantId) throws ValidationException {
+        if (tenantId == null) {
+            return getOrThrow(vcId);
+        }
+        try (Transaction tx = beginTransaction("backfill-tenantId")) {
+            VirtualCircuitDo vc = getOrThrow(tx, vcId);
+            if (vc.getTenantId() != null) {
+                return vc;
             }
 
-            log.info("Getting CrossConnect status from AgentTargetCc");
-
-            status = globalPopHelper.getCrossConnectStatusFromRegion(globalPopCcMetadata.getAgentTargetCcId(), globalPopCcMetadata.getAgentTargetRegion());
-
-            if (status == null) {
-                status = CrossConnectStatus.builder()
-                        .crossConnectId(crossConnectDo.getId())
-                        .lightLevelIndBm(0.0f)
-                        .lightLevelIndicator(CrossConnectStatus.LightLevelIndicator.Bad)
-                        .interfaceState(CrossConnectStatus.InterfaceState.Down)
-                        .encryptionStatus(CrossConnectStatus.EncryptionStatus.Down)
-                        .build();
-            }
-
-            status = CrossConnectStatus.builder()
-                    .copy(status)
-                    .crossConnectId(crossConnectDo.getId())
+            VirtualCircuitDo virtualCircuitDo = vc.toBuilder()
+                    .tenantId(tenantId)
                     .build();
 
-            return Response.ok(crossConnectStatusToModel(status)).build();
-
-        } else {
-            status = CrossConnectResource.handleGetCrossConnectStatus(crossConnectDo, statusProvider);
-            return Response.ok(crossConnectStatusToModel(status)).build();
+            // backfill and persist tenantId in VC
+            virtualCircuitDo = update(tx, virtualCircuitDo);
+            tx.commit();
+            return virtualCircuitDo;
+        } catch (CommitConflictException e) {
+            throw new RuntimeException(e);
         }
     }
 
-    @DELETE
-    @Path("/{crossConnectId}")
-    @Timed(name = "delete-crossConnect")
-    @VpnSkipAuthorization
-    public Response deleteCrossConnect(
-            @PathParam("crossConnectId") String id) throws Exception {
 
-        try (MetricsScope scope = MetricsScope.parent(MetricConstants.CrossConnect.API_DELETE_CROSSCONNECT, true, false);
-             Transaction t = crossConnectBl.beginTransaction("delete-crossConnect")) {
-            CrossConnectDo crossConnectDo = crossConnectBl.getOrThrowForAuth(t, id);
+    @Override
+    public ArchiveDo delete(Transaction t, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
 
-            validateDeleteRequest(crossConnectBl, crossConnectGroupBl, virtualCircuitBl, t, crossConnectDo);
-
-            // Launch a workflow if CrossConnect is already provisioned as part of the CrossConnectGroup.
-            boolean launchWorkflow =
-                    (CrossConnectResource.isPartOfCrossConnectGroup(crossConnectDo) &&
-                            crossConnectDo.getState() != CrossConnectDo.State.PENDING_CUSTOMER);
-
-            DeviceDo deviceDo = deviceBl.getOrThrow(t, crossConnectDo.getDeviceId());
-            Boolean isFakeDevice = deviceDo.isFakeDevice();
-            Boolean isCustomer = limitsHelper.checkCustomerTenancyByCompartmentId(crossConnectDo.getCompartmentId());
-            perfMetric.setupScopeDimensions(scope, null, isFakeDevice, isCustomer);
-
-            String tenantName = identityHelper.getTenantName(crossConnectDo.getCompartmentId());
-            String tenantId = identityHelper.getTenantId(crossConnectDo.getCompartmentId());
-
-            CrossConnectResource.processDeleteCrossConnectRequest(
-                    crossConnectBl,
-                    crossConnectGroupBl,
-                    propertiesBl,
-                    eventBl,
-                    workRequestBl,
-                    deviceBl,
-                    t,
-                    crossConnectDo,
-                    launchWorkflow,
-                    vpnMetering,
-                    limitsHelper,
-                    isFakeDevice,
-                    isCustomer,
-                    tenantId,
-                    tenancyMetadataBl);
-
-            loaBl.safeLoaDelete(t, crossConnectDo, tenantId, tenantName);
-            if (!launchWorkflow) {
-                eventBl.tryBatchDeleteEventsForReferenceId(crossConnectDo.getId());
-            }
-            t.commit();
-            scope.emit(MetricConstants.SUCCESS, 1);
+        virtualCircuitDo = associationHelper.clearAssociations(t, virtualCircuitDo);
+        if (virtualCircuitDo.isPublic()) {
+            virtualCircuitDo = releaseBgpPeerIps(t, virtualCircuitDo);
         }
-
-        return Response.accepted().build();
+        rqsHelper.delete(VirtualCircuitRqsModel.TYPE, virtualCircuitDo.getCompartmentId(), virtualCircuitDo.getId(), t);
+        return super.delete(t, virtualCircuitDo);
     }
 
-    @PUT
-    @Path("/{crossConnectId}")
-    @Timed(name = "update-crossConnect")
-    @VpnSkipAuthorization
-    public Response updateCrossConnects(
-            @PathParam("crossConnectId") String id,
-            @Valid @NonNull UpdateCrossConnectInternalDetails request,
-            @HeaderParam("interfaceDescription") String interfaceDescription,
-            @QueryParam("forceUpdate") Boolean forceUpdate) throws Exception {
+    public VirtualCircuitDo makeAssociationsCurrent(Transaction t, VirtualCircuitDo virtualCircuitDo)
+            throws ValidationException {
+         return associationHelper.makeAssociationCurrent(t, virtualCircuitDo);
 
-        TagUtils.validateTags(request.getFreeformTags(), request.getDefinedTags());
-
-        try (MetricsScope scope = MetricsScope.parent(MetricConstants.CrossConnect.API_UPDATE_CROSSCONNECT, true, false);
-             Transaction t = crossConnectBl.beginTransaction("update-CrossConnect")) {
-
-            CrossConnectDo crossConnectDo = crossConnectBl.getOrThrowForAuth(t, id);
-            if(interfaceDescription != null) {
-                PublicValidation.validateNonAsciiChar(interfaceDescription, "Interface description");
-            }
-            boolean isActivatingCrossConnect = isActivatingCrossConnect(request, crossConnectDo);
-
-            boolean shouldlaunchWorkflow = false;
-
-            MacsecProperties macsecProperties = request.getMacsecProperties();
-            MacsecPropertiesInternal macsecPropertiesInternal = null;
-
-            if(macsecProperties != null && macsecProperties.getState().equals(MacsecProperties.State.Enabled)){
-
-                if(crossConnectDo.getCrossConnectGroupId() != null) {
-                    PublicValidation.failInvalidCrossConnectUpdateRequest();
-                }
-
-                if(macsecProperties.getEncryptionCipher() == null) {
-                    PublicValidation.failNullEncryptionCipher();
-                }
-                if(crossConnectDo.getMacsecKey() != null && crossConnectDo.getMacsecKey().getServiceSecretOcid() != null){
-                    shouldlaunchWorkflow = true;
-                }
-                macsecPropertiesInternal = MacsecPropertiesInternal.builder()
-                        .bypassLldp(macsecProperties.getBypassLldp() != null? macsecProperties.getBypassLldp() : false)
-                        .mkaServerPriority(macsecProperties.getMkaServerPriority() != null? macsecProperties.getMkaServerPriority() : 0)
-                        .replayProtectionWindow(macsecProperties.getReplayProtectionWindow() != null ? macsecProperties.getReplayProtectionWindow() : 0L)
-                        .rekeyPeriod(macsecProperties.getRekeyPeriod() != null ? macsecProperties.getRekeyPeriod() : 3600)
-                        .allowUnprotectedTraffic(Optional.ofNullable(macsecProperties).map(MacsecProperties::getAllowUnprotectedTraffic).orElse(false))
-                        .build();
-            }
-
-            // TOOD verify description is in key value pair form.
-            if (crossConnectDo.getState().equals(CrossConnectDo.State.PROVISIONED)) {
-                shouldlaunchWorkflow |= ((interfaceDescription != null) && (!StringUtils.equals(interfaceDescription, crossConnectDo.getInterfaceDescr())));
-                shouldlaunchWorkflow |= ((request.getInterfaceDescr() != null) && (!StringUtils.equals(request.getInterfaceDescr(), crossConnectDo.getInterfaceDescr())) && (interfaceDescription == null));
-            }
-
-            String finalInterfaceDescription = Optional.ofNullable(interfaceDescription)
-                    .orElse(request.getInterfaceDescr());
-
-            crossConnectDo = crossConnectDo.toBuilder()
-                    .displayName(Optional.ofNullable(request.getDisplayName())
-                            .orElseGet(crossConnectDo::getDisplayName))
-                    .customerReferenceId(Optional.ofNullable(request.getCustomerReferenceName())
-                            .orElseGet(crossConnectDo::getCustomerReferenceId))
-                    .tags(TagUtils.encodeUpdatedTags(
-                            request.getFreeformTags(),
-                            request.getDefinedTags(),
-                            crossConnectDo.getTags()))
-                    .interfaceDescr(Optional.ofNullable(finalInterfaceDescription)
-                            .orElseGet(crossConnectDo::getInterfaceDescr))
-                    .macsecPropertiesInternal(macsecPropertiesInternal)
-                    .build();
-
-            DeviceDo deviceDo = deviceBl.getOrThrow(t, crossConnectDo.getDeviceId());
-            Boolean isFakeDevice = deviceDo.isFakeDevice();
-            Boolean isCustomer = limitsHelper.checkCustomerTenancyByCompartmentId(crossConnectDo.getCompartmentId());
-            perfMetric.setupScopeDimensions(scope, null, isFakeDevice, isCustomer);
-
-            Boolean newEnableHoldTimer = request.getEnableInterfaceHoldTimer();
-            Boolean currentEnableHoldTimer = crossConnectDo.getEnableInterfaceHoldTimer();
-            Integer newTimerValue = request.getInterfaceDownTimerValue();
-            Integer currentTimerValue = crossConnectDo.getInterfaceDownTimeValue();
-
-            validateInterfaceHoldTimerRequest(newEnableHoldTimer, newTimerValue);
-            if (newEnableHoldTimer != null && currentEnableHoldTimer != null) {
-                if (newEnableHoldTimer && currentEnableHoldTimer && !newTimerValue.equals(currentTimerValue)){
-
-                    log.info("Re-configuring the interface hold timer while updating the crossconnect {}.", crossConnectDo.getId());
-                    shouldlaunchWorkflow = true;
-                    crossConnectDo = crossConnectDo.toBuilder()
-                            .enableInterfaceHoldTimer(newEnableHoldTimer)
-                            .interfaceDownTimeValue(newTimerValue)
-                            .build();
-
-                } else if (newEnableHoldTimer && !currentEnableHoldTimer) {
-
-                    log.info("Activating the interface hold timer while updating the crossconnect {}.", crossConnectDo.getId());
-                    shouldlaunchWorkflow = true;
-                    crossConnectDo = crossConnectDo.toBuilder()
-                            .enableInterfaceHoldTimer(newEnableHoldTimer)
-                            .interfaceDownTimeValue(newTimerValue)
-                            .build();
-                } else if (!newEnableHoldTimer && currentEnableHoldTimer) {
-                    log.info("De-activating the interface hold timer while updating the crossconnect {}.", crossConnectDo.getId());
-                    shouldlaunchWorkflow = true;
-                    crossConnectDo = crossConnectDo.toBuilder()
-                            .enableInterfaceHoldTimer(newEnableHoldTimer)
-                            .interfaceDownTimeValue(null)
-                            .build();
-                }
-            } else if (newEnableHoldTimer != null && newEnableHoldTimer){
-                log.info("Activating the interface hold timer while updating the crossconnect {}.", crossConnectDo.getId());
-                shouldlaunchWorkflow = true;
-                crossConnectDo = crossConnectDo.toBuilder()
-                        .enableInterfaceHoldTimer(newEnableHoldTimer)
-                        .interfaceDownTimeValue(newTimerValue)
-                        .build();
-            }
-
-            if (Boolean.TRUE.equals(forceUpdate) || isActivatingCrossConnect || shouldlaunchWorkflow) {
-
-                crossConnectDo = CrossConnectResource.processUpdateCrossConnectRequest(
-                        crossConnectBl,
-                        crossConnectGroupBl,
-                        eventBl,
-                        workRequestBl,
-                        deviceBl,
-                        t,
-                        crossConnectDo,
-                        vpnMetering,
-                        false,
-                        isFakeDevice,
-                        isCustomer);
-            }
-
-            crossConnectDo = crossConnectBl.update(t, crossConnectDo);
-
-            t.commit();
-            scope.emit(MetricConstants.SUCCESS, 1);
-
-            return Response.ok(toModel(patchPanelPortPairBl, locationBl, crossConnectDo, encryptionManager, crossConnectGroupBl, deviceBl)).build();
-        }
     }
 
-    @PUT
-    @Path("/{crossConnectId}/migratePorts")
-    @Timed(name = "migratePortsForCrossConnect")
-    @VpnSkipAuthorization
-    public Response migratePortsForCrossConnect(
-            @NonNull @PathParam("crossConnectId") String crossConnectId,
-            @Valid @NonNull MigratePortsForCrossConnectRequest migratePortsForCrossConnectRequest)
-            throws ValidationException, CommitConflictException, AuthServerUnavailableException {
+    public VirtualCircuitDo clearDrgAssociation(Transaction t, VirtualCircuitDo virtualCircuitDo)
+            throws ValidationException {
+        return associationHelper.clearDrgAssociation(t, virtualCircuitDo);
+    }
 
-        if (migratePortsForCrossConnectRequest.getRequestType().equals(MigratePortsForCrossConnectRequest.RequestType.Reprovisioning)) {
+    public VirtualCircuitDo clearCcAndCcgAssociation(Transaction t, VirtualCircuitDo virtualCircuitDo)
+            throws ValidationException {
+        return associationHelper.clearCcAndCcgAssociation(t, virtualCircuitDo);
+    }
 
-            log.info("Starting to Migrate Ports Reprovisioning for CC {}", crossConnectId);
-            try (MetricsScope scope = MetricsScope.parent(MetricConstants.CrossConnect.API_MIGRATEPORTS_REPROVISIONING, true, false);
-                 Transaction t = crossConnectBl.beginTransaction("migratePortsForCrossConnectReprovisioning")) {
-                CrossConnectDo crossConnectDo = crossConnectBl.getOrThrow(t, crossConnectId);
+    @VisibleForTesting
+    void baseValidate(Transaction t, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
 
-                DeviceDo deviceDo = deviceBl.getOrThrow(t, crossConnectDo.getDeviceId());
-                Boolean isFakeDevice = deviceDo.isFakeDevice();
-                perfMetric.setupScopeDimensions(scope, null, isFakeDevice, null);
+        // Drg will be associated with only a private virtual circuit.
+        if (virtualCircuitDo.isDrg()) {
 
-
-                if (!crossConnectDo.getState().equals(CrossConnectDo.State.MIGRATING)
-                        && !crossConnectDo.getState().equals(CrossConnectDo.State.PROVISIONING)) {
-                    throw new ValidationException(
-                            ErrorCode.IncorrectState,
-                            String.format("CrossConnectDo %s is not in Migrating or PROVISIONING state and cannot launch Port migration.",
-                                    crossConnectDo));
-                }
-
-                log.info("Launching workflow to Migrate Ports for {}", crossConnectId);
-                WorkRequestDo workRequestDo = PortMigrationUtils.buildMigratePortsReprovisioningWorkRequest(crossConnectDo, isFakeDevice,
-                        limitsHelper.checkCustomerTenancyByCompartmentId(crossConnectDo.getCompartmentId()));
-                workRequestDo = workRequestBl.create(t, workRequestDo);
-
-                // Update KievTxTimestamp() to prevent Workflow step in-tempered exception
-                PortMigrationBackupDo portMigrationBackupDo = portMigrationBackupBl.getOrThrow(crossConnectId);
-                portMigrationBackupBl.update(t, portMigrationBackupDo.toBuilder().lastKievTxTimestamp(workRequestDo.getKievTxTimestamp()).build());
-
-                String message = String.format("Created WorkRequestDo for workflow to provision the connection. (workRequestDo=%s)", workRequestDo);
-                log.info(message);
-                eventBl.create(t, crossConnectId, Component.API, message);
-
-                t.commit();
-                scope.emit(MetricConstants.SUCCESS, 1);
+            if (StringUtils.isBlank(virtualCircuitDo.getGatewayId())) {
+                PublicValidation.failEmptyDrgId();
             }
-        } else {
 
-            log.info("Starting to Migrate Ports Deprovisioning for CC {}", crossConnectId);
-            CrossConnectDo crossConnectDo;
-            InterfaceDo interfaceDo = null;
-            Set<String> virtualCircuitIds = Collections.emptySet();
-            try (MetricsScope scope = MetricsScope.parent(MetricConstants.CrossConnect.API_MIGRATEPORTS_DEPROVISIONING, true, false);
-                 Transaction t = crossConnectBl.beginTransaction("migratePortsForCrossConnectDeprovisioning")) {
+            DrgDo drgDo = drgBl.getOrThrow(t, virtualCircuitDo.getGatewayId());
+            if (drgDo.getState() != DrgDo.State.Provisioned
+                    && !drgDo.isUnpromoting()) {
+                PublicValidation.failDrgState(drgDo.getId());
+            }
 
-                log.info("Validating MigratePortsForCrossConnect Request {} for CrossConnect {}",
-                        migratePortsForCrossConnectRequest, crossConnectId);
-
-                crossConnectDo = crossConnectBl.getOrThrow(t, crossConnectId);
-                PortMigrationUtils.validateCrossConnectState(crossConnectDo);
-                PortMigrationUtils.validateCrossConnectNotInGroup(crossConnectDo);
-
-                if (crossConnectDo.getVcsToVlans() != null && crossConnectDo.getVcsToVlans().size() > 0) {
-                    virtualCircuitIds = crossConnectDo.getVcsToVlans().keySet();
-                    for (String virtualCircuitId : virtualCircuitIds) {
-                        VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrow(virtualCircuitId);
-                        PortMigrationUtils.validateVirtualCircuitState(virtualCircuitDo);
+            Set<String> bgpIpNetworksOnVc = virtualCircuitDo.getOracleBgpIpNetworks();
+            for (String bgpIpNetworkOnVc : bgpIpNetworksOnVc) {
+                for (Entry<String, Set<String>> entry : drgDo.getVcToIpHelper().getIdsToReservations().entrySet()) {
+                    Set<String> ipNetworksOnDrg = entry.getValue().stream()
+                            .filter(Objects::nonNull)
+                            .map(IpUtils::getNetworkAddress)
+                            .collect(Collectors.toSet());
+                    for (String ipNetworkOnDrg : ipNetworksOnDrg) {
+                        if (IpUtils.isOverlap(bgpIpNetworkOnVc, ipNetworkOnDrg)) {
+                            // Don't fail if the network belongs to the same virtual circuit.
+                            if (!entry.getKey().equals(virtualCircuitDo.getId())) {
+                                PublicValidation.failIpNetworkAlreadyInUseOnDrg(bgpIpNetworkOnVc);
+                            }
+                        }
                     }
                 }
+            }
+        }
 
-                Optional<InterfaceDo> interfaceDoOpt = interfaceBl.getInterfaceByName(
-                        t, migratePortsForCrossConnectRequest.getInterfaceName(), migratePortsForCrossConnectRequest.getDeviceId());
-                PortMigrationUtils.isInterfacePresent(interfaceDoOpt);
+        // Private IPSecGateway will be associated with only a private IPSec Gateway virtual circuit.
+        if (virtualCircuitDo.isPrivateIpsecGateway()) {
 
-                interfaceDo = interfaceDoOpt.get();
-                PortMigrationUtils.validateInterfaceState(interfaceDo);
+            if (StringUtils.isBlank(virtualCircuitDo.getGatewayId())) {
+                PublicValidation.failEmptyPrivateIPSecGatewayId();
+            }
 
-                String oldDeviceId = crossConnectDo.getDeviceId();
-                DeviceDo oldDeviceDo = deviceBl.getOrThrow(t, oldDeviceId);
-                DeviceDo newDeviceDo = deviceBl.getOrThrow(t, migratePortsForCrossConnectRequest.getDeviceId());
-                PortMigrationUtils.validateDevicesState(oldDeviceDo, newDeviceDo);
-                Boolean isFakeDevice = newDeviceDo.isFakeDevice();
-                perfMetric.setupScopeDimensions(scope, null, isFakeDevice, null);
+            PrivateIPSecGatewayDo privateIPSecGatewayDo = privateIPSecGatewayBl.getOrThrow(t, virtualCircuitDo.getGatewayId());
+            if (privateIPSecGatewayDo.getState() != PrivateIPSecGatewayDo.State.Provisioned) {
+                PublicValidation.failPrivateIPSecGatewayState(privateIPSecGatewayDo.getId());
+            }
 
+            Set<String> bgpIpNetworksOnVc = virtualCircuitDo.getOracleBgpIpNetworks();
+            for (String bgpIpNetworkOnVc : bgpIpNetworksOnVc) {
+                for (Entry<String, Set<String>> entry : privateIPSecGatewayDo.getVcToIpHelper().getIdsToReservations().entrySet()) {
+                    Set<String> ipNetworksOnDrg = entry.getValue().stream()
+                            .filter(Objects::nonNull)
+                            .map(IpUtils::getNetworkAddress)
+                            .collect(Collectors.toSet());
+                    for (String ipNetworkOnDrg : ipNetworksOnDrg) {
+                        if (IpUtils.isOverlap(bgpIpNetworkOnVc, ipNetworkOnDrg)) {
+                            // Don't fail if the network belongs to the same virtual circuit.
+                            if (!entry.getKey().equals(virtualCircuitDo.getId())) {
+                                PublicValidation.failIpNetworkAlreadyInUseOnDrg(bgpIpNetworkOnVc);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-                log.info("Completed validating resource states and begin to migrate ports for {}", crossConnectId);
+        validateRoutingPolicy(virtualCircuitDo);
 
-                log.info("Updating PPPP, LOA and interface state for CrossConnect {}", crossConnectId);
-                Optional<PatchPanelPortPairDo> oldPatchPanelPortPairDo = patchPanelPortPairBl.getPortPairByInterface(t, crossConnectDo.getInterfaceId());
-                patchPanelPortPairBl.update(t, oldPatchPanelPortPairDo.get().toBuilder().status(PatchPanelPortPairDo.PortStatus.Reserved).build());
-                InterfaceDo oldInterfaceDo = interfaceBl.getOrThrow(crossConnectDo.getInterfaceId());
-                interfaceBl.update(t, oldInterfaceDo.toBuilder().state(InterfaceDo.State.Reserved).build());
+        // Don't do any cross-connect related validation for oci-classic integration virtual circuit
+        // since the cross-connect ids will not be valid.
+        if (virtualCircuitDo.isOciClassicProviderVirtualCircuit()) {
+            return;
+        }
 
-                Optional<PatchPanelPortPairDo> newPatchPanelPortPairDo = patchPanelPortPairBl.getPortPairByInterface(t, interfaceDo.getId());
-                patchPanelPortPairBl.update(t, newPatchPanelPortPairDo.get().toBuilder().status(PatchPanelPortPairDo.PortStatus.Assigned).build());
-                interfaceBl.update(t, interfaceDo.toBuilder().state(InterfaceDo.State.Assigned).build());
+        Map<String, Set<Integer>> crossConnectGroups = virtualCircuitDo.getDesiredCcgToVlanMappings();
+        for (Entry<String, Set<Integer>> entry : crossConnectGroups.entrySet()) {
+            CrossConnectGroupDo crossConnectGroupDo = crossConnectGroupBl.getOrThrow(t, entry.getKey());
+            // If we have a cc we will have 1 vlan
+            Integer vlan = entry.getValue().iterator().next();
+            Optional<String> vcForVlan = crossConnectGroupDo.getVcToVlanHelper().getTargetFromReservation(vlan);
+            if (vcForVlan.isPresent() && !vcForVlan.get().equals(virtualCircuitDo.getId())) {
+                PublicValidation.failVlanAlreadyInUseOnCcg(vlan);
+            }
 
-                Optional<LoaDo> loaDoOptional = loaBl.getLoa(crossConnectDo);
-                if (loaDoOptional.isPresent()) {
-                    loaBl.update(t, loaDoOptional.get().toBuilder().patchPanelPortPairId(newPatchPanelPortPairDo.get().getId()).build());
+            //to check in new mapping bucket
+            Optional<VcToVlanMappingDo> mapping = vcToVlanMappingBl.getMappingByCcOrCcgPlusVlan(t, crossConnectGroupDo.getId(), vlan);
+            if (mapping.isPresent() && !mapping.get().getVirtualCircuitId().equals(virtualCircuitDo.getId())) {
+                PublicValidation.failVlanAlreadyInUseOnCcg(vlan);
+            }
+        }
+
+        Map<String, Set<Integer>> crossConnects = virtualCircuitDo.getDesiredCcToVlanMappings();
+        for (Entry<String, Set<Integer>> entry : crossConnects.entrySet()) {
+            CrossConnectDo crossConnectDo = crossConnectBl.getOrThrow(t, entry.getKey());
+            // If we have a cc we will have 1 vlan
+            Integer vlan = entry.getValue().iterator().next();
+            Optional<String> vcForVlan = crossConnectDo.getVcToVlanHelper().getTargetFromReservation(vlan);
+            if (vcForVlan.isPresent() && !vcForVlan.get().equals(virtualCircuitDo.getId())) {
+                PublicValidation.failVlanAlreadyInUseOnCc(vlan);
+            }
+
+            //to check in new mapping bucket
+            Optional<VcToVlanMappingDo> mapping = vcToVlanMappingBl.getMappingByCcOrCcgPlusVlan(t, crossConnectDo.getId(), vlan);
+            if (mapping.isPresent() && !mapping.get().getVirtualCircuitId().equals(virtualCircuitDo.getId())) {
+                PublicValidation.failVlanAlreadyInUseOnCc(vlan);
+            }
+        }
+    }
+
+    private void validateRoutingPolicy(VirtualCircuitDo virtualCircuitDo) throws ValidationException{
+        // Only one routing policy per virtual circuit is supported for now.
+        Set<RoutingPolicy> policies = virtualCircuitDo.getRoutingPolicies();
+        if(policies.size() > 1) {
+
+            PublicValidation.failMultipleRoutingPolicyPerConnection();
+        } else if(policies.size() == 1) {
+            RoutingPolicy policy = (RoutingPolicy) policies.toArray()[0];
+
+            if(virtualCircuitDo.isPublic()
+                    && !ALLOWED_ROUTING_POLICY_FOR_PUBLIC_VC.contains(policy)) {
+
+                PublicValidation.failWrongRoutingPolicyForVirtualCircuit(policy, virtualCircuitDo.getIpAddressType());
+            }
+        }
+    }
+
+    public void validateCreateForCustomer(VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        // Only semantic validation. Authorization should be done in VirtualCircuitResourceHelper
+        Preconditions.checkState(virtualCircuitDo.getProviderCompartmentId() == null);
+    }
+
+    public void validatePreActiveNetworkSettingsForL2(VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        Preconditions.checkState(virtualCircuitDo.getProviderCompartmentId() != null);
+
+        if (virtualCircuitDo.isPrivate()) {
+            if (virtualCircuitDo.getCrossConnectMapping().getMappings().length != 1) {
+                PublicValidation.failL2ProviderRequiresOneCrossConnect();
+            } else {
+                validateCrossConnectMappingForL2(virtualCircuitDo);
+            }
+        }
+
+        if (virtualCircuitDo.getBandwidthInMbps() == null) {
+            PublicValidation.fieldRequired("bandwidthShapeName");
+        }
+    }
+
+    public static void validateCrossConnectMappingForL2(VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+
+        Mapping mapping = virtualCircuitDo.getCrossConnectMapping().getMappings()[0];
+
+        if (virtualCircuitDo.isPrivate()) {
+            PublicValidation.validateBgpPeeringAddress(mapping.getOracleBgpPeeringIp());
+            PublicValidation.validateBgpPeeringAddress(mapping.getRemoteBgpPeeringIp());
+            PublicValidation.validateSameSubnet(mapping.getOracleBgpPeeringIp(), mapping.getRemoteBgpPeeringIp());
+            PublicValidation.validateNotSameHost(mapping.getOracleBgpPeeringIp(), mapping.getRemoteBgpPeeringIp());
+
+            // Validating IPv6 addresses. Since IPv6 addresses are optional either both addresses are null or both are valid.
+            if ((mapping.getRemoteBgpPeeringIpv6() != null) && (mapping.getOracleBgpPeeringIpv6() != null)) {
+                PublicValidation.validateBgpPeeringIPv6Network(mapping.getRemoteBgpPeeringIpv6());
+                PublicValidation.validateBgpPeeringIPv6Network(mapping.getOracleBgpPeeringIpv6());
+                PublicValidation.validateSameSubnet(mapping.getOracleBgpPeeringIpv6(), mapping.getRemoteBgpPeeringIpv6());
+                PublicValidation.validateNotSameHost(mapping.getOracleBgpPeeringIpv6(), mapping.getRemoteBgpPeeringIpv6());
+            } else {
+                if (mapping.getOracleBgpPeeringIpv6() != null) {
+                    PublicValidation.failFieldMustNotBeNull(VirtualCircuitValidationHelper.CUSTOMER_BGP_PEERING_IPV6_FIELD);
+                }
+                if (mapping.getRemoteBgpPeeringIpv6() != null) {
+                    PublicValidation.failFieldMustNotBeNull(VirtualCircuitValidationHelper.ORACLE_BGP_PEERING_IPV6_FIELD);
+                }
+            }
+
+        }
+
+        validateBgpMd5AuthKey(mapping.getBgpMd5Authkey());
+    }
+
+    public void validatePreActiveNetworkSettingsForL3(VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        // Only semantic validation. Authorization should be done in VirtualCircuitResourceHelper
+        Preconditions.checkState(virtualCircuitDo.getProviderCompartmentId() != null);
+
+        if (virtualCircuitDo.getBandwidthInMbps() == null) {
+            PublicValidation.fieldRequired("bandwidthShapeName");
+        }
+    }
+
+    @VisibleForTesting
+    private void validateNetworkingForAPIOrWorkflow(VirtualCircuitDo virtualCircuitDo, Transaction t, boolean validateForWorkflow) throws ValidationException {
+
+        // Code bug for these to be null at this point
+        Preconditions.checkNotNull(virtualCircuitDo.getCrossConnectMapping(),
+                "CrossConnectMappings should not be null");
+        Preconditions.checkNotNull(virtualCircuitDo.getCrossConnectMapping().getMappings(),
+                "CrossConnectMappings.mappings should not be null");
+        Preconditions.checkNotNull(virtualCircuitDo.getIpAddressType(),
+                "IPAddress type should not be null");
+
+        // Don't validate cross-connect mappings or BGP ASNs for oci-classic integration virtual circuits.
+        if (virtualCircuitDo.isOciClassicProviderVirtualCircuit()) {
+            return;
+        }
+
+        if(virtualCircuitDo.getRemoteAsn() == null && virtualCircuitDo.getRemoteBgpAsn() == null) {
+            PublicValidation.failAsnValueNotProvided();
+        }
+
+        if (virtualCircuitDo.getCrossConnectMapping()
+                .getMappings().length < MIN_CROSS_CONNECTS) {
+            PublicValidation.failMinCrossConnects(virtualCircuitDo.getId(),
+                    virtualCircuitDo.getCrossConnectMapping().getMappings().length,
+                    MIN_CROSS_CONNECTS);
+        }
+        if (virtualCircuitDo.getCrossConnectMapping()
+                .getMappings().length > MAX_CROSS_CONNECTS) {
+            PublicValidation.failMaxCrossConnects(virtualCircuitDo.getId(),
+                    virtualCircuitDo.getCrossConnectMapping().getMappings().length,
+                    MAX_CROSS_CONNECTS);
+        }
+
+        boolean microsoftPeered = false;
+        if (StringUtils.isNotBlank(virtualCircuitDo.getProviderServiceId())) {
+            microsoftPeered = providerServiceBl.isMicrosoftPeered(virtualCircuitDo.getProviderServiceId());
+        }
+
+        Set<DeviceDo> devices = new HashSet<>();
+        for (Mapping mapping : virtualCircuitDo.getCrossConnectMapping().getMappings()) {
+            // For virtual circuits peered with Microsoft, we accept vlans starting from 1.
+            // For non-microsoft peered virtual circuits, the vlans should be between 100 & 4094.
+            if (mapping.getVlan() == null) {
+                PublicValidation.failEmptyVlanNumber();
+            } else {
+                PublicValidation.validateVlanRange(mapping.getVlan(), microsoftPeered);
+            }
+
+            boolean gcpPeered = false;
+            if (StringUtils.isNotBlank(virtualCircuitDo.getProviderServiceId())) {
+                gcpPeered = providerServiceBl.isGCPPeered(virtualCircuitDo.getProviderServiceId());
+            }
+
+            if (gcpPeered) {
+                if (!virtualCircuitDo.isDrgV2()) {
+                    PublicValidation.failGcpForDRGGv1(virtualCircuitDo.getGatewayId());
                 }
 
-                if (crossConnectDo.getState().equals(CrossConnectDo.State.PENDING_CUSTOMER)) {
-                    log.info("CrossConnect {} is in Pending_Customer state, hence updating interface name and device id without launching workflow", crossConnectId);
-                    crossConnectDo = crossConnectDo.toBuilder()
-                            .deviceId(migratePortsForCrossConnectRequest.getDeviceId())
-                            .interfaceId(interfaceDo.getId()).build();
-                    crossConnectBl.update(t, crossConnectDo);
+                if (virtualCircuitDo.getCrossConnectMapping().getMappings().length != 1) {
+                    PublicValidation.failGcpForWrongMappings(virtualCircuitDo.getId());
+                }
+            }
 
+            if (virtualCircuitDo.isPrivate()) {
+
+                // Validating IPv4 addresses.
+                if (mapping.getRemoteBgpPeeringIp() != null) {
+                    PublicValidation.validateBgpPeeringAddress(mapping.getRemoteBgpPeeringIp());
                 } else {
-                    log.info("Updating resource state to Migrating for {}", crossConnectId);
-                    crossConnectDo = crossConnectDo.toBuilder().state(CrossConnectDo.State.MIGRATING).build();
-                    crossConnectDo = crossConnectBl.update(t, crossConnectDo);
-
-                    for (String virtualCircuitId : virtualCircuitIds) {
-                        VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrow(virtualCircuitId);
-                        virtualCircuitBl.update(t, virtualCircuitDo.toBuilder().state(VirtualCircuitDo.State.MIGRATING).build());
-                    }
-
-                    log.info("Cleaning up previous Backup for {} if any", crossConnectId);
-                    PortMigrationUtils.cleanupPortMigrationBackup(portMigrationBackupBl, crossConnectId, t);
-
-                    log.info("Creating Migration Backup for {}", crossConnectId);
-                    PortMigrationUtils.createMigrationBackup(crossConnectDo,
-                            portMigrationBackupBl, configSnippetBl, virtualCircuitBl, bgpBl, virtualCircuitIds, t);
-
-                    log.info("Updating CrossConnect {} with new device and interface", crossConnectId);
-                    crossConnectDo = crossConnectBl.update(t, crossConnectDo.toBuilder()
-                            .deviceId(migratePortsForCrossConnectRequest.getDeviceId())
-                            .interfaceId(interfaceDo.getId())
-                            .build());
-
-                    log.info("Launching workflow to Migrate Ports for {}", crossConnectId);
-                    WorkRequestDo workRequestDo = PortMigrationUtils.buildMigratePortsDeprovisioningWorkRequest(crossConnectDo, oldDeviceId, isFakeDevice,
-                            limitsHelper.checkCustomerTenancyByCompartmentId(crossConnectDo.getCompartmentId()));
-                    workRequestDo = workRequestBl.create(t, workRequestDo);
-
-                    String message = String.format("Created WorkRequestDo for workflow to provision the connection. (workRequestDo=%s)", workRequestDo);
-                    log.info(message);
-                    eventBl.create(t, crossConnectId, Component.API, message);
+                    PublicValidation.failFieldMustNotBeNull(VirtualCircuitValidationHelper.CUSTOMER_BGP_PEERING_IP_FIELD);
                 }
 
-                t.commit();
-                scope.emit(MetricConstants.SUCCESS, 1);
+                if (mapping.getOracleBgpPeeringIp() != null) {
+                    PublicValidation.validateBgpPeeringAddress(mapping.getOracleBgpPeeringIp());
+                } else {
+                    PublicValidation.failFieldMustNotBeNull(VirtualCircuitValidationHelper.ORACLE_BGP_PEERING_IP_FIELD);
+                }
+
+                PublicValidation.validateSameSubnet(mapping.getOracleBgpPeeringIp(), mapping.getRemoteBgpPeeringIp());
+                PublicValidation.validateNotSameHost(mapping.getOracleBgpPeeringIp(), mapping.getRemoteBgpPeeringIp());
+
+                // Validating IPv6 addresses. Since IPv6 addresses are optional either both addresses are null or both are valid.
+                if ((mapping.getRemoteBgpPeeringIpv6() != null) && (mapping.getOracleBgpPeeringIpv6() != null)) {
+                    PublicValidation.validateBgpPeeringIPv6Network(mapping.getRemoteBgpPeeringIpv6());
+                    PublicValidation.validateBgpPeeringIPv6Network(mapping.getOracleBgpPeeringIpv6());
+                    PublicValidation.validateSameSubnet(mapping.getOracleBgpPeeringIpv6(), mapping.getRemoteBgpPeeringIpv6());
+                    PublicValidation.validateNotSameHost(mapping.getOracleBgpPeeringIpv6(), mapping.getRemoteBgpPeeringIpv6());
+                } else {
+                    if (mapping.getOracleBgpPeeringIpv6() != null) {
+                        PublicValidation.failFieldMustNotBeNull(VirtualCircuitValidationHelper.CUSTOMER_BGP_PEERING_IPV6_FIELD);
+                    }
+                    if (mapping.getRemoteBgpPeeringIpv6() != null) {
+                        PublicValidation.failFieldMustNotBeNull(VirtualCircuitValidationHelper.ORACLE_BGP_PEERING_IPV6_FIELD);
+                    }
+                }
             }
-        }
 
-        return Response.ok(toModel(patchPanelPortPairBl, locationBl, crossConnectBl.getOrThrowForAuth(crossConnectId), encryptionManager, crossConnectGroupBl, deviceBl)).build();
-    }
+            validateBgpMd5AuthKey(mapping.getBgpMd5Authkey());
 
-    @PUT
-    @Timed(name = "convert-crossConnect")
-    @Path("/{crossConnectId}/actions/convert")
-    @Produces({"application/json", "application/x-json-stream"})
-    @VpnSkipAuthorization
-    public Response ccConvert(
-            @PathParam("crossConnectId") String ccId,
-            @Valid @NonNull ConvertCrossConnectDetails request
-    ) throws ValidationException, CommitConflictException, IllegalArgumentException {
+            // CrossConnect
+            // TODO: Validate that cross connect mapping IDs are present.
+            // TODO: Validate the number of cross connects per provider type.
+            // Validate number of crossConnects
+            // TODO: We could do smart validation for a given provider service,
+            // i.e. layer two must have exactly 1 CC.
 
-        // Check if OCIDs provided are valid
-        if (!ResourceUtils.isCrossConnect(ccId)) {
-            String err = "CC-OCID provided is not a valid CrossConnect OCID";
-            log.error("{} CC-OCID: {}", err, ccId);
-            throw new ValidationException(ErrorCode.InvalidParameter, err, ccId);
-        }
-        if (request.getCcgId() != null && !ResourceUtils.isCrossConnectGroup(request.getCcgId())) {
-            String err = "CCG-OCID provided is not a valid CrossConnectGroup OCID";
-            log.error("{} CCG-OCID: {}", err, request.getCcgId());
-            throw new ValidationException(ErrorCode.InvalidParameter, err, request.getCcgId());
-        }
+            // The cross connect validation below are not done transactionally. This is OK since all these
+            // validations are best effort only.
+            if (isCrossConnect(mapping.getCrossConnectId())) {
+                CrossConnectDo crossConnectDo = crossConnectBl.getOrThrow(mapping.getCrossConnectId());
+                if (crossConnectDo.getState() != CrossConnectDo.State.PROVISIONED) {
+                    PublicValidation.failCrossConnectNotInCorrectState(
+                            crossConnectDo.getId(), crossConnectDo.getState().name());
+                }
 
-        CrossConnectDo crossConnectDo = crossConnectBl.getOrThrowForAuth(ccId);
-        CrossConnectGroupDo crossConnectGroupDo;
-
-        switch (request.getType()) {
-            case ConvertToCcGroup:
-                // Check that CC is already a part of a CCG
                 if (crossConnectDo.getCrossConnectGroupId() != null) {
-                    String err = "CCtoCCG: CC provided is already part of a CCG";
-                    log.error("{} CC-OCID: {} Part of CCG: {}", err, ccId, crossConnectDo.getCrossConnectGroupId());
-                    throw new ValidationException(ErrorCode.InvalidParameter, err, ccId);
+                    PublicValidation.failMustUseCrossConnectGroupWhenCrossConnectInGroup(crossConnectDo.getId());
                 }
-                // Ensure ccgId is provided in request
-                if (request.getCcgId() == null) {
-                    String err = "CCG-OCID not provided while trying to convert to CCG";
-                    log.error(err);
-                    throw new ValidationException(ErrorCode.InvalidParameter, err);
-                }
-                crossConnectGroupDo = crossConnectGroupBl.getOrThrowForAuth(request.getCcgId());
-                crossConnectDo = ccToCcg(crossConnectDo, crossConnectGroupDo);
-                break;
-            case ConvertToCcNoGroup:
-                // Check that CC is not a part of a CCG
-                if (crossConnectDo.getCrossConnectGroupId() == null) {
-                    String err = "CCGtoCC: CC provided is not a part of a CCG";
-                    log.error("{} CC-OCID: {}", err, ccId);
-                    throw new ValidationException(ErrorCode.InvalidParameter, err, ccId);
-                }
-                crossConnectGroupDo = crossConnectGroupBl.getOrThrowForAuth(crossConnectDo.getCrossConnectGroupId());
-                crossConnectDo = ccToNoCcg(crossConnectDo, crossConnectGroupDo);
-                break;
-            default:
-                throw new ValidationException(ErrorCode.InvalidParameter, "Unsupported conversion type:",
-                        request.getType().getValue());
-        }
-        return Response.ok(crossConnectDo.toModel(patchPanelPortPairBl, locationBl, encryptionManager, crossConnectGroupBl, deviceBl))
-                .header(Headers.ETAG, OptimisticConcurrencyUtils.getETag(crossConnectDo))
-                .build();
-    }
 
-    private CrossConnectDo ccToCcg(CrossConnectDo crossConnectDo, CrossConnectGroupDo crossConnectGroupDo)
-            throws ValidationException, CommitConflictException {
-        if (crossConnectDo.getState() == CrossConnectDo.State.PENDING_CUSTOMER) {
-            if (crossConnectGroupDo.getState() == CrossConnectGroupDo.State.INACTIVE
-                    || crossConnectGroupDo.getState() == CrossConnectGroupDo.State.PROVISIONED) {
-                // Check if CC and CCG have the same device ID
-                String ccgDeviceId = crossConnectBl.getDeviceId(crossConnectGroupDo);
-                if (Objects.equals(crossConnectDo.getDeviceId(), ccgDeviceId) || ccgDeviceId == null ) {
-                    // Update CC with CCG-ID
-                    try (Transaction t = crossConnectBl.beginTransaction("update-CrossConnect")) {
-                        crossConnectDo = crossConnectDo.toBuilder()
-                                .crossConnectGroupId(crossConnectGroupDo.getId())
-                                .build();
+                if (crossConnectDo.getDeviceId() != null) {
 
-                        crossConnectDo = crossConnectBl.update(t, crossConnectDo);
-
-                        eventBl.create(t, crossConnectDo.getId(), Component.API,
-                                "Updated CrossConnect %s ", crossConnectDo);
-                        log.info("Updated CrossConnect(do={})", crossConnectDo);
-                        t.commit();
+                    DeviceDo crossConnectDevice = deviceBl.getOrThrow(crossConnectDo.getDeviceId());
+                    if (crossConnectDevice.getState() != DeviceDo.State.ACTIVE) {
+                        try {
+                            PublicValidation.failCrossConnectDeviceIsNotActive(crossConnectDo.getId());
+                        } catch (ValidationException ex) {
+                            if (validateForWorkflow) {
+                                throw new RetryableException(String.format("CrossConnect %s device is not active, wait for %d seconds to retry", crossConnectDo.getId(), 15));
+                            } else {
+                                throw ex;
+                            }
+                        }
+                    }
+                    if (devices.contains(crossConnectDevice)) {
+                        PublicValidation.failCannotHaveMultipleCrossConnectsOnSameDeviceInVC();
+                    } else {
+                        devices.add(crossConnectDevice);
                     }
 
-                    // Update CCG with CC-ID
-                    String[] updatedCcIds = ArrayUtils.add(crossConnectGroupDo.getCrossConnectIds(), crossConnectDo.getId());
-                    try (Transaction t = crossConnectGroupBl.beginTransaction("update-CrossConnectGroup")) {
-                        crossConnectGroupDo = crossConnectGroupDo.toBuilder()
-                                .crossConnectIds(updatedCcIds)
-                                .build();
+                    if (deviceBl.isQfxSwitchRole(crossConnectDevice)) {
+                        // Get parent MX, currently code is only support single parent MX
+                        if (crossConnectDevice.getCcgsBetweenMxAndQfx().size() > 1) {
+                            PublicValidation.qfxDeviceConnectToMoreThanOneMx();
+                        }
+                        String mxDeviceId = crossConnectDevice.getCcgsBetweenMxAndQfx().get(0).getConnectToDeviceId();
+                        if (StringUtils.isBlank(mxDeviceId)) {
+                            PublicValidation.qfxDeviceHasNoConnectionToMx();
+                        }
 
-                        crossConnectGroupDo = crossConnectGroupBl.update(t, crossConnectGroupDo);
+                        DeviceDo parentMxDevice = deviceBl.getOrThrow(t, mxDeviceId);
+                        if (devices.contains(parentMxDevice)) {
+                            PublicValidation.failCannotHaveMultipleCrossConnectsOnSameDeviceInVC();
+                        } else {
+                            devices.add(parentMxDevice);
+                        }
+                    }
+                } else if (crossConnectDo.getGlobalPopCcMetadata() != null) {
+                    log.info("VirtualCircuitDo is on global pop cc, skip validating networking for device");
+                    // TODO: Ensure the crossConnectsMapping for CCs are on separate OC1 devices
+                    // TODO: Ensure the OC3 primary/secondary CCG MX devices are not in maintenance
+                    return;
+                } else {
+                    PublicValidation.failApiNotEnabled();
+                }
 
-                        eventBl.create(t, crossConnectGroupDo.getId(), Component.API,
-                                "Updated CrossConnectGroup %s ", crossConnectGroupDo);
-                        log.info("Updated crossConnectGroupDo(do={})", crossConnectGroupDo);
-                        t.commit();
+            } else if (isCrossConnectGroup(mapping.getCrossConnectId())) {
+                CrossConnectGroupDo crossConnectGroupDo =  crossConnectGroupBl.getOrThrow(mapping.getCrossConnectId());
+                if (crossConnectGroupDo.getState() != CrossConnectGroupDo.State.PROVISIONED) {
+                    PublicValidation.failCrossConnectGroupNotInCorrectState(
+                            crossConnectGroupDo.getId(), crossConnectGroupDo.getState().name());
+                }
+
+                if (crossConnectGroupDo.getCrossConnectIds().length == 0) {
+                    PublicValidation.failCrossConnectGroupCannotBeUsedWithoutCrossConnects();
+                }
+
+                if (crossConnectGroupDo.getGlobalPopCcgMetadata() == null) {
+
+                    // Since all the cross connects in a group belong to the same device, we get the device from
+                    // the first cross connect and check its state.
+                    String crossConnectId = crossConnectGroupDo.getCrossConnectIds()[0];
+                    DeviceDo crossConnectDevice = deviceBl
+                            .getOrThrow(crossConnectBl
+                                    .getOrThrow(crossConnectId)
+                                    .getDeviceId());
+                    if (crossConnectDevice.getState() != DeviceDo.State.ACTIVE) {
+                        try{
+                            PublicValidation.failCrossConnectDeviceIsNotActive(crossConnectGroupDo.getId());
+                        }catch (ValidationException ex) {
+                            if(validateForWorkflow) {
+                                throw new RetryableException(String.format("CrossConnectGroup %s device is not active, wait for %d seconds to retry", crossConnectGroupDo.getId(), 15));
+                            } else {
+                                throw ex;
+                            }
+
+                        }
+                    }
+                    if (devices.contains(crossConnectDevice)) {
+                        PublicValidation.failCannotHaveMultipleCrossConnectsOnSameDeviceInVC();
+                    } else {
+                        devices.add(crossConnectDevice);
+                    }
+
+                    if (deviceBl.isQfxSwitchRole(crossConnectDevice)) {
+                        // Get parent MX, currently code is only support single parent MX
+                        if (crossConnectDevice.getCcgsBetweenMxAndQfx().size() > 1) {
+                            PublicValidation.qfxDeviceConnectToMoreThanOneMx();
+                        }
+                        String mxDeviceId = crossConnectDevice.getCcgsBetweenMxAndQfx().get(0).getConnectToDeviceId();
+                        if (StringUtils.isBlank(mxDeviceId)) {
+                            PublicValidation.qfxDeviceHasNoConnectionToMx();
+                        }
+
+                        DeviceDo parentMxDevice = deviceBl.getOrThrow(t, mxDeviceId);
+                        if (devices.contains(parentMxDevice)) {
+                            PublicValidation.failCannotHaveMultipleCrossConnectsOnSameDeviceInVC();
+                        } else {
+                            devices.add(parentMxDevice);
+                        }
+                    } else if (crossConnectDevice.getRoles().contains(DeviceDo.Role.AristaSwitch)) {
+                        // Get parent MX, currently code is only support single parent MX
+                        if (crossConnectDevice.getDeviceConfig().getConnectionToMxList().size() > 1) {
+                            PublicValidation.aristaDeviceConnectToMoreThanOneMx();
+                        }
+                        String mxDeviceId = crossConnectDevice.getDeviceConfig().getConnectionToMxList().get(0).getConnectToDeviceId();
+                        if (StringUtils.isBlank(mxDeviceId)) {
+                            PublicValidation.aristaDeviceHasNoConnectionToMx();
+                        }
+
+                        DeviceDo parentMxDevice = deviceBl.getOrThrow(t, mxDeviceId);
+                        if (devices.contains(parentMxDevice)) {
+                            PublicValidation.failCannotHaveMultipleCrossConnectsOnSameDeviceInVC();
+                        } else {
+                            devices.add(parentMxDevice);
+                        }
                     }
                 } else {
-                    String err = "CCtoCCG: CC and CCG must have the same device ID";
-                    log.error("{} CC OCID: {} CC deviceId: {} CCG deviceId: {}",
-                            err, crossConnectDo.getId(), crossConnectDo.getDeviceId(), ccgDeviceId);
-                    throw new ValidationException(ErrorCode.InvalidParameter, err, crossConnectDo.getId());
+                    log.info("VirtualCircuitDo is on global pop ccg, skip validating networking for device");
+                    // TODO: Ensure the crossConnectsMapping for CCs are on separate OC1 devices
+                    // TODO: Ensure the OC3 primary/secondary CCG MX devices are not in maintenance
+                    return;
                 }
+
             } else {
-                String err = "CCtoCCG: CCG must be in PROVISIONED/INACTIVE state";
-                log.error("{} CCG OCID: {} CCG state: {}",
-                        err, crossConnectGroupDo.getId(), crossConnectGroupDo.getState());
-                throw new ValidationException(ErrorCode.InvalidParameter, err, crossConnectDo.getId());
+                PublicValidation.failUnknownCrossConnectOrCrossConnectId(mapping.getCrossConnectId());
             }
-        } else {
-            String err = "CCtoCCG: CC must be in PENDING_CUSTOMER state";
-            log.error("{} CC OCID: {} CC state: {}",
-                    err, crossConnectDo.getId(), crossConnectDo.getState());
-            throw new ValidationException(ErrorCode.InvalidParameter, err, crossConnectDo.getId());
         }
-        return crossConnectDo;
     }
 
-    private CrossConnectDo ccToNoCcg(CrossConnectDo crossConnectDo, CrossConnectGroupDo crossConnectGroupDo)
-            throws ValidationException, CommitConflictException {
-        if (crossConnectDo.getState() == CrossConnectDo.State.PENDING_CUSTOMER) {
-            if (crossConnectGroupDo.getState() == CrossConnectGroupDo.State.INACTIVE
-                    || crossConnectGroupDo.getState() == CrossConnectGroupDo.State.PROVISIONED) {
-                // Remove CCG-ID from CC
-                try (Transaction t = crossConnectBl.beginTransaction("update-CrossConnect")) {
-                    crossConnectDo = crossConnectDo.toBuilder()
-                            .crossConnectGroupId(null)
-                            .build();
-
-                    crossConnectDo = crossConnectBl.update(t, crossConnectDo);
-
-                    eventBl.create(t, crossConnectDo.getId(), Component.API,
-                            "Updated CrossConnect %s ", crossConnectDo);
-                    log.info("Updated CrossConnect(do={})", crossConnectDo);
-                    t.commit();
-                }
-
-                // Remove CC-ID from CCG
-                String[] updatedCcIds = ArrayUtils.removeElement(crossConnectGroupDo.getCrossConnectIds(), crossConnectDo.getId());
-                try (Transaction t = crossConnectGroupBl.beginTransaction("update-CrossConnectGroup")) {
-                    crossConnectGroupDo = crossConnectGroupDo.toBuilder()
-                            .crossConnectIds(updatedCcIds)
-                            .build();
-
-                    crossConnectGroupDo = crossConnectGroupBl.update(t, crossConnectGroupDo);
-
-                    eventBl.create(t, crossConnectGroupDo.getId(), Component.API,
-                            "Updated CrossConnectGroup %s ", crossConnectGroupDo);
-                    log.info("Updated crossConnectGroupDo(do={})", crossConnectGroupDo);
-                    t.commit();
-                }
-            } else {
-                String err = "CCtoNoCCG: CCG must be in PROVISIONED/INACTIVE state";
-                log.error("{} CC OCID: {}CC state: {} CCG state: {}",
-                        err, crossConnectDo.getId(), crossConnectDo.getState(), crossConnectGroupDo.getState());
-                throw new ValidationException(ErrorCode.InvalidParameter, err, crossConnectDo.getId());
-            }
-        } else {
-            String err = "CCtoNoCCG: CC must be in PENDING_CUSTOMER state";
-            log.error("{} CC OCID: {} CC state: {} CCG state: {}",
-                    err, crossConnectDo.getId(), crossConnectDo.getState(), crossConnectGroupDo.getState());
-            throw new ValidationException(ErrorCode.InvalidParameter, err, crossConnectDo.getId());
-        }
-        return crossConnectDo;
+    /**
+     * Run validation before starting the provisioning of a virtualCircuitDo. API Only
+     *
+     * @param virtualCircuitDo The VirtualCircuitDo looked up inside transaction t.
+     * @param t the transaction to use for all of the validation.
+     * @throws ValidationException if there is a validation error.
+     */
+    public void validateNetworking(VirtualCircuitDo virtualCircuitDo, Transaction t) throws ValidationException {
+        validateNetworkingForAPIOrWorkflow(virtualCircuitDo, t, false);
     }
 
-    private CreateCrossConnectDetails convert(CreateCrossConnectInternalDetails request) {
-        return CreateCrossConnectDetails.builder()
-                .compartmentId(request.getCompartmentId())
-                .crossConnectGroupId(request.getCrossConnectGroupId())
-                .definedTags(request.getDefinedTags())
-                .freeformTags(request.getFreeformTags())
-                .displayName(request.getDisplayName())
-                .locationName(request.getLocationName())
-                .nearCrossConnectOrCrossConnectGroupId(request.getNearCrossConnectOrCrossConnectGroupId())
-                .farCrossConnectOrCrossConnectGroupId(request.getFarCrossConnectOrCrossConnectGroupId())
-                .portSpeedShapeName(request.getPortSpeedShapeName())
-                .customerReferenceName(request.getCustomerReferenceId())
+    /**
+     * Run validation before starting the provisioning of a virtualCircuitDo. Workflow Only
+     *
+     * @param virtualCircuitDo The VirtualCircuitDo looked up inside transaction t.
+     * @param t the transaction to use for all of the validation.
+     * @throws ValidationException if there is a validation error.
+     */
+    public void validateNetworkingForWorkflow(VirtualCircuitDo virtualCircuitDo, Transaction t) throws ValidationException {
+        validateNetworkingForAPIOrWorkflow(virtualCircuitDo, t, true);
+    }
+
+
+    public void validateCustomerUpdateAzureNetworking(VirtualCircuitDo virtualCircuitDo, Transaction t) throws ValidationException {
+
+        // Code bug for these to be null at this point
+        Preconditions.checkNotNull(virtualCircuitDo.getCrossConnectMapping(),
+                "CrossConnectMappings should not be null");
+        Preconditions.checkNotNull(virtualCircuitDo.getCrossConnectMapping().getMappings(),
+                "CrossConnectMappings.mappings should not be null");
+        Preconditions.checkNotNull(virtualCircuitDo.getIpAddressType(),
+                "IPAddress type should not be null");
+
+        if(virtualCircuitDo.getRemoteBgpAsn() == null && virtualCircuitDo.getRemoteAsn() == null) {
+            PublicValidation.failAsnValueNotProvided();
+        }
+
+        if (virtualCircuitDo.getCrossConnectMapping()
+                .getMappings().length < MIN_CROSS_CONNECTS) {
+            PublicValidation.failMinCrossConnects(virtualCircuitDo.getId(),
+                    virtualCircuitDo.getCrossConnectMapping().getMappings().length,
+                    MIN_CROSS_CONNECTS);
+        }
+        if (virtualCircuitDo.getCrossConnectMapping()
+                .getMappings().length > MAX_CROSS_CONNECTS) {
+            PublicValidation.failMaxCrossConnects(virtualCircuitDo.getId(),
+                    virtualCircuitDo.getCrossConnectMapping().getMappings().length,
+                    MAX_CROSS_CONNECTS);
+        }
+
+        for (Mapping mapping : virtualCircuitDo.getCrossConnectMapping().getMappings()) {
+            if (virtualCircuitDo.isPrivate()) {
+                PublicValidation.validateBgpPeeringAddress(mapping.getRemoteBgpPeeringIp());
+                PublicValidation.validateBgpPeeringAddress(mapping.getOracleBgpPeeringIp());
+                PublicValidation.validateSameSubnet(mapping.getOracleBgpPeeringIp(), mapping.getRemoteBgpPeeringIp());
+            }
+
+        }
+    }
+
+    public static void validateBgpMd5AuthKey(String bgpMd5AuthKey) throws ValidationException {
+        if (bgpMd5AuthKey != null && bgpMd5AuthKey.length() < 1) {
+            PublicValidation.failInvalidBgpMd5AuthKey(bgpMd5AuthKey);
+        }
+    }
+
+    public static boolean isCrossConnect(String ocid) throws ValidationException {
+        if (StringUtils.isBlank(ocid)) {
+            return false;
+        }
+        try {
+            Id id = OCIDParser.fromString(ocid);
+            return id.getEntityType() == EntityType.VpnCrossConnect;
+        } catch (InvalidOCIDException e) {
+            PublicValidation.failUnknownCrossConnectOrCrossConnectId(ocid);
+            return false; // Dead code
+        }
+    }
+
+    public static boolean isCrossConnectGroup(String ocid) throws ValidationException {
+        if (StringUtils.isBlank(ocid)) {
+            return false;
+        }
+        try {
+            Id id = OCIDParser.fromString(ocid);
+            return id.getEntityType() == EntityType.VpnCrossConnectGroup;
+        } catch (InvalidOCIDException e) {
+            PublicValidation.failUnknownCrossConnectOrCrossConnectId(ocid);
+            return false; // Dead code
+        }
+    }
+
+    /**
+     * Validate this object is in the correct state to launch a workflow
+     */
+    public void validateCorrectStateForWorkflow(
+            VirtualCircuitDo virtualCircuitDo,
+            Transaction t)
+            throws ValidationException {
+
+        if (virtualCircuitDo.getState() != State.PROVISIONING) {
+            // Hmm, what should we throw here
+            throw new RuntimeException("Invalid state of virtualCircuitDo");
+        }
+    }
+
+    public VirtualCircuitDo markForTerminating(Transaction t,
+            VirtualCircuitDo virtualCircuitDo)
+            throws ValidationException {
+       return update(t, virtualCircuitDo.toBuilder()
+               .state(State.TERMINATING)
+               .lastStateChanged(new Date())
+               .build());
+
+    }
+
+    /**
+     * Given a virtualCircuitDo, find the CC/CCGs that we should remove the VC from, and return
+     * the device Ids for those CC/CCGs
+     *
+     * @param t the transaction to use to read
+     * @param virtualCircuitDo the VirtualCircuit
+     * @return the set of DeviceIds for the CC/CCGs to remove
+     * @throws ValidationException
+     */
+    public Set<String> getDeviceIdsToRemoveSnippetsFrom(Transaction t, VirtualCircuitDo virtualCircuitDo)
+            throws ValidationException {
+
+        Set<String> crossConnectsToRemove = virtualCircuitDo.getCcAndCcgsToRemove();
+        return getDeviceIdsToRemoveSnippetsFrom(t, crossConnectsToRemove);
+    }
+
+    /**
+     * Given a list of CC/CCG ids, find the corresponding device ids.
+     *
+     * @param t the transactino to use to read
+     * @param crossConnectsToRemove the CrossConnect
+     * @return
+     * @throws ValidationException
+     */
+    public Set<String> getDeviceIdsToRemoveSnippetsFrom(Transaction t, Set<String> crossConnectsToRemove)
+            throws ValidationException {
+
+        log.info("Found these CC/CCGs to remove {}", crossConnectsToRemove);
+        Set<String> deviceIds = new HashSet<>();
+        for (String connect : crossConnectsToRemove) {
+            CrossConnectDo crossConnectDo;
+            if (VirtualCircuitBl.isCrossConnect(connect)) {
+                crossConnectDo = crossConnectBl.getOrThrow(connect);
+            } else {
+                CrossConnectGroupDo crossConnectGroupDo = crossConnectGroupBl.getOrThrow(connect);
+                crossConnectDo = crossConnectBl.getOrThrow(t,
+                        crossConnectGroupDo.getCrossConnectIds()[0]);
+            }
+
+            DeviceDo deviceDo = deviceBl.getOrThrow(crossConnectDo.getDeviceId());
+            // For CrossConnects on QFX return deviceId of MX since virtual circuit
+            // config snippet is on MX device and not on QFX.
+            deviceDo = deviceBl.getMxDeviceFromCrossConnectDevice(t, deviceDo);
+            deviceIds.add(deviceDo.getId());
+        }
+
+        log.info("Found these corresponding devices to remove the snippets on {}", deviceIds);
+        return deviceIds;
+    }
+
+    @Override
+    public VirtualCircuitDo updateDataObject(VirtualCircuitDo virtualCircuitDo, String id,
+            Date lastUpdated, String stateComment) {
+
+        return virtualCircuitDo.toBuilder()
+                .id(id)
+                .lastUpdated(lastUpdated)
+                .stateComment(stateComment)
                 .build();
     }
-    private FFabQfxCanaryConfig createCanaryConfig(Qfx5120CanaryConfigDetails config) {
 
-        return FFabQfxCanaryConfig.builder()
-                .cvlanNumber(config.getCvlanNumber())
-                .fcCpeIPv4WithMask(config.getFcCpeIPv4WithMask())
-                .fcCpeIPv6WithMask(config.getFcCpeIPv6WithMask())
-                .remoteBgpIPv4(config.getRemoteBgpIPv4())
-                .remoteBgpIPv6(config.getRemoteBgpIPv6())
-                .lo0UnitNumber(config.getLo0UnitNumber())
-                .fcCanaryLoopbackIPv4(config.getFcCanaryLoopbackIPv4())
-                .fcCanaryLoopbackIPv6(config.getFcCanaryLoopbackIPv6())
-                .fcCpeLoopbackIpv4SubnetWithMask(config.getFcCpeLoopbackIpv4SubnetWithMask())
-                .fcCpeIpv6SubnetWithMask(config.getFcCpeIpv6SubnetWithMask())
-                .fcCanaryBgpAsn(config.getFcCanaryBgpAsn())
-                .remoteBgpAsn(config.getRemoteBgpAsn())
-                .fcRoutingInstanceId(config.getFcRoutingInstanceId())
-                .build();
-    }
+    public void validateNoVcInProvisioningOrTerminatingState(String ccOrCcgId) throws ValidationException {
 
-    private static boolean isActivatingCrossConnect(
-            UpdateCrossConnectInternalDetails updateRequest,
-            CrossConnectDo crossConnectDo) {
-
-        return Boolean.TRUE.equals(updateRequest.getIsActive()) &&
-                crossConnectDo.getState() == CrossConnectDo.State.PENDING_CUSTOMER;
-
-    }
-
-    public static void validateDeleteRequest(
-            CrossConnectBl crossConnectBl,
-            CrossConnectGroupBl crossConnectGroupBl,
-            VirtualCircuitBl virtualCircuitBl,
-            Transaction t,
-            CrossConnectDo crossConnectDo) throws ValidationException {
-
-        if (CrossConnectResource.isPartOfCrossConnectGroup(crossConnectDo)) {
-
-            CrossConnectGroupDo ccg = crossConnectGroupBl.getOrThrow(t, crossConnectDo.getCrossConnectGroupId());
-
-            // Make sure that we don't terminate the CrossConnect if there are VCs associated with the
-            // CrossConnectGroup and this is the only provisioned CrossConnect in the group.
-            if (ccg.getState() == CrossConnectGroupDo.State.PROVISIONED &&
-                    crossConnectDo.getState() == CrossConnectDo.State.PROVISIONED &&
-                    crossConnectBl.getProvisionedCrossConnects(ccg).size() == 1) {
-
-                crossConnectGroupBl.validateNoVirtualCircuitExists(t, ccg);
-            }
-
-            virtualCircuitBl.validateNoVcInProvisioningOrTerminatingState(ccg.getId());
-
+        Set<String> vcIds = new HashSet<>();
+        if (isCrossConnectGroup(ccOrCcgId)) {
+            CrossConnectGroupDo ccgDo = crossConnectGroupBl.getOrThrow(ccOrCcgId);
+            vcIds.addAll(ccgDo.getVcToVlanHelper().getAssociatedIds());
         } else {
-            crossConnectBl.validateNoVirtualCircuitExists(t, crossConnectDo);
+            CrossConnectDo ccDo = crossConnectBl.getOrThrow(ccOrCcgId);
+            vcIds.addAll(ccDo.getVcToVlanHelper().getAssociatedIds());
+        }
+
+        if (propertiesBl.isVcToVlanMappingEnabled()) {
+            try (Transaction t = beginTransaction("get associated VC")) {
+                vcIds.addAll(vcToVlanMappingBl.getAssociatedVcs(t, ccOrCcgId));
+            }
+        }
+
+        log.info("Checking the state for VirtualCircuits {} attached to the cross-connect/group", vcIds, ccOrCcgId);
+
+        for (String vcId : vcIds) {
+            Optional<VirtualCircuitDo> vcDoOpt = get(vcId);
+            if (vcDoOpt.isPresent()) {
+                VirtualCircuitDo vcDo = vcDoOpt.get();
+                if (vcDo.getState() == State.PROVISIONING ||
+                        vcDo.getState() == State.TERMINATING) {
+                    Validation.failCcUpdateVcInInvalidState(ccOrCcgId, vcId);
+                }
+            } else {
+                log.info("VirtualCircuit {} attached to cross-connect/group {} not found, which is unexpected", vcId, ccOrCcgId);
+            }
         }
     }
 
+    public ScanPage<VirtualCircuitDo> scanForListByProviderCompartment(
+            String providerCompartmentId,
+            String displayName,
+            int pageSize,
+            Optional<PaginationToken> token,
+            Optional<ScanParamHelper.SortBy> sortBy,
+            Optional<ScanParamHelper.SortOrder> sortOrder) {
+
+        ProvCompartmentIdNameDateKey key = ProvCompartmentIdNameDateKey.builder()
+                .providerCompartmentId(providerCompartmentId)
+                .displayName(displayName)
+                .build();
+
+        if (token.isPresent()) {
+
+            Index<ProvCompartmentIdNameDateKey, VirtualCircuitDo> scanIndex =
+                    super.bucket.getIndex(token.get().indexName(), ProvCompartmentIdNameDateKey.class);
+
+            return scanIndex.scan(token.get(), pageSize);
+
+        } else {
+
+            Index<ProvCompartmentIdNameDateKey, VirtualCircuitDo> scanIndex =
+                    getScanIndex(key, sortBy);
+
+            Bucket.Direction sortDirection =
+                    ScanParamHelper.getDirection(sortBy, sortOrder);
+
+            return scanIndex.beginPrefixScan(key, pageSize, sortDirection);
+        }
+    }
+
+    private static Map<String, Mapping> getExistingCrossConnectToBgpPeers(VirtualCircuitDo virtualCircuitDo) {
+        List<Mapping> currentMappings = new ArrayList<>();
+        if (virtualCircuitDo.getCrossConnectMapping() != null) {
+            currentMappings = Arrays.asList(virtualCircuitDo.getCrossConnectMapping().getMappings());
+        }
+        Map<String, Mapping> crossConnectsToBgpSubnets = new HashMap<>();
+
+        currentMappings.stream()
+                .filter(m -> (m.getCrossConnectId() != null) && (m.getOracleBgpPeeringIp() != null))
+                .forEach(m -> crossConnectsToBgpSubnets.put(m.getCrossConnectId(), m));
+        return crossConnectsToBgpSubnets;
+    }
+
+    /**
+     * For public virtual circuit, BGP peering addresses are allocated by service itself.
+     * UpdatedVirtualCircuitDo will not have any BGP peering IP addresses.
+     *
+     * Current virtual circuit (if present) may have BGP peering IP addresses.
+     * For mappings which have the same cross connect or cross connect group as the original mapping,
+     * reuse the Oracle and Customer BGP addresses.
+     *
+     * For mappings which have different crossconnects than the original mappings, allocate new IP addresses.
+     *
+     * @param t kiev transaction
+     * @param updatedVirtualCircuitDo updated virtual circuit
+     * @param currentVirtualCircuitOpt current virtual circuit in database
+     * @return updated virtual circuit with bgp ips allocated.
+     * @throws ValidationException
+     */
+    public VirtualCircuitDo allocateBgpPeerIps(Transaction t, VirtualCircuitDo updatedVirtualCircuitDo, Optional<VirtualCircuitDo> currentVirtualCircuitOpt, boolean whitelistedForIpv6) throws ValidationException {
+        CrossConnectMappings mappings = updatedVirtualCircuitDo.getCrossConnectMapping();
+
+        if (!updatedVirtualCircuitDo.isPublic() || (mappings == null)) {
+            return updatedVirtualCircuitDo;
+        }
+
+        Optional<ProviderServiceDo> providerServiceDo = Optional.empty();
+        // If provider service id or provider name is valid, this is treated as a provider VC.
+        if (StringUtils.isNotBlank(updatedVirtualCircuitDo.getProviderServiceId()) || StringUtils.isNotBlank(updatedVirtualCircuitDo.getProviderServiceName())) {
+            if (StringUtils.isNotBlank(updatedVirtualCircuitDo.getProviderServiceId())) {
+                providerServiceDo = providerServiceBl.get(updatedVirtualCircuitDo.getProviderServiceId());
+            } else {
+                providerServiceDo = providerServiceBl.getProviderServiceByNameAndServiceName(
+                        updatedVirtualCircuitDo.getProviderName(), updatedVirtualCircuitDo.getProviderServiceName());
+            }
+        }
+
+        Map<String, Mapping> existingCrossConnectToBgpPeers = new HashMap<>();
+        if (currentVirtualCircuitOpt.isPresent()) {
+            existingCrossConnectToBgpPeers = getExistingCrossConnectToBgpPeers(currentVirtualCircuitOpt.get());
+        }
+
+        List<Mapping> updatedMappings = new ArrayList<>();
+        // Customer without provider or customer with L3 provider.
+        if (!providerServiceDo.isPresent() || providerServiceDo.get().getType().equals(ProviderServiceDo.Type.Layer3)) {
+            if (providerServiceDo.isPresent() && ProviderServiceDo.FastConnectDataManagement.ProviderManaged.equals(providerServiceDo.get().getPublicPeeringBgpMgmt())) {
+                // Since Public BGP Peering addressese are ProviderManaged, this provider is allowed to give public BGP IPs for peering.
+                // Verify that these /30 IPs belong to prevalidated list of BGP prefixes for this provider.
+
+                List<String> verifiedPrefixes = Optional.ofNullable(providerServiceDo.get().getVerifiedPublicPrefixes()).orElse(new LinkedList<>());
+
+                for (Mapping mapping : mappings.getMappings()) {
+
+                    validateBgpIpsForProviderManagedPublicVc(mapping, verifiedPrefixes, updatedVirtualCircuitDo);
+                    Mapping crossConnectMapping = Mapping.builder()
+                            .bgpMd5Authkey(mapping.getBgpMd5Authkey())
+                            .oracleBgpPeeringIp(mapping.getOracleBgpPeeringIp())
+                            .remoteBgpPeeringIp(mapping.getRemoteBgpPeeringIp())
+                            .vlan(mapping.getVlan())
+                            .crossConnectId(mapping.getCrossConnectId())
+                            .build();
+
+                    if(whitelistedForIpv6) {
+                        validateBgpIpsForProviderManagedPublicVcIpv6(mapping, verifiedPrefixes, updatedVirtualCircuitDo);
+                        crossConnectMapping = crossConnectMapping.toBuilder()
+                                .oracleBgpPeeringIpv6(mapping.getOracleBgpPeeringIpv6())
+                                .remoteBgpPeeringIpv6(mapping.getRemoteBgpPeeringIpv6())
+                                .build();
+                    }
+                    updatedMappings.add(crossConnectMapping);
+                }
+
+
+            } else {
+
+                log.info("Allocating BGP peering IP addresses for virtual circuit {}.", updatedVirtualCircuitDo);
+                if (currentVirtualCircuitOpt.isPresent()) {
+                    log.info("Current virtual circuit {}.", currentVirtualCircuitOpt.get());
+                }
+
+                for (Mapping mapping : mappings.getMappings()) {
+                    String oracleBgpPeeringIp = null;
+                    String remoteBgpPeeringIp = null;
+                    String oracleBgpPeeringIpv6 = null;
+                    String remoteBgpPeeringIpv6 = null;
+                    String mappingCcId = mapping.getCrossConnectId();
+                    if (existingCrossConnectToBgpPeers.containsKey(mappingCcId)) {
+                        Mapping existingMapping = existingCrossConnectToBgpPeers.get(mappingCcId);
+                        oracleBgpPeeringIp = existingMapping.getOracleBgpPeeringIp();
+                        remoteBgpPeeringIp = existingMapping.getRemoteBgpPeeringIp();
+                        oracleBgpPeeringIpv6 = existingMapping.getOracleBgpPeeringIpv6();
+                        remoteBgpPeeringIpv6 = existingMapping.getRemoteBgpPeeringIpv6();
+                        log.info("Reusing IP addresses, local {} and remote {} for mapping {}", oracleBgpPeeringIp, remoteBgpPeeringIp, mapping);
+                        log.info("Reusing IPv6 addresses, local {} and remote {} for mapping {}", oracleBgpPeeringIpv6, remoteBgpPeeringIpv6, mapping);
+
+                    }
+
+                    if (oracleBgpPeeringIp == null) {
+                        Optional<String> prefix = vcBgpPeeringAddressManager.allocateBgpPeeringSubnetForPublicVirtualCircuit(t, updatedVirtualCircuitDo, false);
+                        if (prefix.isPresent()) {
+                            oracleBgpPeeringIp = IpUtils.getNextAddress(prefix.get(), 1);
+                            remoteBgpPeeringIp = IpUtils.getNextAddress(prefix.get(), 2);
+                            log.info("Allocating IP address subnet {} for BGP peering for mapping {}", prefix, mapping);
+                        } else {
+                            throw new ValidationException(ErrorCode.InternalError, String.format("Failed to allocated BGP IP address for %s.", updatedVirtualCircuitDo));
+                        }
+                    }
+
+                    if (oracleBgpPeeringIpv6 == null) {
+                        if (whitelistedForIpv6) {
+                            Optional<String> ipv6Prefix = vcBgpPeeringAddressManager.allocateBgpPeeringSubnetForPublicVirtualCircuit(t, updatedVirtualCircuitDo, true);
+                            if (ipv6Prefix.isPresent()) {
+                                oracleBgpPeeringIpv6 = IpUtils.getNextIpV6Address(ipv6Prefix.get(), 1);
+                                remoteBgpPeeringIpv6 = IpUtils.getNextIpV6Address(ipv6Prefix.get(), 2);
+                                log.info("Allocating IPV6 address subnet {} for BGP peering for mapping {}", ipv6Prefix, mapping);
+                            } else {
+                                throw new ValidationException(ErrorCode.InternalError, String.format("Failed to allocated BGP IP address for %s.", updatedVirtualCircuitDo));
+                            }
+                        }
+                    }
+
+                    updatedMappings.add(CrossConnectMappings.Mapping.builder()
+                            .bgpMd5Authkey(mapping.getBgpMd5Authkey())
+                            .oracleBgpPeeringIp(oracleBgpPeeringIp)
+                            .remoteBgpPeeringIp(remoteBgpPeeringIp)
+                            .oracleBgpPeeringIpv6(oracleBgpPeeringIpv6)
+                            .remoteBgpPeeringIpv6(remoteBgpPeeringIpv6)
+                            .vlan(mapping.getVlan())
+                            .crossConnectId(mapping.getCrossConnectId())
+                            .build());
+                }
+            }
+        } else {
+            // For L2 public virtual circuits, there must be exactly one crossconnect mapping.
+            // Since BGP addresses are assigned by service, vlan and crossconnect ids by provider,
+            // the customer only owns the bgpMd5Authkey in the crossconnect mapping. It is possible that
+            // customer create request may or may not have even 1 mapping. If no mapping is present, create one
+            // and asssign BGP peering addresses. If one mapping is present use the same BGP peering address.
+            Mapping mapping;
+
+            if (mappings.getMappings().length > 1) {
+                PublicValidation.failL2ProviderRequiresOneCrossConnect();
+            }
+
+            if (mappings.getMappings().length == 0) {
+                mapping = Mapping.builder().build();
+            } else {
+                mapping = mappings.getMappings()[0];
+            }
+            String oracleBgpPeeringIp = null;
+            String remoteBgpPeeringIp = null;
+            String oracleBgpPeeringIpv6 = null;
+            String remoteBgpPeeringIpv6 = null;
+            // L2 provider virtual circuit has only 1 crossconnect mapping. Use existing BGP peering addresses if possible.
+            if (currentVirtualCircuitOpt.isPresent() &&
+                    currentVirtualCircuitOpt.get().getCrossConnectMapping() != null &&
+                    currentVirtualCircuitOpt.get().getCrossConnectMapping().getMappings().length == 1) {
+
+                    oracleBgpPeeringIp = currentVirtualCircuitOpt.get().getCrossConnectMapping().getMappings()[0].getOracleBgpPeeringIp();
+                    remoteBgpPeeringIp = currentVirtualCircuitOpt.get().getCrossConnectMapping().getMappings()[0].getRemoteBgpPeeringIp();
+            }
+
+            if (oracleBgpPeeringIp == null) {
+                Optional<String> prefix = vcBgpPeeringAddressManager.allocateBgpPeeringSubnetForPublicVirtualCircuit(t, updatedVirtualCircuitDo, false);
+                if (prefix.isPresent()) {
+                    oracleBgpPeeringIp = IpUtils.getNextAddress(prefix.get(), 1);
+                    remoteBgpPeeringIp = IpUtils.getNextAddress(prefix.get(), 2);
+                    log.info("Allocating IP address subnet {} for BGP peering for mapping {}", prefix, mapping);
+                } else {
+                    throw new ValidationException(ErrorCode.InternalError, String.format("Failed to allocated BGP IP address for %s.", updatedVirtualCircuitDo));
+                }
+
+                if (whitelistedForIpv6) {
+                    Optional<String> ipv6Prefix = vcBgpPeeringAddressManager.allocateBgpPeeringSubnetForPublicVirtualCircuit(t, updatedVirtualCircuitDo, true);
+                    if (ipv6Prefix.isPresent()) {
+                        oracleBgpPeeringIpv6 = IpUtils.getNextIpV6Address(ipv6Prefix.get(), 1);
+                        remoteBgpPeeringIpv6 = IpUtils.getNextIpV6Address(ipv6Prefix.get(), 2);
+                        log.info("Allocating IPV6 address subnet {} for BGP peering for mapping {}", prefix, mapping);
+                    } else {
+                        throw new ValidationException(ErrorCode.InternalError, String.format("Failed to allocated BGP IP address for %s.", updatedVirtualCircuitDo));
+                    }
+                }
+            }
+
+            updatedMappings.add(CrossConnectMappings.Mapping.builder()
+                    .bgpMd5Authkey(mapping.getBgpMd5Authkey())
+                    .oracleBgpPeeringIp(oracleBgpPeeringIp)
+                    .remoteBgpPeeringIp(remoteBgpPeeringIp)
+                    .oracleBgpPeeringIpv6(oracleBgpPeeringIpv6)
+                    .remoteBgpPeeringIpv6(remoteBgpPeeringIpv6)
+                    .vlan(mapping.getVlan())
+                    .crossConnectId(mapping.getCrossConnectId())
+                    .build());
+        }
+        log.info("Updated mappings for virtual circuit {} after allocating BGP peering addresses : {}.", updatedVirtualCircuitDo.getId(), updatedMappings);
+
+        return updatedVirtualCircuitDo.toBuilder()
+                .crossConnectMapping(
+                        CrossConnectMappings.builder()
+                                .mappings(
+                                        updatedMappings.toArray(new CrossConnectMappings.Mapping[0]))
+                                .build())
+                .build();
+
+    }
+
+    private void validateBgpIpsForProviderManagedPublicVcIpv6(Mapping mapping, List<String> verifiedPrefixes, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        if (mapping.getOracleBgpPeeringIpv6() == null) {
+            return;
+        }
+
+        boolean bgpPeeringSubnetValid = false;
+        String bgpPeeringSubnet = IpUtils.getNetworkAddress(mapping.getOracleBgpPeeringIpv6());
+
+        for (String verifiedPrefix : verifiedPrefixes) {
+            if (IpUtils.isSubset(verifiedPrefix, bgpPeeringSubnet)) {
+                log.info("Public VC {} BGP Peering subnet {} is subset of verified prefix {}.", virtualCircuitDo.getId(), bgpPeeringSubnet, verifiedPrefix);
+                bgpPeeringSubnetValid = true;
+                break;
+            }
+        }
+
+        if (!bgpPeeringSubnetValid) {
+            String errMsg = String.format("Oracle BGP IP %s Customer BGP IP %s are not part of any verified public prefixes for the provider.",
+                    mapping.getOracleBgpPeeringIpv6(), mapping.getRemoteBgpPeeringIpv6());
+            log.error(errMsg);
+            throw new ValidationException(ErrorCode.InvalidParameter, errMsg);
+        }
+
+        List<String> bgpSubnets = new LinkedList<>();
+        getVirtualCircuitByProvCompartment(virtualCircuitDo.getProviderCompartmentId()).stream()
+                .filter(VirtualCircuitDo::isPublic)
+                .filter(vc -> ! vc.getId().equals(virtualCircuitDo.getId()))
+                .map(VirtualCircuitDo::getOracleBgpIpv6Networks)
+                .filter(s -> !s.isEmpty())
+                .forEach(bgpSubnets::addAll);
+
+        for (String bgpSubnet : bgpSubnets) {
+            if (IpUtils.isOverlap(bgpSubnet, bgpPeeringSubnet)) {
+                PublicValidation.failIpNetworkAlreadyInUseOnOtherPublicVc(bgpPeeringSubnet);
+            }
+        }
+
+    }
+
+    private void validateBgpIpsForProviderManagedPublicVc(Mapping mapping, List<String> verifiedPrefixes, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        if (mapping.getOracleBgpPeeringIp() == null) {
+            return;
+        }
+
+        boolean bgpPeeringSubnetValid = false;
+        String bgpPeeringSubnet = IpUtils.getNetworkAddress(mapping.getOracleBgpPeeringIp());
+
+        for (String verifiedPrefix : verifiedPrefixes) {
+            if (IpUtils.isSubset(verifiedPrefix, bgpPeeringSubnet)) {
+                log.info("Public VC {} BGP Peering subnet {} is subset of verified prefix {}.", virtualCircuitDo.getId(), bgpPeeringSubnet, verifiedPrefix);
+                bgpPeeringSubnetValid = true;
+                break;
+            }
+        }
+
+        if (!bgpPeeringSubnetValid) {
+            String errMsg = String.format("Oracle BGP IP %s Customer BGP IP %s are not part of any verified public prefixes for the provider.",
+                    mapping.getOracleBgpPeeringIp(), mapping.getRemoteBgpPeeringIp());
+            log.error(errMsg);
+            throw new ValidationException(ErrorCode.InvalidParameter, errMsg);
+        }
+
+        List<String> bgpSubnets = new LinkedList<>();
+
+        getVirtualCircuitByProvCompartment(virtualCircuitDo.getProviderCompartmentId()).stream()
+                .filter(VirtualCircuitDo::isPublic)
+                .filter(vc -> ! vc.getId().equals(virtualCircuitDo.getId()))
+                .map(VirtualCircuitDo::getOracleBgpIpv4Networks)
+                .filter(s -> !s.isEmpty())
+                .forEach(bgpSubnets::addAll);
+
+        for (String bgpSubnet : bgpSubnets) {
+            if (IpUtils.isOverlap(bgpSubnet, bgpPeeringSubnet)) {
+                PublicValidation.failIpNetworkAlreadyInUseOnOtherPublicVc(bgpPeeringSubnet);
+            }
+        }
+
+    }
+
+
+    /**
+     * Release all the BGP Peering Ip addresses back to pool.
+     * @param t kiev transaction
+     * @param virtualCircuitDo virtual circuit whose BGP peer IPs are to be released.
+     * @return virtual circuit
+     * @throws ValidationException
+     */
+    public VirtualCircuitDo releaseBgpPeerIps(Transaction t, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+
+        if (!virtualCircuitDo.isPublic()) {
+            return virtualCircuitDo;
+        }
+
+        Optional<ProviderServiceDo> providerServiceDoOpt = providerServiceBl.getProviderServiceFromVirtualCircuit(virtualCircuitDo);
+        if (providerServiceDoOpt.isPresent() && ProviderServiceDo.FastConnectDataManagement.ProviderManaged.equals(providerServiceDoOpt.get().getPublicPeeringBgpMgmt())) {
+            log.info("Public BGP address for VC {} is managed by provider. Oracle doesn't allocated BGP IPs hence no need to release them.", virtualCircuitDo.getId());
+            return virtualCircuitDo;
+        }
+
+        CrossConnectMappings mappings = virtualCircuitDo.getCrossConnectMapping();
+        if (mappings == null) {
+            return virtualCircuitDo;
+        }
+
+        // Releases all BGP peering subnets currently assigned to virtual circuits.
+        log.info("Releasing allocated BGP peer IPs for virtual circuit {}.", virtualCircuitDo);
+        List<String> allocatedBgpSubnets =  vcBgpPeeringAddressManager.getAssignedBgpPeeringSubnetsForPublicVirtualCircuit(virtualCircuitDo);
+        for (String bgpSubnet : allocatedBgpSubnets) {
+            vcBgpPeeringAddressManager.releaseBgpPeeringSubnetForPublicVirtualCircuit(t, virtualCircuitDo, bgpSubnet);
+            log.info("Released BGP Peering subnet {} belonging to virtual circuit {}.", bgpSubnet, virtualCircuitDo.getId());
+        }
+
+        List<Mapping> updatedMappings = new ArrayList<>();
+        for (Mapping mapping : mappings.getMappings()) {
+            updatedMappings.add(mapping.toBuilder()
+                    .oracleBgpPeeringIp(null)
+                    .remoteBgpPeeringIp(null)
+                    .build());
+        }
+
+        return virtualCircuitDo.toBuilder()
+                .crossConnectMapping(
+                        CrossConnectMappings.builder()
+                                .mappings(
+                                        updatedMappings.toArray(new CrossConnectMappings.Mapping[0]))
+                                .build())
+                .build();
+
+    }
+
+    /**
+     * Release BGP peering subnets which are no longer being used by the virtual circuit.
+     *
+     * In cases where BGP peering subnets for crossconnect mappings are managed by the service,
+     * updating a crossconnect mapping could result in a new bgp subnet allocation and the bgp subnet
+     * allocated to the old mapping is no longer used and needs to be released back to the pool.
+     *
+     * VirtualCircuitDo will have the most updated bgp prefixes. All the currenlty assigned prefixes
+     * are retrieved from the IP_PREFIX db.
+     *
+     * @param t kiev transaction
+     * @param virtualCircuitDo virtual circuit
+     * @throws ValidationException
+     */
+    public void releaseUnusedBgpPeeringSubnets(Transaction t, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+
+        if (!virtualCircuitDo.isPublic()) {
+            return;
+        }
+
+        Optional<ProviderServiceDo> providerServiceDoOpt = providerServiceBl.getProviderServiceFromVirtualCircuit(virtualCircuitDo);
+        if (providerServiceDoOpt.isPresent() && ProviderServiceDo.FastConnectDataManagement.ProviderManaged.equals(providerServiceDoOpt.get().getPublicPeeringBgpMgmt())) {
+            log.info("Public BGP address for VC {} is managed by provider. Oracle doesn't allocated BGP IPs hence no need to release them.", virtualCircuitDo.getId());
+            return;
+        }
+
+        List<String> currentBgpPeeringSubnets = virtualCircuitDo.getOracleBgpIpv4Networks().stream()
+                .collect(Collectors.toList());
+
+        List<String> currentBgpPeeringSubnetsIpv6 = virtualCircuitDo.getOracleBgpIpv6Networks().stream()
+                .collect(Collectors.toList());
+
+        log.info("Current BGP subnets for virtual circuit {} : {}.", virtualCircuitDo.getId(), currentBgpPeeringSubnets);
+        log.info("Current ipv6 BGP subnets for virtual circuit {} : {}.", virtualCircuitDo.getId(), currentBgpPeeringSubnetsIpv6);
+
+        List<String> allocatedBgpSubnets =  vcBgpPeeringAddressManager.getAssignedBgpPeeringSubnetsForPublicVirtualCircuit(virtualCircuitDo);
+
+        log.info("All allocated BGP subnets for virtual circuit : {}", allocatedBgpSubnets);
+
+        // Release all allocated IPs which are not current BGP peeering subnets.
+        List<String> subnetsToRelease = allocatedBgpSubnets.stream()
+                .filter(subnet -> !currentBgpPeeringSubnets.contains(subnet))
+                .filter(subnet -> !currentBgpPeeringSubnetsIpv6.contains(subnet))
+                .collect(Collectors.toList());
+
+        if (subnetsToRelease.isEmpty()) {
+            log.info("No change in BGP subnets for virtualcircuit {}.", virtualCircuitDo.getId());
+            return;
+        } else {
+            log.info("Releasing BGP subnets for virtual circuit : {}", subnetsToRelease);
+        }
+
+        for (String bgpSubnet : subnetsToRelease) {
+            vcBgpPeeringAddressManager.releaseBgpPeeringSubnetForPublicVirtualCircuit(t, virtualCircuitDo, bgpSubnet);
+        }
+
+    }
+
+    /*
+     * Finds the correct index to use based on what fields are populated in the
+     * index key and an optional sortBy parameter.
+     * @param indexKey a key populated with the fields you want to scan with
+     * @Param sortBy
+     * @return the correct index to scan
+     */
+    private Index<ProvCompartmentIdNameDateKey, VirtualCircuitDo> getScanIndex(
+            ProvCompartmentIdNameDateKey indexKey,
+            Optional<ScanParamHelper.SortBy> sortBy) {
+
+        if (sortBy.isPresent() &&
+                sortBy.get() == ScanParamHelper.SortBy.TIME_CREATED &&
+                indexKey.getDisplayName() == null) {
+            return provCompIdDateIndex;
+        }
+
+        return provCompIdNameDateIndex;
+    }
+
+    /*Function to check if the SvlanNumber is leaked by providing the mappings of the VC*/
+    public boolean isSvlanNumberLeaked(Transaction t, int sVlanNumber, Mapping[] mappings) throws ValidationException {
+
+        if (mappings== null || mappings.length < 2){
+            return false;
+        }
+        Set<String> pFabClusterIds = new HashSet<>();
+        for (Mapping mapping : mappings){
+            Optional<CrossConnectDo>  optionalCrossConnectDo = crossConnectBl.get(t,mapping.getCrossConnectId());
+            if (optionalCrossConnectDo.isPresent()){
+                String deviceId = optionalCrossConnectDo.get().getDeviceId();
+                Optional<DeviceDo> optionalDeviceDo = deviceBl.get(t,deviceId);
+                if (optionalDeviceDo.isPresent()) {
+                    pFabClusterIds.add(optionalDeviceDo.get().getPFabClusterId());
+                }
+
+            }
+
+        }
+
+        List<VirtualCircuitDo> virtualCircuitDos= new ArrayList<>();
+        for  (String pFabClusterId: pFabClusterIds){
+            VirtualCircuitDo.SVlanAndPFabClusterIdKey key = VirtualCircuitDo.SVlanAndPFabClusterIdKey.builder()
+                    .sVlanNumberForQfx(sVlanNumber)
+                    .pFabClusterId(pFabClusterId)
+                    .build();
+            List<VirtualCircuitDo> tempVirtualCircuitDos = vcSVlanAndPFabClusterIdIndex.get(t, key, 1);
+            if(!tempVirtualCircuitDos.isEmpty()){
+                virtualCircuitDos.addAll(tempVirtualCircuitDos) ;
+            }
+        }
+
+        if (!virtualCircuitDos.isEmpty() && virtualCircuitDos.size() > 1){
+            return true;
+        }
+        return false;
+    }
+    private boolean checkUnitNumberLeak(List<VirtualCircuitDo> virtualCircuitDos, String originalPfabClusterId, Transaction t) throws ValidationException {
+        if (!virtualCircuitDos.isEmpty()) {
+            for (VirtualCircuitDo virtualCircuitDo : virtualCircuitDos) {
+                CrossConnectMappings crossConnectMappings = virtualCircuitDo.getCrossConnectMapping();
+                if (crossConnectMappings == null || crossConnectMappings.getMappings().length < 1) {
+                    continue;
+                }
+
+                for (Mapping mapping : crossConnectMappings.getMappings()) {
+                    boolean isCrossConnect = VirtualCircuitBl.isCrossConnect(mapping.getCrossConnectId());
+                    CrossConnectDo crossConnectDo;
+                    // get device
+                    if (isCrossConnect) {
+                        crossConnectDo = crossConnectBl.getOrThrow(mapping.getCrossConnectId());
+                    } else {
+                        CrossConnectGroupDo crossConnectGroupDo = crossConnectGroupBl.getOrThrow(mapping.getCrossConnectId());
+                        crossConnectDo = crossConnectBl.getOrThrow(crossConnectGroupDo.getCrossConnectIds()[0]);
+                    }
+                    String deviceId = crossConnectDo.getDeviceId();
+                    Optional<DeviceDo> deviceDo = deviceBl.get(t, deviceId);
+
+                    if (deviceDo.isPresent()) {
+                        if (deviceDo.get().getPFabClusterId().equals(originalPfabClusterId)) {
+                            return true;
+                        }
+                    }
+
+                }
+
+            }
+        }
+        return false;
+    }
+
+
+    /*Function to check if the SvlanNumber is leaked by providing the original pfabcluster on which VC is getting created*/
+    public boolean isSvlanNumberLeaked(Transaction t, int sVlanNumber, String originalPfabClusterId) throws ValidationException{
+        Set<String> pfabClusterIds = deviceBl.getAllPfabClusterIds();
+        for (String pFabClusterId: pfabClusterIds) {
+            List<VirtualCircuitDo> virtualCircuitDos = getVirtualCircuitListBySVlanAndPFabClusterId(t, sVlanNumber, pFabClusterId);
+            if (checkUnitNumberLeak(virtualCircuitDos, originalPfabClusterId, t)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /*Function to check if the VcUnitNumber is leaked by providing the mappings of the VC*/
+    public boolean isVcUnitNumberLeaked(Transaction t,Integer vcUnitNumberForQfx, Mapping[] mappings, boolean isUnitNumberFixEnabled, String originalVirtualCircuitId) throws ValidationException {
+        if (mappings==null || !isUnitNumberFixEnabled){
+            return false;
+        }
+        Set<DeviceDo> deviceDos = new HashSet<>();
+        for (Mapping mapping : mappings){
+            Optional<CrossConnectDo>  optionalCrossConnectDo = crossConnectBl.get(t,mapping.getCrossConnectId());
+            if (optionalCrossConnectDo.isPresent()){
+                String deviceId = optionalCrossConnectDo.get().getDeviceId();
+                Optional<DeviceDo> optionalDeviceDo = deviceBl.get(t,deviceId);
+                if (optionalDeviceDo.isPresent()) {
+                    deviceDos.add(optionalDeviceDo.get());
+                }
+
+            }
+
+        }
+        for  (DeviceDo deviceDo: deviceDos){
+            String pFabClusterId = deviceDo.getPFabClusterId();
+            if (this.isVcUnitNumberLeaked(t, vcUnitNumberForQfx, pFabClusterId, originalVirtualCircuitId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /*Function to check if the VcUnitNumber is leaked by providing the original pfabcluster on which VC is getting created*/
+    public boolean isVcUnitNumberLeaked(Transaction t, int vcUnitNumberForQfx,String originalPfabClusterId, String originalVirtualVircuitId) throws ValidationException {
+
+        //Get All PfabClusterIds in the region
+        Set<String> pfabClusterIds= deviceBl.getAllPfabClusterIds();
+        List<VirtualCircuitDo> virtualCircuitDos;
+
+        for (String pFabClusterId: pfabClusterIds){
+            VirtualCircuitDo.VcUnitNumberForQfxAndPFabClusterIdKey key = VirtualCircuitDo.VcUnitNumberForQfxAndPFabClusterIdKey.builder()
+                    .vcUnitNumberForQfx(vcUnitNumberForQfx)
+                    .pFabClusterId(pFabClusterId)
+                    .build();
+            virtualCircuitDos = vcUnitNumberForQfxAndPFabClusterIdIndex.get(t, key,1)
+                .stream().filter(vc -> !vc.getId().equals(originalVirtualVircuitId))
+                .collect(Collectors.toList());
+            if (checkUnitNumberLeak(virtualCircuitDos, originalPfabClusterId, t)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+    /**
+     * @return The virtual circuit DO with the given vcUnitNumberForQfx and pfabclusterid.
+     */
+    public Optional<VirtualCircuitDo> getVirtualCircuitByVcUnitNumberForQfxAndPFabClusterId(Transaction t, int vcUnitNumberForQfx, String pFabClusterId) {
+
+        VirtualCircuitDo.VcUnitNumberForQfxAndPFabClusterIdKey key = VirtualCircuitDo.VcUnitNumberForQfxAndPFabClusterIdKey.builder()
+                .vcUnitNumberForQfx(vcUnitNumberForQfx)
+                .pFabClusterId(pFabClusterId)
+                .build();
+        List<VirtualCircuitDo> list = vcUnitNumberForQfxAndPFabClusterIdIndex.get(t, key,1);
+        if (list == null || list.size() == 0) {
+            return Optional.empty();
+        }
+        else {
+            return Optional.of(list.get(0));
+        }
+    }
+
+    /**
+     * Return virtual circuits with given gatewayId.
+     * @return  list of virtual circuit DOs with the given gatewayId.
+     */
+    public List<VirtualCircuitDo> getVirtualCircuitByGatewayId(Transaction t, String gatewayId) {
+
+        VirtualCircuitDo.VcGatewayIdKey key = VirtualCircuitDo.VcGatewayIdKey.builder()
+                .gatewayId(gatewayId)
+                .build();
+
+        return vcGatewayIdVirtualCircuitDoIndex.get(t, key, 100); // TODO come up with a better way to get all.
+    }
+
+    /**
+     * Return virtual circuits with given gatewayId.
+     * @return  list of virtual circuit DOs with the given gatewayId.
+     */
+    public ScanPage<VirtualCircuitDo> getVirtualCircuitByGatewayId(
+            String gatewayId,
+            Optional<PaginationToken> paginationToken,
+            int limit
+    ) {
+        VirtualCircuitDo.VcGatewayIdKey key = VirtualCircuitDo.VcGatewayIdKey.builder()
+                .gatewayId(gatewayId)
+                .build();
+
+        return paginationToken.map(token -> vcGatewayIdVirtualCircuitDoIndex.scan(token, limit))
+                .orElse(vcGatewayIdVirtualCircuitDoIndex.beginPrefixScan(key, limit));
+    }
+
+    /**
+     * Return virtual circuits with given gatewayId.
+     * @return  list of virtual circuit DOs with the given gatewayId.
+     */
+    public List<VirtualCircuitDo> getVirtualCircuitByGatewayId(String gatewayId) {
+        return getVirtualCircuitByGatewayId(gatewayId, Optional.empty(), null);
+    }
+
+    private List<VirtualCircuitDo> getVirtualCircuitByGatewayId(
+            String gatewayId,
+            Optional<PaginationToken> token,
+            List<VirtualCircuitDo> currentVcList
+    ) {
+        ScanPage<VirtualCircuitDo> vcScanPage = getVirtualCircuitByGatewayId(
+                gatewayId,
+                token,
+                SCAN_LIMIT);
+        List<VirtualCircuitDo> updatedList = vcScanPage.results();
+        if (currentVcList != null) {
+            updatedList.addAll(currentVcList);
+        }
+        if (vcScanPage.hasNext()) {
+            getVirtualCircuitByGatewayId(gatewayId, Optional.of(vcScanPage.paginationToken()), updatedList);
+        }
+        return updatedList;
+    }
+
+    public List<VirtualCircuitDo> getVirtualCircuitByInternalVcId(Transaction t, String internalVcId) {
+        return internalVcIndex.get(t, internalVcId, 1);
+    }
+
+    public List<VirtualCircuitDo> getVirtualCircuitByProvCompartment(String provCompId) {
+        VirtualCircuitDo.ProvCompartmentIdNameDateKey key = VirtualCircuitDo.ProvCompartmentIdNameDateKey.builder()
+                .providerCompartmentId(provCompId)
+                .build();
+
+        return provCompIdDateIndex.streamOf(provCompIdDateIndex.scanBuilder().prefix(key).build())
+                .collect(Collectors.toList());
+    }
+
+    public List<VirtualCircuitDo> getVirtualCircuitByProviderServiceId(Transaction t, String providerServiceId) {
+
+        List<VirtualCircuitDo> result = new ArrayList<>();
+        for (ScanPage<VirtualCircuitDo> page = providerServiceIndex.beginPrefixScan(providerServiceId, 2);
+             page.hasNext();
+             page = providerServiceIndex.scan(page.paginationToken())) {
+            result.addAll(page.results());
+        }
+        return result;
+    }
+
+    public List<VirtualCircuitDo> getVirtualCircuitByPfabClusterId(Transaction t, String pFabClusterId) {
+
+        return vcPFabClusterIdIndex.streamOf(vcPFabClusterIdIndex.scanBuilder().prefix(pFabClusterId).build())
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * For Oci Classic Provider Virtual Circuit, workflow is launched to create Oci Classic Virtual circuit.
+     * Similarly for Azure Provider Virtual Circuit, workflow is launched.
+     * Hence initial state is PROVISIONING which is transitioned to PENDING_PROVIDER at the end of the workflow.
+     */
+    private static VirtualCircuitDo.State getInitialStateForCreateWithProvider(
+            VirtualCircuitDo virtualCircuitDo,
+            ProviderServiceBl providerServiceBl,
+            PropertiesBl propertiesBl) {
+
+        if (virtualCircuitDo.isOciClassicProviderVirtualCircuit() ||
+                virtualCircuitDo.isOciClassicIPNWVcnVirtualCircuit()) {
+            return State.PROVISIONING;
+        } else if (providerServiceBl.isMicrosoftPeered(virtualCircuitDo.getProviderServiceId())) {
+            return State.PROVISIONING;
+        } else if (providerServiceBl.isGCPPeered(virtualCircuitDo.getProviderServiceId())) {
+            return State.PROVISIONING;
+        } else {
+            return State.PENDING_PROVIDER;
+        }
+    }
+
+    /**
+     * For Azure Provider Virtual Circuit, workflow is launched, so setting the provider state as ACTIVE.
+     */
+    public static VirtualCircuitDo.ProviderState getInitialProviderState(
+            VirtualCircuitDo virtualCircuitDo,
+            ProviderServiceBl providerServiceBl,
+            PropertiesBl propertiesBl) {
+        if (providerServiceBl.isMicrosoftPeered(virtualCircuitDo.getProviderServiceId()) || providerServiceBl.isGCPPeered(virtualCircuitDo.getProviderServiceId())) {
+            return VirtualCircuitDo.ProviderState.ACTIVE;
+        } else {
+            return VirtualCircuitDo.ProviderState.INACTIVE;
+        }
+    }
+
+    /**
+     * Retrieves a unique BGP prefix for the DRG.
+     *
+     * Generates a random prefix from the cidr (for the prefix length) and checks against currently
+     * assigned IPs on the drg. Repeats this for MAX_VLAN_BGP_TRIES until it finds one that is not
+     * currently used.
+     *
+     * @param drgDo - Drg for which the BGP prefix should be unique, it would be null if it is DrgV2
+     * @param cidr - cidr from which bgp prefix should be selected
+     * @param prefixLength - 30 or 31
+     * @throws ValidationException
+     */
+    public static Optional<String> getUniqueBgpPrefix(DrgDo drgDo, String cidr, int prefixLength) throws ValidationException {
+
+        for (int i = 0; i < MAX_VLAN_BGP_TRIES; i++) {
+
+            String prefix = IpUtils.getRandomPrefixFromPool(cidr, prefixLength);
+            if (drgDo != null
+                    && (drgDo.getVcToIpHelper().getTargetFromReservation(IpUtils.getNextAddress(prefix, 1)).isPresent()
+                    || drgDo.getVcToIpHelper().getTargetFromReservation(IpUtils.getNextAddress(prefix, 2)).isPresent())) {
+
+                continue;
+            }
+
+            return Optional.of(prefix);
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * Generates a unique vlan to be assigned to the VC on the cross-connect group.
+     *
+     * Generates a random number between MIN and MAX vlan and checks to see if it is already
+     * assigned to any VC on the cross-connect group. Tries to pick an unique vlan number
+     * that can be used by both groups. Repeats this for MAX_VLAN_BGP_TRIE until it
+     * finds one that is not used. If not able to find one, it will pick two numbers that
+     * can be used by each groups seperately.
+     *
+     * @param ccgDo1 - primary cross-connect group for which the vlan should be unique
+     * @param ccgDo2 - secondary cross-connect group for which the vlan should be unique
+     * @param minVlan - minimal value of vlan number that we can pick
+     * @param maxVlan - maximal value of vlan number that we can pick
+     * @return Two unique vlan numbers for primary and secondary cross-connect groups, ideally they will be identical
+     */
+    public static List<Integer> getUniqueVlans(CrossConnectGroupDo ccgDo1, CrossConnectGroupDo ccgDo2, int minVlan, int maxVlan, PropertiesBl propertiesBl, VcToVlanMappingBl vcToVlanMappingBl) {
+
+        List<Integer> vlans = new ArrayList<>(Arrays.asList(null, null));
+        SecureRandom random = new SecureRandom();
+        for (int i = 0; i < MAX_VLAN_BGP_TRIES; i++) {
+            Integer vlan = random.nextInt((maxVlan - minVlan) + 1) + minVlan;
+            if (propertiesBl.isVcToVlanMappingEnabled()) {
+                try (Transaction t = vcToVlanMappingBl.beginTransaction("get mapping")) {
+                    if (!ccgDo1.getVcToVlanHelper().getTargetFromReservation(vlan).isPresent() &&
+                            !vcToVlanMappingBl.getMappingByCcOrCcgPlusVlan(t, ccgDo1.getId(), vlan).isPresent()){
+                        vlans.set(0, vlan);
+                    }
+
+                    if (!ccgDo2.getVcToVlanHelper().getTargetFromReservation(vlan).isPresent() &&
+                            !vcToVlanMappingBl.getMappingByCcOrCcgPlusVlan(t, ccgDo2.getId(), vlan).isPresent()){
+                        vlans.set(1, vlan);
+                    }
+                }
+            } else {
+                if (!ccgDo1.getVcToVlanHelper().getTargetFromReservation(vlan).isPresent()) {
+                    vlans.set(0, vlan);
+                }
+
+                if (!ccgDo2.getVcToVlanHelper().getTargetFromReservation(vlan).isPresent()) {
+                    vlans.set(1, vlan);
+                }
+            }
+
+            if (vlans.get(0) != null && vlans.get(0).equals(vlans.get(1))) {
+                break;
+            }
+        }
+
+        return vlans;
+    }
+
+    public List<VirtualCircuitDo> getVirtualCircuitListBySVlanAndPFabClusterId(Transaction t, int sVlanNumberForQfx, String pFabClusterId) {
+
+        VirtualCircuitDo.SVlanAndPFabClusterIdKey key = VirtualCircuitDo.SVlanAndPFabClusterIdKey.builder()
+                .sVlanNumberForQfx(sVlanNumberForQfx)
+                .pFabClusterId(pFabClusterId)
+                .build();
+
+        return  vcSVlanAndPFabClusterIdIndex.get(t, key, 1);
+    }
+
+
+    /**
+     * @return The VirtualCircuit DO with the given svlan and pfabclusterid.
+     */
+    public Optional<VirtualCircuitDo> getVirtualCircuitBySVlanAndPFabClusterId(Transaction t, int sVlanNumberForQfx, String pFabClusterId) {
+
+        VirtualCircuitDo.SVlanAndPFabClusterIdKey key = VirtualCircuitDo.SVlanAndPFabClusterIdKey.builder()
+                .sVlanNumberForQfx(sVlanNumberForQfx)
+                .pFabClusterId(pFabClusterId)
+                .build();
+
+
+        List<VirtualCircuitDo> list = vcSVlanAndPFabClusterIdIndex.get(t, key, 1);
+        if (list == null || list.size() == 0) {
+            return Optional.empty();
+        }
+        else {
+            return Optional.of(list.get(0));
+        }
+    }
+
+    /**
+     * Returns the default routing policy for public virtual circuit.
+     *
+     * @return default Routing policy.
+     */
+    public RoutingPolicy getDefaultRoutingPolicy() {
+        return RoutingPolicy.MARKET_LEVEL;
+    }
+
+    @VisibleForTesting
+    boolean isRouteDistinguisherInUse(Transaction t, String routeDistinguisher) {
+        List<VirtualCircuitDo> listVC = routeDistinguisherIndex.get(t, routeDistinguisher, 1);
+        return !listVC.isEmpty();
+    }
+
+    public boolean isLabelAllocated(Transaction t, String labelSpaceId, int label) {
+        return isRouteDistinguisherInUse(t,  String.format("%s:%s", labelSpaceId, label));
+    }
+
+    public VirtualCircuitDo setRouteDistinguisherIfNeeded(Transaction t, String anyCastSetIp, String anyCastSetId, VirtualCircuitDo virtualCircuitDo)
+            throws ValidationException {
+
+        if (virtualCircuitDo.getRouteDistinguisher() != null) {
+            log.info("setRouteDistinguisherIfNeeded: VirtualCircuit {} already has RD {}, no op",
+                    virtualCircuitDo.getId(), virtualCircuitDo.getRouteDistinguisher());
+
+            return virtualCircuitDo;
+        }
+
+        Optional<Integer> mplsTableLabelOpt = mplsTableLabelManager.get().findUniqueMplsLabelPerLabelSpaceId(t, anyCastSetIp, anyCastSetId);
+
+        if (mplsTableLabelOpt.isPresent()) {
+            String routeDistinguisher = String.format("%s:%s", anyCastSetId, mplsTableLabelOpt.get());
+            return update(t, virtualCircuitDo.toBuilder().routeDistinguisher(routeDistinguisher).build());
+        } else {
+            // Supposedly, this will only happen if the allocated 16K DRG range is nearly used up,
+            // which is close to impossible
+            log.error("Cannot find an unused routeDistinguisher after maximum retries, VC: {}",
+                    virtualCircuitDo.getId());
+            throw new ValidationException(ErrorCode.QuotaExceeded,
+                    "Cannot find an unused routeDistinguisher after maximum retries, VC: ",
+                    virtualCircuitDo.getId());
+        }
+    }
+
+    // If Ecmp is turned off, remove rd to avoid hoarding vtNumber resources
+    public VirtualCircuitDo removeRouteDistinguisherIfNeeded(VirtualCircuitDo virtualCircuitDo)
+            throws ValidationException {
+
+        if (virtualCircuitDo.getRouteDistinguisher() == null) {
+            return virtualCircuitDo;
+        } else {
+            return virtualCircuitDo.toBuilder().routeDistinguisher(null).build();
+        }
+    }
+
+    // assign and set an unitNumber for the specified VC
+    public UnitNumberDo assignAndSetOrGetUnitNumberForVC(Transaction t, VirtualCircuitDo virtualCircuitDo, String deviceId)
+            throws ValidationException {
+
+        UnitNumberDo unitNumberDo = unitNumberBl.assignAndSetOrGetUnitNumber(
+                t, virtualCircuitDo.getGatewayId(), virtualCircuitDo.getId(), deviceId, virtualCircuitDo.isDrgV2());
+
+        if(!virtualCircuitDo.getGatewayId().equals(unitNumberDo.getDrgId())) {
+            List<UnitNumberDo> vcUnitNumbers = unitNumberBl.getUnitNumbersByAssocObj(t, virtualCircuitDo.getId()).stream()
+                    .filter(unitNumber -> unitNumber.getDeviceId().equals(deviceId)).collect(Collectors.toList());
+            for (UnitNumberDo unitNumber: vcUnitNumbers) {
+                unitNumberBl.delete(t, unitNumber);
+            }
+            unitNumberDo = unitNumberBl.assignAndSetOrGetUnitNumber(
+                    t, virtualCircuitDo.getGatewayId(), virtualCircuitDo.getId(), deviceId, virtualCircuitDo.isDrgV2());
+        }
+
+        log.info("Assigned and set unitNumber for VirtualCircuitDo {} with deviceId {} to {}",
+                virtualCircuitDo.getId(),
+                deviceId,
+                unitNumberDo.getUnitNumber());
+        return unitNumberDo;
+    }
+
+     // assign and set an unitNumber for the specified VC
+    public UnitNumberDo assignAndSetOrGetUnitNumberForVC(Transaction t, VirtualCircuitDo virtualCircuitDo, String deviceId, boolean isXnetIdChanging)
+            throws ValidationException {
+
+        UnitNumberDo unitNumberDo = unitNumberBl.assignAndSetOrGetUnitNumber(
+                t, virtualCircuitDo.getGatewayId(), virtualCircuitDo.getId(), deviceId, virtualCircuitDo.isDrgV2());
+
+        if(isXnetIdChanging) {
+            List<UnitNumberDo> vcUnitNumbers = unitNumberBl.getUnitNumbersByAssocObj(t, virtualCircuitDo.getId()).stream()
+                    .filter(unitNumber -> unitNumber.getDeviceId().equals(deviceId)).collect(Collectors.toList());
+            for (UnitNumberDo unitNumber: vcUnitNumbers) {
+                unitNumberBl.delete(t, unitNumber);
+            }
+            unitNumberDo = unitNumberBl.assignAndSetOrGetUnitNumber(
+                    t, virtualCircuitDo.getGatewayId(), virtualCircuitDo.getId(), deviceId, virtualCircuitDo.isDrgV2());
+        }
+
+        log.info("Assigned and set unitNumber for VirtualCircuitDo {} with deviceId {} to {}",
+                virtualCircuitDo.getId(),
+                deviceId,
+                unitNumberDo.getUnitNumber());
+        return unitNumberDo;
+    }
+
+    public UnitNumberDo setUnitNumberForEcmpVc(Transaction t, VirtualCircuitDo virtualCircuitDo, String deviceId, Integer unitNumber) throws ValidationException {
+        List<UnitNumberDo> vcUnitNumberDos = unitNumberBl.getUnitNumbersByAssocObj(t, virtualCircuitDo.getId());
+        for (UnitNumberDo vcUnitNumberDo : vcUnitNumberDos) {
+            if (vcUnitNumberDo.getDeviceId().equals(deviceId) && vcUnitNumberDo.getUnitNumber().equals(unitNumber)) {
+                return vcUnitNumberDo;
+            }
+        }
+        return unitNumberBl.setUnitNumber(t, ECMP_DRGV1_ID_FOR_UNIT_NUMBER, virtualCircuitDo.getId(), deviceId, unitNumber, virtualCircuitDo.isDrgV2());
+    }
+
+    public Integer getUnitNumberForVc(Transaction t, VirtualCircuitDo virtualCircuitDo, String deviceId) throws ValidationException {
+        List<UnitNumberDo> assocUnitNumber = unitNumberBl.getUnitNumbersByAssocObj(t, virtualCircuitDo.getId());
+        for (UnitNumberDo unitNumberDo: assocUnitNumber) {
+            if (unitNumberDo.getDeviceId().equals(deviceId)) {
+                return unitNumberDo.getUnitNumber();
+            }
+        }
+        return unitNumberBl.getUnusedUnitNumber(t, virtualCircuitDo.getId(), deviceId);
+    }
+
+    public VirtualCircuitDo.State getAndValidateLifecycleStateInternal(String lifecycleStateInternal) throws ValidationException {
+
+        if (lifecycleStateInternal == null) {
+            PublicValidation.failInvalidLifecycleStateInternalFilter(null, VirtualCircuitDo.State.class.getName());
+        }
+
+        VirtualCircuitDo.State state = null;
+        try {
+            state = VirtualCircuitDo.State.create(lifecycleStateInternal);
+        } catch (RuntimeException e) {
+            PublicValidation.failInvalidLifecycleStateInternalFilter(lifecycleStateInternal, VirtualCircuitDo.State.class.getName());
+        }
+
+        return state;
+    }
+
+    public ScanPage<VirtualCircuitDo> scanByState(VirtualCircuitDo.State state, int pageSize, Optional<PaginationToken> paginationToken) {
+        return paginationToken.map(token -> stateIndex.scan(token, pageSize))
+                .orElse(stateIndex.beginPrefixScan(state, pageSize));
+    }
+
+    public List<VirtualCircuitDo> getVcByServiceKeyName(Transaction t, String providerId, String providerServiceKeyName) {
+
+        return getVirtualCircuitByProviderServiceId(t, providerId)
+            .stream()
+            .filter(vc -> vc.getProviderServiceKeyName().equals(providerServiceKeyName))
+            .collect(Collectors.toList());
+    }
+
+    public Set<String> getEdgePops(VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        Set<String> edgePops = new HashSet<>();
+
+        if (virtualCircuitDo.getCrossConnectMapping() == null || virtualCircuitDo.getCrossConnectMapping().getMappings() == null) {
+            return edgePops;
+        }
+
+        for (Mapping mapping : virtualCircuitDo.getCrossConnectMapping().getMappings()) {
+
+            if (StringUtils.isBlank(mapping.getCrossConnectId())) {
+                log.info(String.format("This is PROVIDER setting virtual circuit to INACTIVE state. No crossConnect information in mappings for %s.", virtualCircuitDo));
+                continue;
+            }
+            // CrossConnect
+
+            boolean isCrossConnect = VirtualCircuitBl.isCrossConnect(mapping.getCrossConnectId());
+            CrossConnectDo crossConnectDo;
+            // get device
+            if (isCrossConnect) {
+                crossConnectDo = crossConnectBl.getOrThrow(mapping.getCrossConnectId());
+            } else  {
+                CrossConnectGroupDo crossConnectGroupDo = crossConnectGroupBl.getOrThrow(mapping.getCrossConnectId());
+                crossConnectDo = crossConnectBl.getOrThrow(crossConnectGroupDo.getCrossConnectIds()[0]);
+            }
+
+            Optional<LocationDo> optionalLocationDo = locationBl.get(crossConnectDo.getLocation());
+            if (!optionalLocationDo.isPresent()) {
+                // legacy crossConnectDo refer to location by name - https://jira.oci.oraclecorp.com/browse/RSC-5487.
+                optionalLocationDo = locationBl.getLocation(crossConnectDo.getLocation());
+            }
+            LocationDo locationDo = optionalLocationDo.get();
+            if (locationDo.isEdgePopLocation()) {
+                edgePops.add(locationDo.getEdgePopRegion());
+            }
+        }
+        return edgePops;
+    }
+
+    public Boolean isEdgePop(VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        Set<String> edgePop = getEdgePops(virtualCircuitDo);
+        return edgePop.size() != 0;
+    }
+
+    public Boolean isFfab(VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        // TODO: Check if its possible to have a VC with a mixed FFAB CC mapping and a QFX/Arista/MX mapping
+        if (virtualCircuitDo.getCrossConnectMapping() != null
+                && virtualCircuitDo.getCrossConnectMapping().getMappings() != null) {
+            for (Mapping mapping : virtualCircuitDo.getCrossConnectMapping().getMappings()) {
+                if (mapping.getCrossConnectId() != null) {
+                    boolean isCrossConnect = VirtualCircuitBl.isCrossConnect(mapping.getCrossConnectId());
+                    CrossConnectDo crossConnectDo;
+                    // get device
+                    if (isCrossConnect) {
+                        crossConnectDo = crossConnectBl.getOrThrow(mapping.getCrossConnectId());
+                    } else  {
+                        CrossConnectGroupDo crossConnectGroupDo = crossConnectGroupBl.getOrThrow(mapping.getCrossConnectId());
+                        crossConnectDo = crossConnectBl.getOrThrow(crossConnectGroupDo.getCrossConnectIds()[0]);
+                    }
+                    if (deviceBl.getOrThrow(crossConnectDo.getDeviceId()).getRoles().contains(DeviceDo.Role.Qfx5120)) {
+                        return Boolean.TRUE;
+                    }
+                }
+            }
+        }
+        return Boolean.FALSE;
+    }
+
+    public Set<String> getDeviceIdsForVirtualCircuit(String virtualCircuitId) {
+        Set<String> deviceIds = new HashSet<>();
+        try (Transaction t = beginTransaction("get devices for vc")) {
+            VirtualCircuitDo virtualCircuitDo = getOrThrow(t, virtualCircuitId);
+            for (Mapping mapping : virtualCircuitDo.getCrossConnectMapping().getMappings()) {
+                String ocid = mapping.getCrossConnectId();
+                try {
+                    if (isCrossConnect(ocid)) {
+                        CrossConnectDo ccDo = crossConnectBl.getOrThrow(t, ocid);
+                        DeviceDo mxDeviceDo = deviceBl.getMxDeviceFromCrossConnectDevice(t, deviceBl.getOrThrow(t, ccDo.getDeviceId()));
+                        deviceIds.add(mxDeviceDo.getId());
+                    } else if (isCrossConnectGroup(ocid)) {
+                        CrossConnectGroupDo ccgDo = crossConnectGroupBl.getOrThrow(t, ocid);
+                        for (String crossConnectId : ccgDo.getCrossConnectIds()) {
+                            CrossConnectDo ccDo = crossConnectBl.getOrThrow(t, crossConnectId);
+                            DeviceDo mxDeviceDo = deviceBl.getMxDeviceFromCrossConnectDevice(t, deviceBl.getOrThrow(t, ccDo.getDeviceId()));
+                            deviceIds.add(mxDeviceDo.getId());
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("Error while fetching ocid {}, skipping", ocid);
+                }
+            }
+        } catch (ValidationException e) {
+            log.error("Error while fetching ocid {}, skipping", virtualCircuitId);
+        }
+        return deviceIds;
+    }
+
+    public DeviceDo getLogicalDevice(String id) throws ValidationException {
+        if(id != null) {
+            CrossConnectDo crossConnectDo;
+            if (VirtualCircuitBl.isCrossConnect(id)) {
+                crossConnectDo = crossConnectBl.getOrThrow(id);
+            } else {
+                CrossConnectGroupDo crossConnectGroupDo = crossConnectGroupBl.getOrThrow(id);
+                crossConnectDo = crossConnectBl.getOrThrow(crossConnectGroupDo.getCrossConnectIds()[0]);
+            }
+
+            DeviceDo deviceDo = deviceBl.getOrThrow(crossConnectDo.getDeviceId());
+            // For CrossConnects on QFX or Arista return deviceId of MX since virtual circuit
+            // config snippet is on MX device and not on QFX or Arista.
+            deviceDo = deviceBl.getMxDeviceFromCrossConnectDevice(deviceDo);
+
+            return deviceDo;
+        }
+        return null;
+    }
 }
+
