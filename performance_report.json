@@ -16,3 +16,1461 @@
     "efficiency_score": 3.9412855146519035,
     "timestamp": "2025-03-13T12:29:59.169"
 }
+package com.oracle.pic.vpn.api.resources.management;
+
+
+import com.codahale.metrics.annotation.Timed;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.google.inject.Inject;
+import com.oracle.bmc.core.model.DrgAttachment;
+import com.oracle.bmc.core.model.UpdateVirtualCircuitDetails;
+import com.oracle.bmc.core.model.VirtualCircuit;
+import com.oracle.bmc.core.model.VirtualCircuitAssociatedTunnelDetails;
+import com.oracle.bmc.core.model.VirtualCircuitDrgAttachmentNetworkDetails;
+import com.oracle.pic.commons.exceptions.server.ErrorCode;
+import com.oracle.pic.commons.exceptions.server.RenderableException;
+import com.oracle.pic.commons.id.InvalidOCIDException;
+import com.oracle.pic.commons.metrics.MetricsScope;
+import com.oracle.pic.commons.rid.RequestIdHolder;
+import com.oracle.pic.commons.service.Params;
+import com.oracle.pic.commons.service.model.PaginatedResponse;
+import com.oracle.pic.identity.authentication.error.AuthServerUnavailableException;
+import com.oracle.pic.kiev.Transaction;
+import com.oracle.pic.kiev.mapping.PaginationToken;
+import com.oracle.pic.kiev.mapping.ScanPage;
+import com.oracle.pic.vpn.api.auth.VpnSkipAuthorization;
+import com.oracle.pic.vpn.api.resources.util.CustomParams;
+import com.oracle.pic.vpn.api.resources.util.PaginationUtils;
+import com.oracle.pic.vpn.api.resources.util.ResourceUtils;
+import com.oracle.pic.vpn.common.MetricConstants;
+import com.oracle.pic.vpn.common.PingResult;
+import com.oracle.pic.vpn.common.RouteInformation;
+import com.oracle.pic.vpn.db.ArchiveBl;
+import com.oracle.pic.vpn.db.BgpBl;
+import com.oracle.pic.vpn.db.CrossConnectBl;
+import com.oracle.pic.vpn.db.CrossConnectGroupBl;
+import com.oracle.pic.vpn.db.DrgBl;
+import com.oracle.pic.vpn.db.DrgV2AttachmentBl;
+import com.oracle.pic.vpn.db.EventBl;
+import com.oracle.pic.vpn.db.FcRedundancyBl;
+import com.oracle.pic.vpn.db.PropertiesBl;
+import com.oracle.pic.vpn.db.ProviderServiceBl;
+import com.oracle.pic.vpn.db.QosBandwidthReservationTemplateBl;
+import com.oracle.pic.vpn.db.TenancyMetadataBl;
+import com.oracle.pic.vpn.db.TunnelBl;
+import com.oracle.pic.vpn.db.UnitNumberBl;
+import com.oracle.pic.vpn.db.VcTunnelAssociationBl;
+import com.oracle.pic.vpn.db.VirtualCircuitBl;
+import com.oracle.pic.vpn.db.WorkRequestBl;
+import com.oracle.pic.vpn.db.bgp.BgpSessionState;
+import com.oracle.pic.vpn.db.bgp.BgpStateMap;
+import com.oracle.pic.vpn.db.devices.ConfigSnippetBl;
+import com.oracle.pic.vpn.db.devices.DeviceBl;
+import com.oracle.pic.vpn.db.devices.model.ConfigSnippetDo;
+import com.oracle.pic.vpn.db.devices.model.DeviceDo;
+import com.oracle.pic.vpn.db.encryption.EncryptionException;
+import com.oracle.pic.vpn.db.exception.ValidationException;
+import com.oracle.pic.vpn.db.metering.VpnMetering;
+import com.oracle.pic.vpn.db.metering.VpnMeteringResource;
+import com.oracle.pic.vpn.db.model.Component;
+import com.oracle.pic.vpn.db.model.CountDo;
+import com.oracle.pic.vpn.db.model.CrossConnectDo;
+import com.oracle.pic.vpn.db.model.CrossConnectGroupDo;
+import com.oracle.pic.vpn.db.model.CrossConnectMappings;
+import com.oracle.pic.vpn.db.model.DrgDo;
+import com.oracle.pic.vpn.db.model.DrgV2AttachmentDo;
+import com.oracle.pic.vpn.db.model.ProviderServiceDo;
+import com.oracle.pic.vpn.db.model.TunnelDo;
+import com.oracle.pic.vpn.db.model.UnitNumberDo;
+import com.oracle.pic.vpn.db.model.VcTunnelAssociationDo;
+import com.oracle.pic.vpn.db.model.VirtualCircuitDo;
+import com.oracle.pic.vpn.db.model.WorkRequestDo;
+import com.oracle.pic.vpn.db.util.IpUtils;
+import com.oracle.pic.vpn.db.util.PaginationTokenUtils;
+import com.oracle.pic.vpn.db.util.PublicValidation;
+import com.oracle.pic.vpn.db.util.TagUtils;
+import com.oracle.pic.vpn.db.util.Validation;
+import com.oracle.pic.vpn.db.util.VirtualCircuitHelper;
+import com.oracle.pic.vpn.db.util.VirtualCircuitUtils;
+import com.oracle.pic.vpn.db.util.VirtualCircuitValidationHelper;
+import com.oracle.pic.vpn.db.workflow.args.OperationType;
+import com.oracle.pic.vpn.device.connector.DeviceConnector;
+import com.oracle.pic.vpn.device.connector.DeviceIOException;
+import com.oracle.pic.vpn.device.connector.FatalDeviceException;
+import com.oracle.pic.vpn.identity.IdentityMetadataHelper;
+import com.oracle.pic.vpn.limits.VpnLimitsHelper;
+import com.oracle.pic.vpn.model.CrossConnectMapping;
+import com.oracle.pic.vpn.model.Event;
+import com.oracle.pic.vpn.model.PingRequestDetails;
+import com.oracle.pic.vpn.model.PingResultResponse;
+import com.oracle.pic.vpn.model.Property;
+import com.oracle.pic.vpn.model.UnitNumber;
+import com.oracle.pic.vpn.model.UpdatePropertyRequest;
+import com.oracle.pic.vpn.model.UpdateUnitNumberRequest;
+import com.oracle.pic.vpn.model.UpdateVirtualCircuitPublicPrefix;
+import com.oracle.pic.vpn.model.UpdateVirtualCircuitPublicPrefixDetails;
+import com.oracle.pic.vpn.model.VirtualCircuit.TrafficMode;
+import com.oracle.pic.vpn.model.VirtualCircuitBgpRoute;
+import com.oracle.pic.vpn.model.VirtualCircuitBgpRoutes;
+import com.oracle.pic.vpn.model.VirtualCircuitPublicPrefixDetails;
+import com.oracle.pic.vpn.model.VirtualCircuitRedundancyMetadata;
+import com.oracle.pic.vpn.oci.DrgV2Helper;
+import com.oracle.pic.vpn.workflows.casemetric.PerformanceMetricHelper;
+import lombok.NonNull;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+
+import javax.annotation.Nullable;
+import javax.validation.Valid;
+import javax.ws.rs.DELETE;
+import javax.ws.rs.DefaultValue;
+import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
+import javax.ws.rs.POST;
+import javax.ws.rs.PUT;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Response;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+
+import static com.oracle.pic.vpn.api.resources.v20160918.VirtualCircuitResource.filterPublicPrefix;
+import static com.oracle.pic.vpn.api.resources.v20160918.VirtualCircuitResource.getAndValidatePrefixVerificationState;
+
+/**
+ * Virtual Circuit Management resource
+ *
+ */
+@Path("/v1/management/virtualCircuits")
+@Produces({ "application/json", "application/x-json-stream" })
+@Slf4j
+public class VirtualCircuitManagementResourceV1 {
+
+    private static final Integer DEVICE_CONNECTOR_TIMEOUT_MILLISEC = 30000;
+    private final DeviceBl deviceBl;
+    private final WorkRequestBl workRequestBl;
+    private final ProviderServiceBl providerBl;
+    private final PropertiesBl propertiesBl;
+    private final VirtualCircuitBl virtualCircuitBl;
+    private final EventBl eventBl;
+    private final BgpBl bgpBl;
+    private final DrgBl drgBl;
+    private final VpnLimitsHelper limitsHelper;
+    private final ConfigSnippetBl configSnippetBl;
+    private final CrossConnectBl crossConnectBl;
+    private final CrossConnectGroupBl crossConnectGroupBl;
+    private final UnitNumberBl unitNumberBl;
+    private final ArchiveBl archiveBl;
+    private final DrgV2Helper drgV2Helper;
+    private final VpnMetering vpnMetering;
+    private final VcTunnelAssociationBl vcTunnelAssociationBl;
+    private final TenancyMetadataBl tenancyMetadataBl;
+    private final IdentityMetadataHelper identityMetadataHelper;
+    protected PerformanceMetricHelper perfMetric;
+    private final TunnelBl tunnelBl;
+    private final DrgV2AttachmentBl drgV2AttachmentBl;
+    private final QosBandwidthReservationTemplateBl qosBandwidthReservationTemplateBl;
+
+    private final FcRedundancyBl fcRedundancyBl;
+
+    @Inject
+    public VirtualCircuitManagementResourceV1(DeviceBl deviceBl,
+                                              WorkRequestBl workRequestBl,
+                                              ProviderServiceBl providerBl,
+                                              PropertiesBl propertiesBl,
+                                              VirtualCircuitBl virtualCircuitBl,
+                                              EventBl eventBl,
+                                              BgpBl bgpBl,
+                                              DrgBl drgbl,
+                                              VpnLimitsHelper limitsHelper,
+                                              ConfigSnippetBl configSnippetBl,
+                                              CrossConnectBl crossConnectBl,
+                                              CrossConnectGroupBl crossConnectGroupBl,
+                                              UnitNumberBl unitNumberBl,
+                                              ArchiveBl archiveBl,
+                                              DrgV2Helper drgV2Helper,
+                                              VpnMetering vpnMetering,
+                                              VcTunnelAssociationBl vcTunnelAssociationBl,
+                                              TenancyMetadataBl tenancyMetadataBl,
+                                              IdentityMetadataHelper identityMetadataHelper,
+                                              TunnelBl tunnelBl,
+                                              DrgV2AttachmentBl drgV2AttachmentBl,
+                                              QosBandwidthReservationTemplateBl qosBandwidthReservationTemplateBl,
+                                              FcRedundancyBl fcRedundancyBl) {
+
+        this.deviceBl = deviceBl;
+        this.workRequestBl = workRequestBl;
+        this.providerBl = providerBl;
+        this.propertiesBl = propertiesBl;
+        this.virtualCircuitBl = virtualCircuitBl;
+        this.eventBl = eventBl;
+        this.bgpBl = bgpBl;
+        this.drgBl = drgbl;
+        this.limitsHelper = limitsHelper;
+        this.configSnippetBl = configSnippetBl;
+        this.crossConnectBl = crossConnectBl;
+        this.crossConnectGroupBl = crossConnectGroupBl;
+        this.unitNumberBl = unitNumberBl;
+        this.archiveBl = archiveBl;
+        this.drgV2Helper = drgV2Helper;
+        this.vpnMetering = vpnMetering;
+        this.drgV2AttachmentBl = drgV2AttachmentBl;
+        this.fcRedundancyBl = fcRedundancyBl;
+        this.perfMetric = new PerformanceMetricHelper();
+        this.vcTunnelAssociationBl = vcTunnelAssociationBl;
+        this.tenancyMetadataBl = tenancyMetadataBl;
+        this.identityMetadataHelper = identityMetadataHelper;
+        this.tunnelBl = tunnelBl;
+        this.qosBandwidthReservationTemplateBl = qosBandwidthReservationTemplateBl;
+    }
+
+    //
+    // Virtual Circuits Management APIs
+    //
+    @GET
+    @Timed(name = "listVirtualCircuits")
+    @VpnSkipAuthorization
+    public PaginatedResponse<com.oracle.pic.vpn.model.VirtualCircuit> listVirtualCircuits(
+            @DefaultValue("16") @QueryParam(Params.LIMIT) int limit,
+            @QueryParam(Params.PAGE) String opaqueToken,
+            @QueryParam(CustomParams.COMPARTMENT_ID) String compartmentId,
+            @QueryParam(CustomParams.DRG_ID) String drgId,
+            @QueryParam(CustomParams.LIFECYCLE_STATE_INTERNAL) String lifecycleStateInternal
+            ) throws ValidationException {
+
+        Supplier<ScanPage<VirtualCircuitDo>> initial;
+        Function<PaginationToken, ScanPage<VirtualCircuitDo>> fromToken;
+        Function<VirtualCircuitDo, com.oracle.pic.vpn.model.VirtualCircuit> toModel;
+        Predicate<VirtualCircuitDo> filter = null;
+
+        BgpStateMap bgpStateMap = bgpBl.prepareBgpStateMap();
+
+        if (compartmentId == null && drgId == null) {
+
+            Map<String, String> drgMap = new HashMap<>();
+            drgBl.stream().forEach(drgDo -> drgMap.put(drgDo.getId(), drgDo.getGroupId()));
+
+            if (lifecycleStateInternal != null) {
+                VirtualCircuitDo.State effectiveState = virtualCircuitBl.getAndValidateLifecycleStateInternal(lifecycleStateInternal);
+                initial = () -> virtualCircuitBl.scanByState(effectiveState, limit, Optional.empty());
+                fromToken = (PaginationToken p) -> virtualCircuitBl.scanByState(effectiveState, limit,
+                        PaginationTokenUtils.deserializeAndValidate(opaqueToken, virtualCircuitBl.getMappedDataStore()));
+                toModel = (virtualCircuitDo) -> {
+                    try {
+                        return toModel(
+                                virtualCircuitDo.toModel(
+                                        providerBl, bgpBl, bgpStateMap, drgMap, vcTunnelAssociationBl,
+                                        tenancyMetadataBl, identityMetadataHelper, null, null, null
+                                ),
+                                virtualCircuitDo
+                        );
+                    } catch (com.oracle.pic.vpn.db.exception.ValidationException e) {
+                        log.error("Virtual circuit operation failed. id={}", virtualCircuitDo.getId(), e);
+                        throw new RuntimeException("Virtual circuit operation failed.", e);
+                    }
+                };
+
+            } else {
+                initial = () -> virtualCircuitBl.list(Optional.empty(), limit);
+                fromToken = (token) -> virtualCircuitBl.list(Optional.of(token), limit);
+                toModel = (virtualCircuitDo) -> {
+                    try {
+                        return toModel(
+                                virtualCircuitDo.toModel(
+                                        providerBl, bgpBl, bgpStateMap, drgMap, vcTunnelAssociationBl,
+                                        tenancyMetadataBl, identityMetadataHelper, null, null, null
+                                ),
+                                virtualCircuitDo
+                        );
+                    } catch (com.oracle.pic.vpn.db.exception.ValidationException e) {
+                        log.error("Virtual circuit operation failed. id={}", virtualCircuitDo.getId(), e);
+                        throw new RuntimeException("Virtual circuit operation failed.", e);
+                    }
+                };
+            }
+
+        } else if (drgId == null) {
+            List<ProviderServiceDo> providers = providerBl.getProviderServicesByCompartment(compartmentId);
+
+            if (providers.size() > 0) {
+                initial = () -> virtualCircuitBl.scanForListByProviderCompartment(compartmentId, null, limit,
+                    Optional.empty(), Optional.empty(), Optional.empty());
+                fromToken = (PaginationToken p) -> virtualCircuitBl.scanForListByProviderCompartment(compartmentId, null, limit,
+                                PaginationTokenUtils.deserializeAndValidate(opaqueToken, virtualCircuitBl.getMappedDataStore()), Optional.empty(), Optional.empty());
+                toModel = (virtualCircuitDo) -> {
+                    try {
+                        return toModel(
+                                virtualCircuitDo.toModel(
+                                        providerBl, bgpBl, bgpStateMap,
+                                        vcTunnelAssociationBl, tenancyMetadataBl,
+                                        identityMetadataHelper, null, null, null
+                                ),
+                                virtualCircuitDo
+                        );
+                    } catch (com.oracle.pic.vpn.db.exception.ValidationException e) {
+                        log.error("Virtual circuit operation failed. id={}", virtualCircuitDo.getId(), e);
+                        throw new RuntimeException("Virtual circuit operation failed.", e);
+                    }
+                };
+
+            } else {
+                initial = () -> virtualCircuitBl.scanForList(compartmentId, null, limit,
+                                Optional.empty(), Optional.empty(), Optional.empty());
+                fromToken = (PaginationToken p) -> virtualCircuitBl.scanForList(compartmentId, null, limit,
+                        PaginationTokenUtils.deserializeAndValidate(opaqueToken, virtualCircuitBl.getMappedDataStore()),
+                        Optional.empty(), Optional.empty());
+                toModel = (virtualCircuitDo) -> {
+                    try {
+                        return toModel(
+                                virtualCircuitDo.toModel(
+                                        providerBl, bgpBl, bgpStateMap,
+                                        vcTunnelAssociationBl, tenancyMetadataBl,
+                                        identityMetadataHelper, null, null, null
+                                ),
+                                virtualCircuitDo
+                        );
+                    } catch (com.oracle.pic.vpn.db.exception.ValidationException e) {
+                        log.error("Virtual circuit operation failed. id={}", virtualCircuitDo.getId(), e);
+                        throw new RuntimeException("Virtual circuit operation failed.", e);
+                    }
+                };
+            }
+
+        } else if (compartmentId == null) {
+            initial = () -> virtualCircuitBl.getVirtualCircuitByGatewayId(drgId, Optional.empty(), limit);
+            fromToken = (PaginationToken p) -> virtualCircuitBl.getVirtualCircuitByGatewayId(drgId,
+                    PaginationTokenUtils.deserializeAndValidate(opaqueToken, virtualCircuitBl.getMappedDataStore()),
+                    limit);
+            toModel = (vc) -> {
+                try {
+                    return toModel(
+                            vc.toModel(
+                                    providerBl, bgpBl, bgpStateMap,
+                                    vcTunnelAssociationBl, tenancyMetadataBl,
+                                    identityMetadataHelper, null, null, null
+                            ),
+                            vc
+                    );
+                } catch (com.oracle.pic.vpn.db.exception.ValidationException e) {
+                    log.error("Virtual circuit operation failed. id={}", vc.getId(), e);
+                    throw new RuntimeException("Virtual circuit operation failed.", e);
+                }
+            };
+
+
+        } else {
+            initial = () -> virtualCircuitBl.scanByCompartment(compartmentId, limit, Optional.empty());
+            fromToken = (token) -> virtualCircuitBl.scanByCompartment(compartmentId, limit, Optional.of(token));
+            toModel = (vc) -> {
+                try {
+                    return toModel(
+                            vc.toModel(
+                                    providerBl, bgpBl, bgpStateMap,
+                                    vcTunnelAssociationBl, tenancyMetadataBl,
+                                    identityMetadataHelper, null, null, null
+                            ),
+                            vc
+                    );
+                } catch (com.oracle.pic.vpn.db.exception.ValidationException e) {
+                    log.error("Virtual circuit operation failed. id={}", vc.getId(), e);
+                    throw new RuntimeException("Virtual circuit operation failed.", e);
+                }
+            };
+            filter = virtualCircuitDo -> virtualCircuitDo.getGatewayId().equals(drgId);
+        }
+
+        if (filter != null) {
+            return PaginationUtils.getScanPage(opaqueToken, initial, fromToken, filter, toModel, virtualCircuitBl.getMappedDataStore());
+        } else {
+            return PaginationUtils.getScanPage(opaqueToken, initial, fromToken, toModel, virtualCircuitBl.getMappedDataStore());
+        }
+    }
+
+    @GET
+    @Path("/{virtualCircuitId}/publicPrefixes")
+    @Timed(name = "list-virtualCircuit-publicPrefixes")
+    @VpnSkipAuthorization
+    public PaginatedResponse<VirtualCircuitPublicPrefixDetails> listVirtualCircuitPublicPrefixes(
+            @QueryParam(CustomParams.PREFIX_VERIFICATION_STATE) String prefixVerificationState,
+            @PathParam("virtualCircuitId") String id) throws ValidationException {
+
+        VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrowForAuth(id);
+
+        Optional<VirtualCircuitDo.PublicPrefix.VerificationState> prefixState =
+                getAndValidatePrefixVerificationState(prefixVerificationState);
+
+        return new PaginatedResponse<>
+                (virtualCircuitDo.getPublicPrefixes()
+                        .stream()
+                        .filter(prefix -> filterPublicPrefix(prefix, prefixState))
+                        .map(prefix -> VirtualCircuitPublicPrefixDetails
+                                .builder()
+                                .cidrBlock(prefix.getCidrBlock())
+                                .verificationState(getManagementVerificationStateFromDoState(prefix.getVerificationState()))
+                                .build())
+                        .collect(Collectors.toList()));
+    }
+
+    @GET
+    @Path("/{virtualCircuitId}/associatedTunnels")
+    @Timed(name = "list-tunnels-associated")
+    @VpnSkipAuthorization
+    public PaginatedResponse<VirtualCircuitAssociatedTunnelDetails> listVirtualCircuitAssociatedTunnelDetails(
+            @PathParam("virtualCircuitId") String id,
+            @DefaultValue("10") @QueryParam(Params.LIMIT) int limit,
+            @QueryParam(Params.PAGE) String opaqueToken) throws ValidationException {
+
+        Supplier<ScanPage<VcTunnelAssociationDo>> initial = null;
+        Function<PaginationToken, ScanPage<VcTunnelAssociationDo>> fromToken = null;
+
+        initial = () -> vcTunnelAssociationBl.scanByVcId(id, limit, Optional.empty());
+        fromToken = (PaginationToken p) -> vcTunnelAssociationBl.scanByVcId(id, limit,
+                PaginationTokenUtils.deserializeAndValidate(opaqueToken, vcTunnelAssociationBl.getMappedDataStore()));
+        try (Transaction t = vcTunnelAssociationBl.beginTransaction("get-tunnel")){
+            PaginatedResponse<VirtualCircuitAssociatedTunnelDetails> scanPage = PaginationUtils.getScanPage(
+                    opaqueToken,
+                    initial,
+                    fromToken,
+                    (vcTunnelDo) -> covertToVcTunnelDetails(t, vcTunnelDo),
+                    vcTunnelAssociationBl.getMappedDataStore());
+            return scanPage;
+        }
+    }
+
+    private VirtualCircuitAssociatedTunnelDetails covertToVcTunnelDetails(Transaction t, VcTunnelAssociationDo vcTunnelAssociationDo) {
+        TunnelDo tunnelDo = tunnelBl.get(t, vcTunnelAssociationDo.getTunnelOcid()).get();
+        return VirtualCircuitAssociatedTunnelDetails.builder()
+                .ipsecConnectionId(tunnelDo.getIpsecId())
+                .tunnelId(vcTunnelAssociationDo.getTunnelOcid())
+                .tunnelType(VirtualCircuitAssociatedTunnelDetails.TunnelType.Ipsec)
+                .build();
+    }
+
+    public static VirtualCircuitPublicPrefixDetails.VerificationState getManagementVerificationStateFromDoState(
+            VirtualCircuitDo.PublicPrefix.VerificationState prefixState) {
+
+        switch(prefixState) {
+            case IN_PROGRESS:
+                return VirtualCircuitPublicPrefixDetails.VerificationState.InProgress;
+
+            case IN_PROGRESS_TICKETED:
+                return VirtualCircuitPublicPrefixDetails.VerificationState.InProgressTicketed;
+
+            case COMPLETED:
+                return VirtualCircuitPublicPrefixDetails.VerificationState.Completed;
+
+            case FAILED:
+                return VirtualCircuitPublicPrefixDetails.VerificationState.Failed;
+
+            default:
+                return VirtualCircuitPublicPrefixDetails.VerificationState.InProgress;
+        }
+    }
+
+    @GET
+    @Path("/{virtualCircuitId}")
+    @Timed(name="getVirtualCircuit")
+    @VpnSkipAuthorization
+    public Response getVirtualCircuit(
+            @PathParam("virtualCircuitId") String id) throws Exception {
+
+        VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrow(id);
+        BgpStateMap bgpStateMap = bgpBl.prepareBgpStateMap();
+        VirtualCircuit vc = virtualCircuitDo.toModel(providerBl, bgpBl, bgpStateMap, vcTunnelAssociationBl, tenancyMetadataBl, identityMetadataHelper,
+                fcRedundancyBl.toModelIpv4BgpSessionRedundancyStatus(virtualCircuitDo),
+                fcRedundancyBl.toModelIpv6BgpSessionRedundancyStatus(virtualCircuitDo),
+                fcRedundancyBl.toModelConfiguredRedundancyLevel(virtualCircuitDo));
+        return Response.ok(toModel(vc, virtualCircuitDo))
+                .build();
+    }
+
+    public com.oracle.pic.vpn.model.VirtualCircuit toModel (VirtualCircuit vc, VirtualCircuitDo virtualCircuitDo)
+            throws ValidationException {
+
+        com.oracle.pic.vpn.model.VirtualCircuit.LifecycleState lifecycleState = vc.getLifecycleState() != null
+                ? com.oracle.pic.vpn.model.VirtualCircuit.LifecycleState.create(vc.getLifecycleState().getValue())
+                : null;
+
+        com.oracle.pic.vpn.model.VirtualCircuit.Type type = vc.getType() != null
+                ? com.oracle.pic.vpn.model.VirtualCircuit.Type.create(vc.getType().getValue())
+                : null;
+
+        com.oracle.pic.vpn.model.VirtualCircuit.BgpSessionState bgpSessionState = vc.getBgpSessionState() != null
+                ? com.oracle.pic.vpn.model.VirtualCircuit.BgpSessionState.create(vc.getBgpSessionState().getValue())
+                : null;
+
+        com.oracle.pic.vpn.model.VirtualCircuit.BgpAdminState bgpAdminState = vc.getBgpAdminState() != null
+                ? com.oracle.pic.vpn.model.VirtualCircuit.BgpAdminState.create(vc.getBgpAdminState().getValue())
+                : null;
+
+        com.oracle.pic.vpn.model.VirtualCircuit.BgpIpv6SessionState bgpIpv6SessionState = vc.getBgpIpv6SessionState() != null
+                ? com.oracle.pic.vpn.model.VirtualCircuit.BgpIpv6SessionState.create(vc.getBgpIpv6SessionState().getValue())
+                : null;
+
+        com.oracle.pic.vpn.model.VirtualCircuit.ServiceType serviceType = vc.getServiceType() != null
+                ? com.oracle.pic.vpn.model.VirtualCircuit.ServiceType.create(vc.getServiceType().getValue())
+                : null;
+
+        com.oracle.pic.vpn.model.VirtualCircuit.BgpManagement bgpManagement = vc.getBgpManagement() != null
+                ? com.oracle.pic.vpn.model.VirtualCircuit.BgpManagement.create(vc.getBgpManagement().getValue())
+                : null;
+
+        com.oracle.pic.vpn.model.VirtualCircuit.ProviderState providerState = vc.getProviderState() != null
+                ? com.oracle.pic.vpn.model.VirtualCircuit.ProviderState.create(vc.getProviderState().getValue())
+                : null;
+
+        com.oracle.pic.vpn.model.VirtualCircuitRedundancyMetadata virtualCircuitRedundancyMetadata = null;
+        if (vc.getVirtualCircuitRedundancyMetadata() != null) {
+            com.oracle.bmc.core.model.VirtualCircuitRedundancyMetadata vcRedundancyMetadata = vc.getVirtualCircuitRedundancyMetadata();
+            virtualCircuitRedundancyMetadata = new VirtualCircuitRedundancyMetadata.Builder()
+                    .configuredRedundancyLevel(vcRedundancyMetadata.getConfiguredRedundancyLevel() != null ? VirtualCircuitRedundancyMetadata.ConfiguredRedundancyLevel.create(vcRedundancyMetadata.getConfiguredRedundancyLevel().getValue()) : null)
+                    .ipv4bgpSessionRedundancyStatus(vcRedundancyMetadata.getIpv4bgpSessionRedundancyStatus() != null ? VirtualCircuitRedundancyMetadata.Ipv4bgpSessionRedundancyStatus.create(vcRedundancyMetadata.getIpv4bgpSessionRedundancyStatus().getValue()) : null)
+                    .ipv6bgpSessionRedundancyStatus(vcRedundancyMetadata.getIpv6bgpSessionRedundancyStatus() != null ? VirtualCircuitRedundancyMetadata.Ipv6bgpSessionRedundancyStatus.create(vcRedundancyMetadata.getIpv6bgpSessionRedundancyStatus().getValue()) : null)
+                    .build();
+        }
+
+        List<CrossConnectMapping> crossConnectMappings = new ArrayList<>();
+
+        for(com.oracle.bmc.core.model.CrossConnectMapping ccMapping : vc.getCrossConnectMappings()) {
+            CrossConnectMapping crossConnectMapping = new CrossConnectMapping.Builder()
+                    .crossConnectOrCrossConnectGroupId(ccMapping.getCrossConnectOrCrossConnectGroupId())
+                    .bgpMd5AuthKey(ccMapping.getBgpMd5AuthKey())
+                    .vlan(ccMapping.getVlan())
+                    .customerBgpPeeringIp(ccMapping.getCustomerBgpPeeringIp())
+                    .customerBgpPeeringIpv6(ccMapping.getCustomerBgpPeeringIpv6())
+                    .oracleBgpPeeringIp(ccMapping.getOracleBgpPeeringIp())
+                    .oracleBgpPeeringIpv6(ccMapping.getOracleBgpPeeringIpv6())
+                    .build();
+
+            crossConnectMappings.add(crossConnectMapping);
+        }
+
+        com.oracle.pic.vpn.model.GlobalPopVcMetadata globalPopVcMetadata = null;
+        com.oracle.pic.vpn.db.model.GlobalPopVcMetadata globalPop = virtualCircuitDo.getGlobalPopVcMetadata();
+
+        List<CrossConnectMapping> crossConnectMappingList = new ArrayList<>();
+
+        if(globalPop != null && globalPop.getCustomerCrossConnectMappings() != null){
+            for(CrossConnectMappings.Mapping map: globalPop.getCustomerCrossConnectMappings().getMappings()) {
+                CrossConnectMapping crossConnectMapping = new CrossConnectMapping.Builder()
+                        .crossConnectOrCrossConnectGroupId(map.getCrossConnectId() != null? map.getCrossConnectId() : null)
+                        .vlan(map.getVlan() != null ? map.getVlan() : null)
+                        .oracleBgpPeeringIp(map.getOracleBgpPeeringIp() !=null ? map.getOracleBgpPeeringIp() : null)
+                        .oracleBgpPeeringIpv6(map.getOracleBgpPeeringIpv6() != null ? map.getOracleBgpPeeringIpv6() : null)
+                        .bgpMd5AuthKey(map.getBgpMd5Authkey() != null ? map.getBgpMd5Authkey() : null)
+                        .customerBgpPeeringIp(map.getRemoteBgpPeeringIp() != null ? map.getRemoteBgpPeeringIp() : null)
+                        .customerBgpPeeringIpv6(map.getRemoteBgpPeeringIpv6() != null ? map.getRemoteBgpPeeringIpv6() : null)
+                        .build();
+                crossConnectMappingList.add(crossConnectMapping);
+            }
+        }
+
+        if(globalPop != null) {
+            globalPopVcMetadata = globalPopVcMetadata.builder()
+                    .status(globalPop.getStatus() != null ? globalPop.getStatus().toString() : null)
+                    .targetDrg(globalPop.getTargetDrg() != null ? globalPop.getTargetDrg() : null)
+                    .transitDrg(globalPop.getTransitDrg() != null ? globalPop.getTransitDrg() : null)
+                    .transitVc(globalPop.getTransitVc() != null ? globalPop.getTransitVc() : null)
+                    .targetVc(globalPop.getTargetVc() != null ? globalPop.getTargetVc() : null)
+                    .agentDirectRpc(globalPop.getAgentDirectRpc() != null ? globalPop.getAgentDirectRpc() : null)
+                    .agentRemoteRpc(globalPop.getAgentRemoteRpc() != null ? globalPop.getAgentRemoteRpc() : null)
+                    .controllerVc(globalPop.getControllerVc() != null ? globalPop.getControllerVc() : null)
+                    .remoteAsn(globalPop.getRemoteAsn() != null ? globalPop.getRemoteAsn() : null)
+                    .customerCrossConnectMappings(crossConnectMappingList)
+                    .build();
+        }
+
+        String jsonProperties;
+        try {
+            jsonProperties = new ObjectMapper().registerModule(new Jdk8Module()).writeValueAsString(virtualCircuitDo.getProperties());
+        } catch (JsonProcessingException e) {
+            String errorMessage = "Error converting properties map to JSON:" + e;
+            throw new RenderableException(ErrorCode.InternalError, errorMessage);
+        }
+
+        // Backfill tenancy Id if null
+        if (virtualCircuitDo.getTenantId() == null) {
+            String tenantId = getVcTenantId(virtualCircuitDo.getCompartmentId());
+            virtualCircuitDo = virtualCircuitBl.backfillTenantId(virtualCircuitDo.getId(), tenantId);
+        }
+
+        return new com.oracle.pic.vpn.model.VirtualCircuit.Builder()
+                .id(vc.getId())
+                .timeCreated(vc.getTimeCreated())
+                .displayName(vc.getDisplayName())
+                .compartmentId(vc.getCompartmentId())
+                .tenancyId(virtualCircuitDo.getTenantId())
+                .gatewayId(vc.getGatewayId())
+                .customerBgpAsn(vc.getCustomerBgpAsn())
+                .customerAsn(vc.getCustomerAsn())
+                .oracleBgpAsn(vc.getOracleBgpAsn())
+                .lifecycleState(lifecycleState)
+                .providerServiceId(vc.getProviderServiceId())
+                .providerServiceName(vc.getProviderServiceName())
+                .providerName(vc.getProviderName())
+                .providerServiceKeyName(vc.getProviderServiceKeyName())
+                .type(type)
+                .bgpSessionState(bgpSessionState)
+                .bgpAdminState(bgpAdminState)
+                .bgpIpv6SessionState(bgpIpv6SessionState)
+                .serviceType(serviceType)
+                .bgpManagement(bgpManagement)
+                .providerState(providerState)
+                .crossConnectMappings(crossConnectMappings)
+                .referenceComment(vc.getReferenceComment())
+                .bandwidthShapeName(vc.getBandwidthShapeName())
+                .routingPolicy(vc.getRoutingPolicy() != null ? vc.getRoutingPolicy().stream().map(rp -> com.oracle.pic.vpn.model.VirtualCircuit.RoutingPolicy.create(rp.getValue())).collect(Collectors.toList()) : null)
+                .isDrgV2(virtualCircuitDo.isDrgV2())
+                .definedTags(vc.getDefinedTags())
+                .freeformTags(vc.getFreeformTags())
+                .globalPopVcMetadata(globalPopVcMetadata)
+                .trafficMode((Optional.ofNullable(virtualCircuitDo.getTrafficDrain()).orElse(Boolean.FALSE)) ? TrafficMode.Drain : TrafficMode.Normal)
+                .isTransportMode(vc.getIsTransportMode())
+                .isBandwidthPolicingEnabled(Optional.ofNullable(vc.getIsBandwidthPolicingEnabled()).orElse(Boolean.FALSE))
+                .properties(jsonProperties)
+                .telesisAqua(virtualCircuitDo.isTelesisAqua())
+                .enableReservedBgp(virtualCircuitDo.enableReservedBgp())
+                .enableIngressDisintermediation(virtualCircuitDo.isIngressDisintermediationEnabled())
+                .isDynamicQosEnabled(virtualCircuitDo.isDynamicQosEnabled())
+                .qosBandwidthReservationTemplateShapeName(virtualCircuitDo.getDynamicQosTemplateName())
+                .virtualCircuitRedundancyMetadata(virtualCircuitRedundancyMetadata)
+                .build();
+    }
+
+    @PUT
+    @Path("/{virtualCircuitId}")
+    @Timed(name="updateVirtualCircuit")
+    @VpnSkipAuthorization
+    public Response updateVirtualCircuit(
+            @PathParam("virtualCircuitId") String id,
+            @HeaderParam("oracleBgpAsn") Integer oracleBpgAsn,
+            @HeaderParam("ipMtu") Integer ipMtu,
+            @HeaderParam("maxPrefix") Integer maxPrefix,
+            @QueryParam("enableBfd") Boolean enableBfd,
+            @QueryParam("changeId") String changeId,
+            @QueryParam("enableBandwidthPolicer") Boolean enableBandWidthPolicer,
+            @QueryParam("costTrackingTag") Boolean costTrackingTag,
+            @HeaderParam("trafficMode") String trafficMode,
+            @QueryParam("telesisAqua") Boolean telesisAqua,
+            @QueryParam("enableReservedBgp") Boolean enableReservedBgp,
+            @QueryParam("forceUpdate") Boolean forceUpdate,
+            @QueryParam("enableIngressDisintermediation") Boolean enableIngressDisintermediation,
+            @QueryParam("enableDynamicQos") Boolean enableDynamicQos,
+            UpdateVirtualCircuitDetails request) throws Exception {
+
+        try (MetricsScope scope = MetricsScope.parent(MetricConstants.VirtualCircuit.API_UPDATE_VIRTUAL_CIRCUIT, true, false);
+             Transaction t = virtualCircuitBl.beginTransaction("update-virtualCircuit")) {
+            TagUtils.validateTags(request.getFreeformTags(), request.getDefinedTags());
+
+            VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrow(t, id);
+            if (oracleBpgAsn != null) {
+                virtualCircuitDo = virtualCircuitDo.toBuilder()
+                        .oracleBgpAsn(oracleBpgAsn).build();
+            }
+
+            String bandwidthShapeName = Optional.ofNullable(request.getBandwidthShapeName())
+                    .orElse(VirtualCircuitValidationHelper.getBandwidthShapeName(virtualCircuitDo.getBandwidthInMbps()));
+
+            if (enableBandWidthPolicer != null && propertiesBl.isBandWidthPolicerEnabled()) {
+                if ((virtualCircuitDo.isBandwidthPolicingEnabled() || (request.getIsBandwidthPolicingEnabled() != null && request.getIsBandwidthPolicingEnabled()))
+                        && request.getCrossConnectMappings() != null && request.getCrossConnectMappings().size() > 1) {
+                    PublicValidation.failMultipleMappingsWithPolicer(virtualCircuitDo);
+                }
+
+                PublicValidation.validateBandWidthPolicer(Optional.of(enableBandWidthPolicer), bandwidthShapeName, virtualCircuitDo, crossConnectBl, crossConnectGroupBl, t);
+                virtualCircuitDo = virtualCircuitDo.toBuilder()
+                        .enableBandwidthPolicer(enableBandWidthPolicer).build();
+            }
+
+            boolean optionalEnableDynamicQos = Optional.ofNullable(enableDynamicQos).orElse(false);
+
+            if (virtualCircuitDo.isDynamicQosEnabled() && Boolean.FALSE.equals(request.getIsQosBandwidthReservationEnabled())
+                    && !optionalEnableDynamicQos){
+                throw new ValidationException(ErrorCode.NotAllowed,
+                        "Unable to disable QoS when both enableDynamicQos and enableVcBandwidthValidation is not set to true");
+            }
+
+            /*Validation for Dynamic QoS is required when :
+                request.getIsQosBandwidthReservationEnabled() is not set to false AND either Dynamic QoS is already enabled or
+                request.getIsQosBandwidthReservationEnabled() is set to true*/
+            boolean isValidationRequiredForDynamicQos = !Boolean.FALSE.equals(request.getIsQosBandwidthReservationEnabled())
+                    && (virtualCircuitDo.isDynamicQosEnabled() || Boolean.TRUE.equals(request.getIsQosBandwidthReservationEnabled()));
+            if (propertiesBl.isFcDynamicQosEnabled() && isValidationRequiredForDynamicQos){
+                String qosBandwidthReservationTemplateShapeName = request.getQosBandwidthReservationTemplateShapeName();
+                log.info("Received QosBandwidthReservationTemplateShapeName : {}", qosBandwidthReservationTemplateShapeName);
+
+                boolean isDrgV2 = StringUtils.isNotBlank(request.getGatewayId()) ? drgV2Helper.isDrgV2(request.getGatewayId()): virtualCircuitDo.isDrgV2();
+                PublicValidation.validateQosBandwidthReservationForUpdateVc(
+                        optionalEnableDynamicQos,
+                        propertiesBl.isVcBandwidthValidationEnabled(),
+                        qosBandwidthReservationTemplateShapeName,
+                        bandwidthShapeName,
+                        request,
+                        virtualCircuitDo,
+                        isDrgV2,
+                        qosBandwidthReservationTemplateBl,
+                        crossConnectBl,
+                        scope);
+                log.info("Validated Dynamic Qos request for VC : {} with Template shape : {}", virtualCircuitDo.getId(), qosBandwidthReservationTemplateShapeName);
+            } else if (!propertiesBl.isFcDynamicQosEnabled() && isValidationRequiredForDynamicQos) {
+                throw new ValidationException(ErrorCode.NotAllowed, "Customer is not allowed to utilise QoS bandwidth reservation");
+            }
+
+
+            if (ipMtu != null) {
+                virtualCircuitDo = virtualCircuitDo.toBuilder()
+                        .ipMtu(ipMtu).build();
+            }
+
+            if (maxPrefix != null) {
+                virtualCircuitDo = virtualCircuitDo.toBuilder()
+                        .maxPrefix(maxPrefix).build();
+            }
+
+            if (trafficMode != null) {
+
+                TrafficMode requestedTrafficMode = TrafficMode.Normal;
+                try {
+                    requestedTrafficMode = TrafficMode.create(trafficMode);
+                } catch (RuntimeException e) {
+                    PublicValidation.invalidTrafficMode(trafficMode);
+                }
+                
+                Boolean trafficDrain = requestedTrafficMode.equals(TrafficMode.Drain)? Boolean.TRUE : Boolean.FALSE;
+                
+                virtualCircuitDo = virtualCircuitDo.toBuilder()
+                        .trafficDrain(trafficDrain).build();
+            }
+
+            // If provider name is valid, this is treated as a provider VC.
+            Optional<ProviderServiceDo> providerDo = Optional.empty();
+            if (StringUtils.isNotBlank(virtualCircuitDo.getProviderServiceId())) {
+                providerDo = providerBl.get(virtualCircuitDo.getProviderServiceId());
+            }
+            boolean microsoftPeered = providerDo.isPresent() ? providerBl.isMicrosoftPeered(providerDo.get().getId()) : false;
+            // Use the raw update so we don't get any of the auto deprovisioning stuff
+            // Note: Update virtual circuit management API provides a way for customers or providers who want to use their own
+            // public IP addresses for BGP peering (instead of being allocated by the service).
+            // Using this API, it is possible to use these public IP addresses in the mappings and update the virtual circuit.
+            if (StringUtils.isNotBlank(request.getGatewayId())) {
+                if (!request.getGatewayId().equals(virtualCircuitDo.getGatewayId())) {
+                    if(!vcTunnelAssociationBl.getMappingByVcId(t, virtualCircuitDo.getId()).isEmpty()) {
+                        PublicValidation.failInvalidUpdateDrgRequest();
+                    }
+                }
+                boolean isUpdateDrgOfTypeV2 = drgV2Helper.isDrgV2(request.getGatewayId());
+                virtualCircuitDo = virtualCircuitDo.toBuilder().gatewayType(
+                        isUpdateDrgOfTypeV2 ? VirtualCircuitDo.GatewayType.DRG_V2 : VirtualCircuitDo.GatewayType.DRG).build();
+            }
+            String tenantId = identityMetadataHelper.getTenantId(virtualCircuitDo.getCompartmentId());
+            boolean isWhitelistedForIpv6 = tenancyMetadataBl.isIpv6PublicVcWhitelisted(tenantId);
+            boolean isWhiteListedBandWidthPolicer = false;
+
+            if(forceUpdate != null && forceUpdate && telesisAqua != null) {
+                virtualCircuitDo = virtualCircuitDo.toBuilder()
+                        .telesisAqua(telesisAqua)
+                        .build();
+            }
+
+            if(forceUpdate != null && forceUpdate && enableIngressDisintermediation != null) {
+                virtualCircuitDo = virtualCircuitDo.toBuilder()
+                        .ingressDisintermediation(enableIngressDisintermediation)
+                        .build();
+            }
+
+            if(forceUpdate != null && forceUpdate && enableReservedBgp != null) {
+                virtualCircuitDo = virtualCircuitDo.toBuilder()
+                        .enableReservedBgp(enableReservedBgp)
+                        .build();
+            }
+
+            Optional<DrgV2AttachmentDo> vcAttachmentOptDo = drgV2AttachmentBl.getByAttachedResourceId(t, virtualCircuitDo.getId());
+            Boolean isIngressDisintermediationEnabled = null;
+            if (vcAttachmentOptDo.isPresent()) {
+                DrgAttachment drgAttachment = drgV2Helper.getOrThrowDrgV2Attachment(vcAttachmentOptDo.get().getId());
+                VirtualCircuitDrgAttachmentNetworkDetails networkDetails = (VirtualCircuitDrgAttachmentNetworkDetails) drgAttachment.getNetworkDetails();
+                isIngressDisintermediationEnabled = networkDetails.getIsIngressDisintermediationEnabled();
+            }
+
+            if (propertiesBl.isTenantWhitelistedForFastConnectStaticCanary(tenantId)
+                && request.getFreeformTags() != null) {
+                if (request.getFreeformTags().get(PublicValidation.IS_FC_MX10K_CANARY) != null) {
+                    PublicValidation.validateMx10KCanaryDetails(request.getFreeformTags());
+                }
+                if (request.getFreeformTags().get(PublicValidation.IS_FC_MX10K_STATIC_CANARY) != null) {
+                    PublicValidation.validateMx10KStaticCanaryDetails(request.getFreeformTags(), virtualCircuitDo.isTelesisAqua(), isIngressDisintermediationEnabled);
+                }
+            }
+
+            if (request.getCrossConnectMappings() != null) {
+                for (com.oracle.bmc.core.model.CrossConnectMapping crossConnectMapping : request.getCrossConnectMappings()) {
+                    if (crossConnectMapping != null) {
+                        PublicValidation.validateVlanRange(crossConnectMapping.getVlan(), microsoftPeered);
+                    }
+                }
+            }
+
+            VirtualCircuitDo updated =
+                    VirtualCircuitHelper.rawUpdateVirtualCircuitDo(
+                            t,
+                            virtualCircuitDo,
+                            providerDo,
+                            request,
+                            providerBl,
+                            propertiesBl,
+                            virtualCircuitBl,
+                            tenancyMetadataBl,
+                            identityMetadataHelper,
+                            true,
+                            TagUtils.encodeUpdatedTags(
+                                    request.getFreeformTags(),
+                                    request.getDefinedTags(),
+                                    virtualCircuitDo.getTags()),
+                            isWhitelistedForIpv6,
+                            isWhiteListedBandWidthPolicer,
+                            true,
+                            request.getDisplayName());
+
+            Boolean isFakeDevice = VirtualCircuitHelper.isFakeDeviceVc(updated, deviceBl, virtualCircuitBl, crossConnectBl, crossConnectGroupBl);
+            Boolean isCustomer = limitsHelper.checkCustomerTenancyByCompartmentId(updated.getCompartmentId());
+            // Here we check to see if the state is correct to launch a workflow (i.e. code should be on the box.)
+            // If costTrackingTags is set to true, we don't launch the workflow and only update costTrackingTags. In all other cases we launch the workflow.
+            if(costTrackingTag != null && costTrackingTag.equals(Boolean.TRUE)) {
+                Optional<VpnMeteringResource> vpnMeteringResource = VirtualCircuitUtils.getVpnMeteringResource(updated);
+                vpnMeteringResource.ifPresent(meteringResource -> vpnMetering.updateCostTrackingTags(t, meteringResource, Instant.now()));
+            }
+            else if (VirtualCircuitHelper.inStateToRunWorkflow(virtualCircuitDo, updated)) {
+                WorkRequestDo workRequestDo = VirtualCircuitHelper.getWorkRequestForVirtualCircuitUpdate(virtualCircuitDo, updated, providerDo, providerBl, propertiesBl,
+                        OperationType.UPDATE, isFakeDevice, isCustomer, RequestIdHolder.get());
+                updated = VirtualCircuitHelper.launchUpdateWorkflow(t, updated, virtualCircuitBl, workRequestBl, eventBl, workRequestDo);
+                String eventMessage = String.format(
+                        "Launching update workflow for %s with workRequest %s",
+                        updated, workRequestDo.getId());
+                if (changeId != null) {
+                    eventMessage = String.format(
+                            "Launching update workflow for %s with workRequest %s and ChangeId %s",
+                            updated, workRequestDo.getId(), changeId);
+                }
+                eventBl.create(t, virtualCircuitDo.getId(), Component.API, eventMessage);
+                log.info(eventMessage);
+            } else {
+                if (updated.getState().equals(VirtualCircuitDo.State.PENDING_PROVIDER)) {
+                    // Check if DRG id is updated.
+                    if (!StringUtils.equals(virtualCircuitDo.getGatewayId(), updated.getGatewayId())) {
+                        // Check if any of original DRG or the updated DRG is of type V2.
+                        boolean isOrignalDrgOfTypeV2 = drgV2Helper.isDrgV2(virtualCircuitDo.getGatewayId());
+                        boolean isUpdateDrgOfTypeV2 = drgV2Helper.isDrgV2(updated.getGatewayId());
+                        if(isOrignalDrgOfTypeV2 || isUpdateDrgOfTypeV2) {
+                            // DRG id has changed. Delete the old DRG V2 attachment and create a new one.
+                            log.info("Existing DRG id: {}, New DRG id: {} ",
+                                    virtualCircuitDo.getGatewayId(), updated.getGatewayId());
+                            updated = virtualCircuitBl.update(t, updated.toBuilder()
+                                    .state(VirtualCircuitDo.State.PROVISIONING)
+                                    .lastStateChanged(new Date())
+                                    .build());
+                            // Launch a workflow to delete the Pnp DrgV2Attachment for older Drg and create DrgV2Attachment for new Drg
+                            WorkRequestDo workRequest = VirtualCircuitHelper.buildCreateVcDrgV2AttachmentWorkRequest(updated, isCustomer, RequestIdHolder.get());
+                            workRequestBl.create(t, workRequest);
+                            eventBl.create(t, updated.getId(), Component.API, "Created Work Request %s for type %s ",
+                                    workRequest.getId(), workRequest.getWorkflowDefinitionId());
+                            log.info(String.format("Created workrequest for createVcDrgV2AttachmentWorkflow" +
+                                    "to delete the Pnp DrgV2Attachment for older Drg and to create DrgV2Attachment for new Drg" +
+                                    " Provider virtual circuit(request=%s, do=%s)", workRequest, updated));
+                        }
+                    }
+                }
+            }
+
+            t.commit();
+
+            BgpStateMap bgpStateMap = bgpBl.prepareBgpStateMap();
+            VirtualCircuit updatedModel = updated.toModel(providerBl, bgpBl, bgpStateMap, vcTunnelAssociationBl, tenancyMetadataBl, identityMetadataHelper,
+                    fcRedundancyBl.toModelIpv4BgpSessionRedundancyStatus(virtualCircuitDo),
+                    fcRedundancyBl.toModelIpv6BgpSessionRedundancyStatus(virtualCircuitDo),
+                    fcRedundancyBl.toModelConfiguredRedundancyLevel(virtualCircuitDo));
+
+            perfMetric.setupScopeDimensions(scope, OperationType.UPDATE, isFakeDevice, isCustomer);
+            scope.emit(MetricConstants.SUCCESS, 1);
+            return Response.ok(toModel(updatedModel, updated))
+                    .build();
+        }
+    }
+
+    @POST
+    @Timed(name="updateVirtualCircuitPublicPrefixes")
+    @Path("/{virtualcircuit-id}/updatePublicPrefixes")
+    @VpnSkipAuthorization
+    public Response updateVirtualCircuitPublicPrefixes(
+            @PathParam("virtualcircuit-id") String id,
+            UpdateVirtualCircuitPublicPrefix request) throws Exception {
+
+        try (MetricsScope scope = MetricsScope.parent(MetricConstants.VirtualCircuit.API_UPDATE_VIRTUAL_CIRCUIT_PUBLIC_PREFIXES, true, false);
+             Transaction t = virtualCircuitBl.beginTransaction("updateVirtualCircuitPublicPrefixes")) {
+
+            VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrow(t, id);
+
+            // Don't allow updates when in PROVISIONING state.
+            if (virtualCircuitDo.getState() == VirtualCircuitDo.State.PROVISIONING) {
+                PublicValidation.failFieldCannotBeUpdatedInThisState("PublicPrefix", VirtualCircuitDo.State.PROVISIONING);
+            }
+            // Don't allow updates when in TERMINATING state.
+            if(virtualCircuitDo.getState() == VirtualCircuitDo.State.TERMINATING) {
+                PublicValidation.failFieldCannotBeUpdatedInThisState("PublicPrefix", VirtualCircuitDo.State.TERMINATING);
+            }
+
+            if (request.getPublicPrefixes() != null && request.getPublicPrefixes().size() > 0) {
+
+                    boolean shouldRunWorkflow = false;
+                List<VirtualCircuitDo.PublicPrefix> updatedPrefixList = new ArrayList<>();
+
+                // Check if any of the items in the current list is part of the update request. If it is,
+                // update the state accordingly. If the public prefix's verification state is set to 'COMPLETED' or
+                // the if the current state is 'COMPLETED' , set the shouldRunWorkflow flag
+                // to trigger the provisioning workflow to provision the virtual circuit with the latest set of prefixes.
+                for (VirtualCircuitDo.PublicPrefix prefix : virtualCircuitDo.getPublicPrefixList()) {
+
+                    Optional<VirtualCircuitDo.PublicPrefix.VerificationState> updatedVerificationStateOpt =
+                            findPublicPrefixStateFromUpdateRequest(request.getPublicPrefixes(), prefix);
+
+                    if (updatedVerificationStateOpt.isPresent()
+                            && (!updatedVerificationStateOpt.get().equals(prefix.getVerificationState()))) {
+
+                        shouldRunWorkflow =
+                                shouldRunWorkflow ||
+                                        (shouldRunWorkflowOnPrefixStateUpdate(prefix.getVerificationState(), updatedVerificationStateOpt.get()));
+
+                        if(!tenancyMetadataBl.isIpv6PublicVcWhitelisted(identityMetadataHelper.getTenantId(virtualCircuitDo.getCompartmentId())) &&
+                                IpUtils.isIpv6Address(prefix.getCidrBlock())) {
+                            PublicValidation.failPublicPrefixIpv6NotAllowedForCreation(prefix.getCidrBlock());
+                        }
+                        VirtualCircuitDo.PublicPrefix.PrefixType type = null;
+                        if (IpUtils.isIpv6Address(prefix.getCidrBlock())) {
+                            type = VirtualCircuitDo.PublicPrefix.PrefixType.IPV6;
+                        } else if (IpUtils.isIpv4Address(prefix.getCidrBlock())) {
+                            type = VirtualCircuitDo.PublicPrefix.PrefixType.IPV4;
+                        } else {
+                            PublicValidation.failInvalidIPUpdateRequest();
+                        }
+                        updatedPrefixList.add(
+                                VirtualCircuitDo.PublicPrefix.builder().
+                                        cidrBlock(prefix.getCidrBlock()).
+                                        prefixType(type).
+                                        verificationState(updatedVerificationStateOpt.get()).
+                                        build());
+                    } else {
+
+                        updatedPrefixList.add(prefix);
+                    }
+                }
+
+                VirtualCircuitDo updatedDo = virtualCircuitBl.update(t, virtualCircuitDo.toBuilder()
+                        .publicPrefixList(updatedPrefixList)
+                        .build());
+
+                Boolean isFakeDevice = VirtualCircuitHelper.isFakeDeviceVc(updatedDo, deviceBl, virtualCircuitBl, crossConnectBl, crossConnectGroupBl);
+                Boolean isCustomer = limitsHelper.checkCustomerTenancyByCompartmentId(updatedDo.getCompartmentId());
+                perfMetric.setupScopeDimensions(scope, OperationType.UPDATE, isFakeDevice, isCustomer);
+
+                // Should run the workflow to provision the virtual circuit if any of the public prefix is
+                // successfully verified.
+                if (shouldRunWorkflow) {
+                    VirtualCircuitHelper.launchUpdateWorkflowIfPossible(t, virtualCircuitBl, workRequestBl, eventBl, virtualCircuitDo, updatedDo,
+                            OperationType.UPDATE, isFakeDevice, isCustomer, RequestIdHolder.get());
+                }
+            }
+
+            t.commit();
+            scope.emit(MetricConstants.SUCCESS, 1);
+        }
+
+        return Response.accepted().build();
+    }
+
+    public static Optional<VirtualCircuitDo.PublicPrefix.VerificationState> findPublicPrefixStateFromUpdateRequest(
+            List<UpdateVirtualCircuitPublicPrefixDetails> publicPrefixUpdates,
+            VirtualCircuitDo.PublicPrefix prefixDo) {
+
+        for (UpdateVirtualCircuitPublicPrefixDetails prefixUpdate : publicPrefixUpdates) {
+
+            if (StringUtils.equals(prefixUpdate.getCidrBlock(), prefixDo.getCidrBlock())) {
+
+                return getPrefixVerificationStateUpdate(prefixUpdate);
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    public static boolean shouldRunWorkflowOnPrefixStateUpdate(
+            VirtualCircuitDo.PublicPrefix.VerificationState oldState,
+            VirtualCircuitDo.PublicPrefix.VerificationState newState) {
+
+        return oldState == VirtualCircuitDo.PublicPrefix.VerificationState.COMPLETED
+                || newState == VirtualCircuitDo.PublicPrefix.VerificationState.COMPLETED;
+
+    }
+
+    public static Optional<VirtualCircuitDo.PublicPrefix.VerificationState> getPrefixVerificationStateUpdate(
+            UpdateVirtualCircuitPublicPrefixDetails prefixUpdate) {
+
+        return VirtualCircuitDo.PublicPrefix.VerificationState.create(prefixUpdate.getVerificationState().getValue());
+    }
+
+    @DELETE
+    @Timed(name="deleteVirtualCircuit")
+    @Path("/{virtualCircuitId}")
+    @VpnSkipAuthorization
+    public Response deleteVirtualCircuit(
+            @PathParam("virtualCircuitId") String id) throws Exception {
+
+        try (MetricsScope scope = MetricsScope.parent(MetricConstants.VirtualCircuit.API_DELETE_VIRTUAL_CIRCUIT, true, false);
+             Transaction t = virtualCircuitBl.beginTransaction("delete-virtualCircuit")) {
+
+            VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrow(t, id);
+            BgpStateMap bgpStateMap = bgpBl.prepareBgpStateMap();
+            BgpSessionState bgpSessionState = bgpBl.getVcBgpState(virtualCircuitDo, bgpStateMap, null);
+            Map<String, String> freeformTags = TagUtils.decodeTags(virtualCircuitDo.getTags()).getFreeformTags();
+            boolean ipv4bgpUp = VirtualCircuitDo.toVcIPv4BgpSessionState(bgpSessionState.getBgpIpv4SessionState()).equals(VirtualCircuit.BgpSessionState.Up);
+            boolean ipv6bgpUp = VirtualCircuitDo.toVcIPv6BgpSessionState(bgpSessionState.getBgpIpv6SessionState()).equals(VirtualCircuit.BgpIpv6SessionState.Up);
+            if ((ipv4bgpUp || ipv6bgpUp) &&
+                !freeformTags.containsKey(PublicValidation.IS_FC_MX10K_CANARY) && !freeformTags.containsKey(PublicValidation.IS_FC_MX10K_STATIC_CANARY) &&
+                !virtualCircuitDo.getState().equals(VirtualCircuitDo.State.TERMINATING)) {
+                throw new ValidationException(ErrorCode.IncorrectState,
+                    String.format("Virtual circuit %s is in use, BGP session up, cannot delete using management API", virtualCircuitDo.getId()));
+            }
+
+            log.info("Deleting virtualCircuit(do={})", virtualCircuitDo);
+
+            Optional<ProviderServiceDo> providerServiceDo = Optional.empty();
+            if (StringUtils.isNotBlank(virtualCircuitDo.getProviderServiceId())) {
+                providerServiceDo = providerBl.get(virtualCircuitDo.getProviderServiceId());
+            }
+
+            Boolean isFakeDevice = VirtualCircuitHelper.isFakeDeviceVc(virtualCircuitDo, deviceBl, virtualCircuitBl, crossConnectBl, crossConnectGroupBl);
+            Boolean isCustomer = limitsHelper.checkCustomerTenancyByCompartmentId(virtualCircuitDo.getCompartmentId());
+
+            VirtualCircuitHelper.rawLaunchDeleteWorkflow(
+                    t,
+                    virtualCircuitDo,
+                    virtualCircuitBl,
+                    workRequestBl,
+                    eventBl,
+                    limitsHelper,
+                    providerBl,
+                    propertiesBl,
+                    providerServiceDo,
+                    OperationType.DELETE,
+                    isFakeDevice,
+                    isCustomer,
+                    RequestIdHolder.get());
+            limitsHelper.decrementCount(t, virtualCircuitDo.getCompartmentId(), CountDo.CountType.Virtual_Circuit);
+
+            t.commit();
+            perfMetric.setupScopeDimensions(scope, OperationType.DELETE, isFakeDevice, isCustomer);
+            scope.emit(MetricConstants.SUCCESS, 1);
+        }
+
+        return Response.accepted().build();
+    }
+
+
+    @GET
+    @Timed(name="list-vc-events")
+    @Path("/{virtualCircuitId}/events")
+    @Produces({ "application/json", "application/x-json-stream" })
+    @VpnSkipAuthorization
+    public PaginatedResponse<Event> listVirtualCircuitEvents(
+            @PathParam("virtualCircuitId") String id,
+            @DefaultValue("100") @QueryParam(Params.LIMIT) int limit,
+            @QueryParam(Params.PAGE) String opaqueToken) throws InvalidOCIDException, ValidationException {
+
+        Validation.OCIDValidate(id);
+        Validation.limitParamValidate(limit);
+
+        return ResourceUtils.getEventPaginatedResponse(id, limit, opaqueToken,
+                eventBl, archiveBl, virtualCircuitBl);
+    }
+
+    @GET
+    @Timed(name="getVirtualCircuitRoutes")
+    @Produces({"application/json"})
+    @Path("/{virtualCircuitId}/bgpRoutes")
+    @VpnSkipAuthorization
+    public Response getVirtualCircuitRoutes(
+            @PathParam("virtualCircuitId") String vcId
+    ) throws Exception {
+        log.info("getVirtualCircuitRoutes request for device: {}", vcId);
+
+        ArrayList<VirtualCircuitBgpRoute> devicebgpRouteInformationRoutes =  new ArrayList<>();
+
+        //get devices from config snippets
+        List<ConfigSnippetDo> listConfigSnippetDos = configSnippetBl.listSnippetsForDomainObject(vcId);
+        for ( ConfigSnippetDo configSnippetDo : listConfigSnippetDos) {
+            String deviceId = configSnippetDo.getDeviceId();
+            Map<String, Object> templateValues = configSnippetDo.getTemplateValues();
+            String tableName = "VPN-DRG-" + templateValues.get("xnetId").toString() + ".inet.0";
+            String peerAddress = templateValues.get("remoteBgpIp").toString();
+            if(!StringUtils.isBlank(deviceId) &&
+                    !StringUtils.isBlank(tableName) &&
+                    !StringUtils.isBlank(peerAddress)) {
+
+                DeviceDo deviceDo = deviceBl.getOrThrow(deviceId);
+                try {
+                    String deviceIP = deviceBl.getDeviceIpFromDevice(deviceDo);
+                    DeviceConnector connector = deviceBl.getDeviceConnector(deviceIP, deviceDo);
+                    connector.startSession(DEVICE_CONNECTOR_TIMEOUT_MILLISEC);
+                    Set<RouteInformation> advertisingRoutes = connector.getRouteInformationFromTable(peerAddress, tableName, "advertising");
+                    Set<RouteInformation> receiveRoutes = connector.getRouteInformationFromTable(peerAddress, tableName, "receiving");
+
+                    //convert to Model before response
+                    List<com.oracle.pic.vpn.model.RouteInformation> advertisingRoutesList = new ArrayList<>();
+                    for( RouteInformation route : advertisingRoutes)
+                    {
+                        advertisingRoutesList.add(com.oracle.pic.vpn.model.RouteInformation
+                                .builder()
+                                .deviceName(route.getDeviceName())
+                                .hostAddress(route.getHostAddress())
+                                .mplsLabel(route.getMplsLabel())
+                                .routeTarget(route.getRouteTarget())
+                                .substrateIP(route.getSubstrateIP())
+                                .routingInstance(route.getRoutingInstance())
+                                .build());
+                    }
+
+                    List<com.oracle.pic.vpn.model.RouteInformation> receiveRoutesList = new ArrayList<>();
+                    for( RouteInformation route : receiveRoutes)
+                    {
+                        receiveRoutesList.add(com.oracle.pic.vpn.model.RouteInformation
+                                .builder()
+                                .deviceName(route.getDeviceName())
+                                .hostAddress(route.getHostAddress())
+                                .mplsLabel(route.getMplsLabel())
+                                .routeTarget(route.getRouteTarget())
+                                .substrateIP(route.getSubstrateIP())
+                                .routingInstance(route.getRoutingInstance())
+                                .build());
+                    }
+                    log.info("getVirtualCircuitRoutes request for device: {} peerAddress: {} tableName: {}", vcId, peerAddress, tableName);
+
+                    VirtualCircuitBgpRoute deviceRoute = VirtualCircuitBgpRoute.builder()
+                            .deviceId(deviceId)
+                            .advertisingRoutes(advertisingRoutesList)
+                            .receivingRoutes(receiveRoutesList)
+                            .build();
+
+                    devicebgpRouteInformationRoutes.add(deviceRoute);
+                    connector.closeSession();
+                } catch (Exception e) {
+                    log.error("getRouteInformationFromTable failed with exception: {} request for device: {} peerAddress: {} tableName: {}", e.getMessage(), deviceId, peerAddress, tableName);
+                }
+            }
+        }
+
+        VirtualCircuitBgpRoutes routes = VirtualCircuitBgpRoutes.builder()
+                .virtualCircuitId(vcId)
+                .bgpRouteInformation(devicebgpRouteInformationRoutes)
+                .build();
+        return Response.ok(routes).build();
+    }
+
+    @GET
+    @Timed(name = "getVirtualCircuitUnitNumber")
+    @Path("/{virtualCircuitId}/unitNumber")
+    @VpnSkipAuthorization
+    public UnitNumber getVirtualCircuitUnitNumber(
+            @PathParam("virtualCircuitId") String virtualCircuitId) throws Exception {
+        try (Transaction t = unitNumberBl.beginTransaction("get-UnitNumberForTunnel")) {
+
+            VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrow(t, virtualCircuitId);
+            if (virtualCircuitDo.isPublic()) {
+                PublicValidation.failInvalidVcType(virtualCircuitId);
+            }
+
+            List<UnitNumberDo> unitNumberDos = unitNumberBl.getUnitNumbersByAssocObj(t, virtualCircuitId);
+            if (unitNumberDos.size() == 0) {
+                PublicValidation.failKeyNotFound(getClass().getSimpleName(), virtualCircuitId);
+            }
+            return UnitNumber.builder()
+                    .id(unitNumberDos.get(0).getId())
+                    .assocObjId(unitNumberDos.get(0).getAssocObjId())
+                    .deviceId(unitNumberDos.get(0).getDeviceId())
+                    .unitNumber(unitNumberDos.get(0).getUnitNumber())
+                    .vcUnitNumberForQfx(virtualCircuitDo.getVcUnitNumberForQfx())
+                    .build();
+        }
+    }
+
+    @PUT
+    @Timed(name = "updateVirtualCircuitUnitNumber")
+    @Path("/{virtualCircuitId}/unitNumber")
+    @VpnSkipAuthorization
+    public Response updateVirtualCircuitUnitNumber(
+            @PathParam("virtualCircuitId") String virtualCircuitId,
+            @Valid @NonNull UpdateUnitNumberRequest request,
+            @Nullable @HeaderParam("updateVcUnitNumberForQfx") Boolean updateVcUnitNumberForQfx) throws Exception {
+        boolean vcUnitNumberForQfx = updateVcUnitNumberForQfx != null && updateVcUnitNumberForQfx;
+        if (request.getChangeId() == null && !vcUnitNumberForQfx) {
+            throw new ValidationException(ErrorCode.InvalidParameter, "Request must contain either a valid changeId or updateVcUnitNumberForQfx set to true.");
+        }
+        try (Transaction t = virtualCircuitBl.beginTransaction("update-virtual-circuit")) {
+            VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrow(t, virtualCircuitId);
+            if (virtualCircuitDo.isPublic()) {
+                PublicValidation.failInvalidVcType(virtualCircuitId);
+            }
+
+            // If provider name is valid, this is treated as a provider VC.
+            Optional<ProviderServiceDo> providerDo = Optional.empty();
+            if (StringUtils.isNotBlank(virtualCircuitDo.getProviderServiceId())) {
+                providerDo = providerBl.get(virtualCircuitDo.getProviderServiceId());
+            }
+
+            Boolean isFakeDevice = VirtualCircuitHelper.isFakeDeviceVc(virtualCircuitDo, deviceBl, virtualCircuitBl, crossConnectBl, crossConnectGroupBl);
+            if (VirtualCircuitHelper.inStateToRunWorkflow(virtualCircuitDo, virtualCircuitDo)) {
+                eventBl.create(t, virtualCircuitId, Component.API, "Management Update IPSecTunnel Request %s", request);
+                Boolean isCustomer = limitsHelper.checkCustomerTenancyByCompartmentId(virtualCircuitDo.getCompartmentId());
+                WorkRequestDo workRequestDo = VirtualCircuitHelper.getWorkRequestForVirtualCircuitUpdate(virtualCircuitDo, virtualCircuitDo, providerDo, providerBl,
+                        propertiesBl, OperationType.UPDATE, isFakeDevice, isCustomer, RequestIdHolder.get());
+                if (vcUnitNumberForQfx) {
+                    virtualCircuitDo = virtualCircuitDo.toBuilder().vcUnitNumberForQfx(null).build();
+                    virtualCircuitBl.update(t, virtualCircuitDo);
+                } else {
+                    unitNumberBl.deleteAssociatedUnitNumbers(t, virtualCircuitId);
+                }
+
+                virtualCircuitDo = VirtualCircuitHelper.launchUpdateWorkflow(t, virtualCircuitDo, virtualCircuitBl, workRequestBl, eventBl, workRequestDo);
+                String eventMessage = String.format(
+                        "Launching update workflow for %s with workRequest %s",
+                        virtualCircuitDo, workRequestDo.getId());
+                if (request.getChangeId() != null) {
+                    eventMessage = String.format(
+                            "Launching update workflow for %s with workRequest %s and ChangeId %s",
+                            virtualCircuitDo, workRequestDo.getId(), request.getChangeId());
+                }
+                eventBl.create(t, virtualCircuitDo.getId(), Component.API, eventMessage);
+                log.info(eventMessage);
+                t.commit();
+            } else {
+                log.info("Not in correct state to launch update workflow for {}", virtualCircuitDo);
+            }
+            return Response.accepted().build();
+        }
+
+    }
+
+    @GET
+    @Timed(name = "listVirtualCircuitProperties")
+    @Path("/{virtualCircuitId}/property")
+    @VpnSkipAuthorization
+    public List<Property> listVirtualCircuitProperties(
+            @NonNull @PathParam("virtualCircuitId") String virtualCircuitId) throws Exception {
+        
+        VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrow(virtualCircuitId);
+        Map<String, String> properties = virtualCircuitDo.getProperties() == null ?
+                new HashMap<>() : virtualCircuitDo.getProperties();
+
+        return properties.entrySet().stream()
+                .map(this::toModel)
+                .collect(Collectors.toList());
+    }
+
+    private Property toModel(Map.Entry<String, String> entry) {
+        return Property.builder()
+                .key(entry.getKey())
+                .value(entry.getValue())
+                .build();
+    }
+
+    @DELETE
+    @Timed(name = "deleteVirtualCircuitProperty")
+    @Path("/{virtualCircuitId}/property/{property-id}")
+    @VpnSkipAuthorization
+    public Response deleteVirtualCircuitProperty(
+            @PathParam("virtualCircuitId") String virtualCircuitId,
+            @PathParam("property-id") String property) throws Exception {
+        
+        try (Transaction t = virtualCircuitBl.beginTransaction("delete-vc-property")) {
+            VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrow(t, virtualCircuitId);
+
+            Map<String, String> properties = virtualCircuitDo.getProperties() == null ?
+                    new HashMap<String, String>() : virtualCircuitDo.getProperties();
+
+            // validate property exists
+            if (!properties.containsKey(property)) {
+                PublicValidation.failVcPropertyNotFound(property, virtualCircuitId);
+            }
+            
+            properties.remove(property);
+            virtualCircuitDo = virtualCircuitDo.toBuilder().properties(properties).build();
+            virtualCircuitBl.update(t, virtualCircuitDo);
+            String eventMessage = String.format("Management Deleted VC property: %s", property);
+            eventBl.create(t, virtualCircuitId, Component.API, eventMessage);
+            log.info(eventMessage);
+            t.commit();
+        }
+
+        return Response.accepted().build();
+        
+    }
+    
+    @PUT
+    @Timed(name = "updateVirtualCircuitProperty")
+    @Path("/{virtualCircuitId}/property")
+    @VpnSkipAuthorization
+    public Response updateVirtualCircuitProperty(
+            @PathParam("virtualCircuitId") String virtualCircuitId,
+            @Valid @NonNull UpdatePropertyRequest request) throws Exception {
+
+        try (Transaction t = virtualCircuitBl.beginTransaction("update-vc-property")) {
+            VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrow(t, virtualCircuitId);
+            Map<String, String> properties = virtualCircuitDo.getProperties() == null ?
+                    new HashMap<String, String>() : virtualCircuitDo.getProperties();
+            log.info("Validating for Qos");
+            validateQos(request, virtualCircuitDo);
+            properties.put(request.getKey(), request.getValue());
+            virtualCircuitDo = virtualCircuitDo.toBuilder().properties(properties).build();
+            virtualCircuitBl.update(t, virtualCircuitDo);
+
+            String eventMessage = String.format("Management Update VC property Request %s", request);
+            eventBl.create(t, virtualCircuitId, Component.API, eventMessage);
+            log.info(eventMessage);
+            t.commit();
+
+            return Response.accepted().build();
+        }
+    }
+
+    @POST
+    @Timed(name = "virtualCircuitDrgPingIp")
+    @Produces({"application/json"})
+    @Path("/{virtualCircuitId}/pingIp")
+    @VpnSkipAuthorization
+    public List<PingResultResponse> pingFromDrg(
+            @PathParam("virtualCircuitId") String id,
+            @Valid @NonNull PingRequestDetails request) throws ValidationException {
+
+        VirtualCircuitDo virtualCircuitDo = virtualCircuitBl.getOrThrow(id);
+
+        String routingInstanceName =  null;
+
+        if(virtualCircuitDo.isDrgV2()) {
+            if(virtualCircuitDo.getGroupId() != null) {
+                routingInstanceName = "VPN-DRG-" + virtualCircuitDo.getGroupId();
+            }
+
+        } else {
+            Optional<DrgDo> drgDoOptional = drgBl.get(virtualCircuitDo.getGatewayId());
+            if (!drgDoOptional.isPresent()) {
+                throw new ValidationException(ErrorCode.InvalidParameter, "No drg exists with id: ", virtualCircuitDo.getGatewayId());
+            } else {
+                if(drgDoOptional.get().getGroupId() != null) {
+                    routingInstanceName = "VPN-DRG-" + drgDoOptional.get().getGroupId();
+                }
+            }
+        }
+
+        if(routingInstanceName == null) {
+            throw new ValidationException(ErrorCode.InvalidParameter, "Routing Instance Name cannot be null");
+        }
+
+
+        Optional<DeviceDo> deviceDoOptional = deviceBl.get(request.getDeviceId());
+        if (!deviceDoOptional.isPresent()) {
+            throw new ValidationException(ErrorCode.InvalidParameter, "No device exists with id: ", request.getDeviceId());
+        }
+
+        HashSet<String> deviceIds = new HashSet<>();
+
+        for (CrossConnectMappings.Mapping mapping : virtualCircuitDo.getCrossConnectMapping().getMappings()) {
+
+            boolean isCrossConnect = VirtualCircuitBl.isCrossConnect(mapping.getCrossConnectId());
+            CrossConnectGroupDo crossConnectGroupDo = null;
+            CrossConnectDo crossConnectDo;
+            DeviceDo crossConnectDeviceDo;
+            DeviceDo mxDeviceDo;
+            // get deviceId
+            if (isCrossConnect) {
+                crossConnectDo = crossConnectBl.getOrThrow(mapping.getCrossConnectId());
+            } else {
+                crossConnectGroupDo = crossConnectGroupBl.getOrThrow(mapping.getCrossConnectId());
+                crossConnectDo = crossConnectBl.getOrThrow(crossConnectGroupDo.getCrossConnectIds()[0]);
+            }
+            crossConnectDeviceDo = deviceBl.getOrThrow(crossConnectDo.getDeviceId());
+            mxDeviceDo = deviceBl.getMxDeviceFromCrossConnectDevice(crossConnectDeviceDo);
+            deviceIds.add(mxDeviceDo.getId());
+        }
+
+        if(!deviceIds.contains(request.getDeviceId())) {
+            throw new ValidationException(ErrorCode.InvalidParameter, "Invalid Device id: ", request.getDeviceId());
+        }
+
+        if (request.getTargetIp() == null) {
+            throw new ValidationException(ErrorCode.InvalidParameter, "Target IP must be set.");
+        }
+
+        DeviceConnector connector;
+        try {
+            String deviceIP = deviceBl.getDeviceIpFromDevice(deviceDoOptional.get());
+            connector = deviceBl.getDeviceConnector(deviceIP, deviceDoOptional.get());
+        } catch (EncryptionException e) {
+            throw new RenderableException(ErrorCode.InternalError, "Error retrieving device credentials");
+        }
+
+        List<PingResult> pingResults;
+        try {
+            pingResults = connector.pingIp(
+                    request.getTargetIp(),
+                    routingInstanceName,
+                    request.getMtu(),
+                    request.getCount());
+        } catch (FatalDeviceException | DeviceIOException e) {
+            throw new RenderableException(ErrorCode.InternalError, "Error performing ping", e);
+        }
+
+        return pingResults.stream()
+                .map(this::toModel)
+                .collect(Collectors.toList());
+    }
+
+    private void validateQos(UpdatePropertyRequest request, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+        log.info("Validating for Qos");
+        if (request.getKey().equals(VirtualCircuitDo.ENABLE_QOS) && !virtualCircuitBl.isFfab(virtualCircuitDo)) {
+            throw new ValidationException(ErrorCode.InvalidParameter, "Qos is supported only on Qfx5120 devices.");
+        }
+    }
+
+    protected String getVcTenantId(String compartmentId) {
+        try {
+            return identityMetadataHelper.getTenantId(compartmentId);
+        } catch (RuntimeException | AuthServerUnavailableException | ValidationException e) {
+            log.error("TenantId lookup failed for compartment {}.", compartmentId, e);
+            return null;
+        }
+    }
+
+    private PingResultResponse toModel(PingResult pingResult) {
+        return PingResultResponse.builder()
+                .targetIp(pingResult.getTargetIp())
+                .packetSize(pingResult.getPacketSize())
+                .probeIndex(pingResult.getProbeIndex())
+                .sequenceNumber(pingResult.getSequenceNumber())
+                .success(pingResult.getSuccess())
+                .rtt(pingResult.getRtt())
+                .build();
+    }
+
+}
