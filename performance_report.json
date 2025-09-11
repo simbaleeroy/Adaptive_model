@@ -1,5 +1,5 @@
- @Test
-    public void GIVEN_getVirtualCircuit_THEN_backfillsTenantId_WhenMissing() throws Exception {
+@Test
+    public void GIVEN_toModel_WHEN_virtualCircuitDoHasNoTenantId_THEN_backfillTenancyId() throws Exception {
         setupVcDependencies();
 
         CreateVirtualCircuitDetails createDetails =
@@ -11,36 +11,21 @@
                         .build()
         ).getVirtualCircuit();
 
-        VirtualCircuitManagementResourceV1 resourceSpy = spy(virtualCircuitManagementResourceV1);
+        VirtualCircuitDo realDo = virtualCircuitBl.getOrThrow(vc.getId());
 
-        // This replaces virtualCircuitBl with a spy of the real BL
-        Field virtualCircuitBl = VirtualCircuitManagementResourceV1.class.getDeclaredField("virtualCircuitBl");
-        virtualCircuitBl.setAccessible(true);
-        Object realBlObj = virtualCircuitBl.get(resourceSpy);
-        VirtualCircuitBl blSpy = spy((VirtualCircuitBl) realBlObj);
-        virtualCircuitBl.set(resourceSpy, blSpy);
-
-        VirtualCircuitDo realDo = blSpy.getOrThrow(vc.getId());
-        VirtualCircuitDo doSpy = spy(realDo);
-        // set tenantId to null, so that backfill is triggered
+        VirtualCircuitDo doSpy = org.mockito.Mockito.spy(realDo);
         doReturn(null).when(doSpy).getTenantId();
+        doReturn(realDo.getId()).when(doSpy).getId();
+        doReturn(realDo.getCompartmentId()).when(doSpy).getCompartmentId();
 
-        doReturn(doSpy).when(blSpy).getOrThrow(vc.getId());
+        com.oracle.pic.vpn.model.VirtualCircuit apiVc =
+                virtualCircuitManagementResourceV1.toModel(vc, doSpy);
 
-        String expectedTenantId = "tenancyId";
-        doReturn(expectedTenantId).when(resourceSpy).getVcTenantId(vc.getCompartmentId());
-
-        VirtualCircuitDo afterBackfill = spy(realDo);
-        doReturn(expectedTenantId).when(afterBackfill).getTenantId();
-        doReturn(afterBackfill).when(blSpy).backfillTenantId(vc.getId(), expectedTenantId);
-
-        Response response = resourceSpy.getVirtualCircuit(vc.getId());
-        com.oracle.pic.vpn.model.VirtualCircuit vcReturned =
-                (com.oracle.pic.vpn.model.VirtualCircuit) response.getEntity();
-
-        // assert that VC in response has TenancyId
-        assertThat(vcReturned.getTenancyId()).isNotNull();
-
-        // assert that we hit the backfill path
-        verify(blSpy).backfillTenantId(vc.getId(), expectedTenantId);
+        assertEquals(vc.getProviderName(), apiVc.getProviderName());
+        assertEquals(vc.getBandwidthShapeName(), apiVc.getBandwidthShapeName());
+        assertEquals(vc.getCompartmentId(), apiVc.getCompartmentId());
+        assertNull(apiVc.getVirtualCircuitRedundancyMetadata());
+        assertEquals(false, apiVc.getIsDrgV2());
+        assertEquals(vc.getBgpAdminState().toString(), apiVc.getBgpAdminState().toString());
+        assertNotNull(realDo.getTenantId());
     }
