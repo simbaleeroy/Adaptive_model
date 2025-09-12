@@ -1,16 +1,147 @@
-[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.1:compile (default-compile) on project vpn-api: Compilation failure: Compilation failure: 
-[ERROR] /sparta/input/vpn-api/src/main/java/com/oracle/pic/vpn/api/resources/ManagementResourceV1.java:[1946,21] cannot find symbol
-[ERROR]   symbol:   method tenancyId(java.lang.String)
-[ERROR]   location: class com.oracle.pic.vpn.db.model.CrossConnectGroupDo.Builder
-[ERROR] /sparta/input/vpn-api/src/main/java/com/oracle/pic/vpn/api/resources/management/CrossConnectManagementResourceV1.java:[334,32] non-static method getCCTenantId(java.lang.String) cannot be referenced from a static context
-[ERROR] /sparta/input/vpn-api/src/main/java/com/oracle/pic/vpn/api/resources/management/CrossConnectManagementResourceV1.java:[335,38] non-static variable crossConnectBl cannot be referenced from a static context
-[ERROR] -> [Help 1]
-[ERROR] 
-[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
-[ERROR] Re-run Maven using the -X switch to enable full debug logging.
-[ERROR] 
-[ERROR] For more information about the errors and possible solutions, please read the following articles:
-[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException
-[ERROR] 
-[ERROR] After correcting the problems, you can resume the build with the command
-[ERROR]   mvn <args> -rf :vpn-api
+public CrossConnectDo backfillTenantId(String ccId, String tenantId) throws ValidationException {
+        if (tenantId == null){
+            return getOrThrow(ccId);
+        }
+
+        try( Transaction t = beginTransaction("backfill-tenantId")) {
+            CrossConnectDo cc = getOrThrow(t, ccId);
+            
+            if (cc.getTenantId() == null){
+                CrossConnectDo updatedCc = cc.toBuilder().tenantId(tenantId).build();
+                updatedCc = update(t, updatedCc);
+                t.commit();
+                return updatedCc;
+            }
+
+            return cc;
+
+        } catch (CommitConflictException e){
+            throw new RuntimeException("Commit conflict while backfilling tenantId for ccId: " + ccId, e);
+        }
+    }
+
+
+
+    @Test
+    public void GIVEN_getCrossConnect_THEN_backfillsTenantId_WhenMissing() throws Exception {
+        setupCcDependencies( locationBl,
+                patchPanelBl,
+                patchPanelPortPairBl,
+                interfaceBl);
+
+//        CreateCrossConnectInternalDetails createDetails = getCreateCrossConnectDetails().build();
+//        CrossConnectInternal cc = publicClient.createCrossConnect(createCrossConnectRequest.builder()
+//                .CreateCrossConnectInternalDetails(createDetails)
+//                .build()).getCrossConnectInternal();
+
+        CrossConnectInternal cc = createCrossConnect(crossConnectBl,
+                 patchPanelPortPairBl,
+                 locationBl,
+                 "test-CC",
+                 1,
+                crossConnectGroupBl,
+                 deviceBl);
+
+        CrossConnectManagementResourceV1 resourceSpy = spy(CrossConnectManagementResourceV1.class);
+
+        // replace cross connect bl with a spy of the real bl
+        Field crossConnectBl = CrossConnectManagementResourceV1.class.getDeclaredField("crossConnectBl");
+        crossConnectBl.setAccessible(true);
+        Object originalBl = crossConnectBl.get(resourceSpy);
+        CrossConnectBl blSpy = spy((CrossConnectBl) originalBl);
+        crossConnectBl.set(resourceSpy, blSpy);
+
+        CrossConnectDo realDo = blSpy.getOrThrowForAuth(cc.getId());
+        CrossConnectDo doSpy = spy(realDo);
+
+        // set tenacy id to null to simulate missing value and have it backfilled
+        doReturn(null).when(doSpy).getTenantId(); // tenancyId
+        doReturn(doSpy).when(blSpy).getOrThrowForAuth(cc.getId());
+
+        String expectedTenantId = "expected-tenant-id";
+        doReturn(expectedTenantId).when(identityHelper).getTenantId(doSpy.getCompartmentId());
+
+
+        CrossConnectDo afterBackfill = spy(realDo);
+        doReturn(expectedTenantId).when(afterBackfill).getTenantId();
+        doReturn(afterBackfill).when(blSpy).backfillTenantId(cc.getId(), expectedTenantId);
+
+        Response response = resourceSpy.getCrossConnect(cc.getId());
+        CrossConnectInternal returnedCc = (CrossConnectInternal) response.getEntity();
+
+
+        // assert that the returned cc has the backfilled tenant id
+        assertThat(returnedCc.getTenantId()).isNotNull();
+        assertEquals(expectedTenantId, returnedCc.getTenantId());
+
+        verify(blSpy).backfillTenantId(cc.getId(), expectedTenantId);
+    }
+
+    @Test
+    public void GIVEN_toModel_When_CrossConnectDoHasNoTenantId_THEN_backfillTenancyId() throws Exception {
+        setupCcDependencies( locationBl,
+                patchPanelBl,
+                patchPanelPortPairBl,
+                interfaceBl);
+
+//        CreateCrossConnectDetails createDetails = getCreateCrossConnectDetails().build();
+//        CrossConnectInternal cc = publicClient.createCrossConnect(createCrossConnectRequest.builder()
+//                .CreateCrossConnectInternalDetails(createDetails)
+//                .build()).getCrossConnectInternal();
+
+        CrossConnectInternal cc = createCrossConnect(crossConnectBl,
+                patchPanelPortPairBl,
+                locationBl,
+                "test-CC",
+                1,
+                crossConnectGroupBl,
+                deviceBl);
+        
+        CrossConnectDo realDo = crossConnectBl.getOrThrowForAuth(cc.getId());
+        CrossConnectDo doSpy = spy(realDo);
+
+        // set tenacy id to null to simulate missing value and have it backfilled
+        doReturn(null).when(doSpy).getTenantId(); // tenancyId
+        doReturn(realDo.getId()).when(doSpy).getId();
+        doReturn(realDo.getCompartmentId()).when(doSpy).getCompartmentId();
+
+        CrossConnectInternal apiCc = CrossConnectManagementResourceV1.toModel(
+                patchPanelPortPairBl,
+                locationBl,
+                doSpy,
+                encryptionManager,
+                crossConnectGroupBl,
+                deviceBl,crossConnectBl, identityHelper
+        );
+        assertEquals(cc.getCompartmentId(), apiCc.getCompartmentId());
+        assertEquals(cc.getDeviceId(), apiCc.getDeviceId());
+        assertEquals(cc.getPortSpeedShapeName(), apiCc.getPortSpeedShapeName());
+        
+        assertNotNull(realDo.getTenantId());
+        assertNotNull(apiCc.getTenantId());
+    }
+
+
+
+//    protected String getCCTenantId(String compartmentId){
+//        try {
+//            return identityHelper.getTenantId(compartmentId);
+//
+//        } catch (RuntimeException | AuthServerUnavailableException | ValidationException e) {
+//            log.error("Auth service is unavailable to fetch tenantId for compartmentId: " + compartmentId, e);
+//            return null;
+//        }
+//    }
+
+
+if (tenantId == null){
+                try {
+                    tenantId = identityMetadataHelper.getTenantId(crossConnectDo.getCompartmentId());
+                    // tenantId = getCCTenantId(crossConnectDo.getCompartmentId());
+                    crossConnectDo = crossConnectBl.backfillTenantId(crossConnectDo.getId(), tenantId);
+
+                } catch (AuthServerUnavailableException e) {
+                    log.error("Auth service is unavailable to fetch tenantId for compartmentId: " + crossConnectDo.getCompartmentId(), e);
+                    tenantId = null;
+                }
+            }
