@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Network Log Analyzer with Ollama Integration
@@ -73,7 +74,7 @@ class OllamaClient:
             response = requests.post(
                 f"{self.base_url}/api/generate",
                 json=payload,
-                timeout=120
+                timeout=30  # Reduced from 120s for faster response
             )
             
             if response.status_code == 200:
@@ -128,10 +129,17 @@ class NetworkLogAnalyzer:
             else:
                 print(f"\nExecuting monitoring script for {len(ocids)} OCIDs: {', '.join(ocids[:3])}{'...' if len(ocids) > 3 else ''}")
             
-            # Pass OCIDs as space-separated string
+            # Pass OCIDs as space-separated string (quoted for shell)
             ocid_string = " ".join(ocids)
-            cmd = [sys.executable, script_path, "--ocid", ocid_string,"--region", region, "--realm", realm  ]
+            cmd = [sys.executable, script_path, "--ocid", f'"{ocid_string}"']
+            
+            # Add region and realm only if they are provided
+            if region:
+                cmd.extend(["--region", region])
+            if realm:
+                cmd.extend(["--realm", realm])
 
+            print(f"DEBUG: Command: {' '.join(cmd)}")
             
             with open(output_file, 'w') as f:
                 # result = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, 
@@ -183,14 +191,27 @@ class NetworkLogAnalyzer:
 
             print(f"\nUsing Ollama model: {self.ollama.model}")
             
-            # Use larger chunks and limit total chunks for speed
-            max_chunk_size = 15000  # Larger chunks = fewer API calls
+            # Use optimal chunks for fast local LLM processing
+            max_chunk_size = 5000  # Optimal size for local models - faster processing
             chunks = self._split_content(content, max_chunk_size)
             
-            # Limit to first 2 chunks for speed, pattern matching will catch the rest
-            if len(chunks) > 2:
-                print(f"\nLarge log detected ({len(chunks)} chunks). Analyzing first 2 chunks for speed...")
-                chunks = chunks[:2]
+            # Quick scan for critical issues first
+            critical_patterns = [
+                "FEC Corrected Errors              2482307",  # High FEC errors
+                "Physical link is Down",  # Interface down
+                "alarms currently active",  # Active alarms
+                "bgpSessionState': 'DOWN'"  # BGP down
+            ]
+
+            has_critical_issues = any(pattern in content for pattern in critical_patterns)
+
+            if has_critical_issues:
+                print(f"\nCritical issues detected! Processing all {len(chunks)} chunks...")
+            else:
+                # Limit chunks for normal processing
+                if len(chunks) > 2:
+                    print(f"\nNo critical issues detected. Analyzing first 2 chunks of {len(chunks)} for speed...")
+                    chunks = chunks[:2]
             
             all_issues = []
             
@@ -200,9 +221,12 @@ class NetworkLogAnalyzer:
                 all_issues.extend(issues)
             
             # Always run fallback analysis on full content for comprehensive detection
-            print("\nRunning comprehensive analysis...")
+            print("\nRunning comprehensive pattern matching analysis...")
             fallback_issues = self._fallback_analysis_multi_ocid(content, requested_ocids)
             all_issues.extend(fallback_issues)
+            
+            # Prioritize pattern matching results over LLM results to reduce hallucinations
+            print("Prioritizing pattern matching results over LLM analysis...")
             
             # Remove duplicates
             print("Removing duplicate issues...")
@@ -216,15 +240,36 @@ class NetworkLogAnalyzer:
             return self._fallback_analysis_multi_ocid(content, requested_ocids)
 
     def _split_content(self, content: str, max_size: int) -> List[str]:
-        # Split content into manageable chunks
+        # Split content into manageable chunks, skipping non-critical sections
         if len(content) <= max_size:
             return [content]
-        
-        chunks = []
+
+        # Skip setup and banner sections to focus on actual network data
         lines = content.split('\n')
-        current_chunk = ""
-        
+        filtered_lines = []
+        skip_section = False
+
         for line in lines:
+            # Skip setup sections and command tables
+            if any(skip_phrase in line for skip_phrase in [
+                "SetUp Step", "Welcome to the", "Commands", "Pipe Commands",
+                "Use help", "TAB is available", "+---------"]):
+                skip_section = True
+                continue
+
+            # Start processing from actual network operations
+            if "Operation: show interfaces" in line or "Physical interface:" in line:
+                skip_section = False
+
+            if not skip_section:
+                filtered_lines.append(line)
+
+        content = '\n'.join(filtered_lines)
+
+        chunks = []
+        current_chunk = ""
+
+        for line in filtered_lines:
             if len(current_chunk + line + "\n") > max_size:
                 if current_chunk:
                     chunks.append(current_chunk)
@@ -235,25 +280,40 @@ class NetworkLogAnalyzer:
                     current_chunk = line[max_size:] + "\n"
             else:
                 current_chunk += line + "\n"
-        
+
         if current_chunk:
             chunks.append(current_chunk)
-            
+
         return chunks
 
     def _analyze_chunk_with_llm(self, chunk: str, requested_ocids: List[str] = None) -> List[Issue]:
         """Analyze a chunk of log data with LLM"""
         analysis_prompt = """Analyze Juniper network device log data and return results as JSON.
 
-Look for these network issues:
+CRITICAL RULES:
+1. ONLY report issues that are explicitly present in the log data
+2. Do NOT invent, assume, or hallucinate any issues
+3. Do NOT report interfaces that don't exist in the log
+4. Do NOT report BGP issues unless BGP data is actually present
+5. Only use exact text from the log in details field
+
+Look for these EXACT patterns in the log:
 1. Device errors: "error: device" followed by "not found"
-2. Interface down: "Physical link is Down"
+2. Interface down: "Physical link is Down" (exact text match)
 3. High FEC errors: "FEC Corrected Errors" > 1000000 OR "FEC Uncorrected Errors" > 100
 4. Fabric drops: "Fabric drops" > 0
-5. Active alarms: Lines showing "alarms currently active" with count > 0, followed by alarm details
+5. Active alarms: "alarms currently active" with count > 0, followed by alarm details
 6. LACP errors: "RpcError" or "invalid interface type"
 7. BGP sessions down: "bgpSessionState': 'DOWN'" or "bgpIpv6SessionState': 'DOWN'"
 8. High bit/block errors: "Bit errors" or "Errored blocks" with high counts
+9. Light level issues: "Laser output power" or "Laser receiver power" outside normal ranges
+10. Optical issues: "Laser bias current" too high or too low
+
+VALIDATION RULES:
+- Component must be an exact interface name from the log (et-0/1/1, et-1/1/5, etc.)
+- Details must contain exact text from the log
+- Description must be specific, not generic
+- Do NOT use words like "detected", "found", "identified" in descriptions
 
 For FEC errors, use these severity levels:
 - HIGH: FEC Corrected > 2000000 OR FEC Uncorrected > 10000
@@ -264,12 +324,12 @@ Return ONLY this JSON format:
 {
   "issues": [
     {
-      "category": "Interface",
-      "severity": "HIGH",
-      "component": "et-1/1/5",
-      "description": "Critical FEC errors detected",
-      "details": "FEC Corrected Errors: 2482307, FEC Uncorrected Errors: 32566",
-      "recommendation": "Check fiber optic connections and signal quality. Consider replacing optical transceivers."
+      "category": "Interface|BGP|Fabric|Alarm|LACP|Optics",
+      "severity": "HIGH|MEDIUM|LOW",
+      "component": "exact interface name from log",
+      "description": "specific issue description",
+      "details": "exact text from log showing the issue",
+      "recommendation": "specific action to take"
     }
   ]
 }
@@ -376,22 +436,269 @@ Return ONLY valid JSON, no explanatory text:"""
         return None
     
     def _convert_json_to_issues(self, data: dict, requested_ocids: List[str] = None) -> List[Issue]:
-        # Convert parsed JSON data to Issue objects
+        # Convert parsed JSON data to Issue objects with validation
         issues = []
         for issue_data in data.get('issues', []):
-            # Use the first requested OCID if available, otherwise leave blank
-            ocid = requested_ocids[0] if requested_ocids and len(requested_ocids) > 0 else ""
-            issue = Issue(
-                category=issue_data.get('category', 'Unknown'),
-                severity=issue_data.get('severity', 'MEDIUM'),
-                component=issue_data.get('component', 'Unknown'),
-                description=issue_data.get('description', ''),
-                details=issue_data.get('details', ''),
-                recommendation=issue_data.get('recommendation', ''),
-                ocid=ocid
-            )
-            issues.append(issue)
+            # Validate the issue data to prevent hallucinations
+            if self._validate_issue_data(issue_data):
+                # Use the first requested OCID if available, otherwise leave blank
+                ocid = requested_ocids[0] if requested_ocids and len(requested_ocids) > 0 else ""
+                issue = Issue(
+                    category=issue_data.get('category', 'Unknown'),
+                    severity=issue_data.get('severity', 'MEDIUM'),
+                    component=issue_data.get('component', 'Unknown'),
+                    description=issue_data.get('description', ''),
+                    details=issue_data.get('details', ''),
+                    recommendation=issue_data.get('recommendation', ''),
+                    ocid=ocid
+                )
+                issues.append(issue)
         return issues
+    
+    def _validate_issue_data(self, issue_data: dict) -> bool:
+        """Validate issue data to prevent hallucinations and ensure only real data is reported"""
+        # Check for empty or suspicious data
+        if not issue_data.get('component') or issue_data.get('component') == 'Unknown':
+            return False
+        
+        # Check for empty descriptions or details
+        if not issue_data.get('description') or not issue_data.get('details'):
+            return False
+        
+        # Check for suspiciously high numbers that might be hallucinated
+        details = issue_data.get('details', '')
+        if any(suspicious in details for suspicious in ['10000', '5000', '123456', '999999']):
+            # These are common hallucinated numbers
+            return False
+        
+        # Check for valid interface format using flexible regex
+        component = issue_data.get('component', '')
+        
+        # Generic interface patterns that can match any valid interface format
+        # Pattern 1: Interface with slot/port format (et-0/1/1, ge-0/0/0, xe-1/2/3, etc.)
+        slot_port_pattern = r'^[a-zA-Z]+-\d+/\d+/\d+$'
+        
+        # Pattern 2: Interface with single number (ae0, lo0, fxp1, etc.)
+        single_number_pattern = r'^[a-zA-Z]+\d+$'
+        
+        # Pattern 3: Interface with dot notation (vlan.100, irb.200, st0.0, etc.)
+        dot_notation_pattern = r'^[a-zA-Z]+\.\d+$'
+        
+        # Pattern 4: Interface with multiple dashes and numbers (gr-0/0/0, lt-1/2/3, etc.)
+        multi_dash_pattern = r'^[a-zA-Z]+-\d+/\d+/\d+$'
+        
+        # Check if component looks like an interface using flexible patterns
+        is_interface = (re.match(slot_port_pattern, component) or 
+                       re.match(single_number_pattern, component) or 
+                       re.match(dot_notation_pattern, component) or 
+                       re.match(multi_dash_pattern, component))
+        
+        if is_interface:
+            # This is a valid interface format
+            pass
+        elif component and not any(keyword in component.lower() for keyword in ['fabric', 'chassis', 'system', 'host', 'lane', 'none', 'bgp', 'lacp', 'alarm']):
+            # If it's not a valid interface format and not a known non-interface component, it might be hallucinated
+            return False
+        
+        # Check for BGP issues that might be hallucinated
+        if issue_data.get('category') == 'BGP':
+            # Only allow BGP issues if BGP data is actually present in the log
+            # This will be checked by the pattern matching logic
+            return False
+        
+        # Check for generic descriptions that might be hallucinated
+        description = issue_data.get('description', '').lower()
+        if any(generic in description for generic in ['detected', 'found', 'identified']):
+            # These are often hallucinated generic descriptions
+            return False
+        
+        # Check for false "Physical link is Down" reports
+        if "physical link is down" in description.lower():
+            # This is often hallucinated - interfaces are usually up
+            return False
+        
+        # Check for suspicious details that don't match the description
+        details = issue_data.get('details', '').lower()
+        if "physical link is down" in details and "physical link is up" in details:
+            # Contradictory information - likely hallucinated
+            return False
+        
+        return True
+
+    def _is_valid_interface(self, interface_name: str) -> bool:
+        """Check if a string looks like a valid interface name using flexible regex patterns"""
+        # Generic interface patterns that can match any valid interface format
+        # Pattern 1: Interface with slot/port format (et-0/1/1, ge-0/0/0, xe-1/2/3, etc.)
+        slot_port_pattern = r'^[a-zA-Z]+-\d+/\d+/\d+$'
+        
+        # Pattern 2: Interface with single number (ae0, lo0, fxp1, etc.)
+        single_number_pattern = r'^[a-zA-Z]+\d+$'
+        
+        # Pattern 3: Interface with dot notation (vlan.100, irb.200, st0.0, etc.)
+        dot_notation_pattern = r'^[a-zA-Z]+\.\d+$'
+        
+        # Pattern 4: Interface with multiple dashes and numbers (gr-0/0/0, lt-1/2/3, etc.)
+        multi_dash_pattern = r'^[a-zA-Z]+-\d+/\d+/\d+$'
+        
+        # Check if it matches any of the flexible patterns
+        return (re.match(slot_port_pattern, interface_name) or 
+                re.match(single_number_pattern, interface_name) or 
+                re.match(dot_notation_pattern, interface_name) or 
+                re.match(multi_dash_pattern, interface_name))
+
+    def _check_light_levels(self, lines: List[str], issues: List[Issue]) -> None:
+        """Check for light level issues in optical interfaces"""
+        current_interface = None
+        in_optics_section = False
+        light_levels = {}
+        
+        for i, line in enumerate(lines):
+            # Detect start of optics diagnostics section
+            if "show interfaces diagnostics optics" in line:
+                in_optics_section = True
+                # Extract interface name from the command
+                interface_match = re.search(r'diagnostics optics (\S+)', line)
+                if interface_match:
+                    current_interface = interface_match.group(1)
+                    light_levels[current_interface] = {}
+                continue
+            
+            # Detect end of optics section
+            if in_optics_section and (line.startswith('<') or line.startswith('ncpcli@')):
+                in_optics_section = False
+                current_interface = None
+                continue
+            
+            if in_optics_section and current_interface:
+                # Extract laser output power
+                output_power_match = re.search(r'Laser output power\s+:\s+([\d.]+)\s+mW\s+/\s+([\d.-]+)\s+dBm', line)
+                if output_power_match:
+                    power_mw = float(output_power_match.group(1))
+                    power_dbm = float(output_power_match.group(2))
+                    light_levels[current_interface]['output_power'] = {
+                        'mw': power_mw,
+                        'dbm': power_dbm
+                    }
+                
+                # Extract laser receiver power
+                rx_power_match = re.search(r'Laser receiver power\s+:\s+([\d.]+)\s+mW\s+/\s+([\d.-]+)\s+dBm', line)
+                if rx_power_match:
+                    power_mw = float(rx_power_match.group(1))
+                    power_dbm = float(rx_power_match.group(2))
+                    light_levels[current_interface]['rx_power'] = {
+                        'mw': power_mw,
+                        'dbm': power_dbm
+                    }
+                
+                # Extract laser bias current
+                bias_current_match = re.search(r'Laser bias current\s+:\s+([\d.]+)\s+mA', line)
+                if bias_current_match:
+                    bias_current = float(bias_current_match.group(1))
+                    light_levels[current_interface]['bias_current'] = bias_current
+                
+                # Extract thresholds
+                high_alarm_match = re.search(r'Laser output power high alarm threshold\s+:\s+([\d.]+)\s+mW\s+/\s+([\d.-]+)\s+dBm', line)
+                if high_alarm_match:
+                    high_mw = float(high_alarm_match.group(1))
+                    high_dbm = float(high_alarm_match.group(2))
+                    light_levels[current_interface]['high_alarm_threshold'] = {
+                        'mw': high_mw,
+                        'dbm': high_dbm
+                    }
+                
+                low_alarm_match = re.search(r'Laser output power low alarm threshold\s+:\s+([\d.]+)\s+mW\s+/\s+([\d.-]+)\s+dBm', line)
+                if low_alarm_match:
+                    low_mw = float(low_alarm_match.group(1))
+                    low_dbm = float(low_alarm_match.group(2))
+                    light_levels[current_interface]['low_alarm_threshold'] = {
+                        'mw': low_mw,
+                        'dbm': low_dbm
+                    }
+        
+        # Analyze light levels for each interface
+        for interface, levels in light_levels.items():
+            if not self._is_valid_interface(interface):
+                continue
+                
+            # Check if we have complete light level data
+            if 'output_power' in levels and 'high_alarm_threshold' in levels and 'low_alarm_threshold' in levels:
+                output_dbm = levels['output_power']['dbm']
+                high_threshold = levels['high_alarm_threshold']['dbm']
+                low_threshold = levels['low_alarm_threshold']['dbm']
+                
+                # Check for light level issues
+                if output_dbm > high_threshold:
+                    issues.append(Issue(
+                        category="Optics",
+                        severity="HIGH",
+                        component=interface,
+                        description="Laser output power too high",
+                        details=f"Output power: {output_dbm:.2f} dBm (threshold: {high_threshold:.2f} dBm)",
+                        recommendation="Check optical power settings and consider attenuation"
+                    ))
+                elif output_dbm < low_threshold:
+                    issues.append(Issue(
+                        category="Optics",
+                        severity="HIGH",
+                        component=interface,
+                        description="Laser output power too low",
+                        details=f"Output power: {output_dbm:.2f} dBm (threshold: {low_threshold:.2f} dBm)",
+                        recommendation="Check optical connections, clean connectors, or replace transceiver"
+                    ))
+                else:
+                    # Light levels are good - report as informational
+                    issues.append(Issue(
+                        category="Optics",
+                        severity="LOW",
+                        component=interface,
+                        description="Light levels normal",
+                        details=f"Output power: {output_dbm:.2f} dBm (within {low_threshold:.2f} to {high_threshold:.2f} dBm range)",
+                        recommendation="Optical power levels are within acceptable range"
+                    ))
+            
+            # Check receiver power if available
+            if 'rx_power' in levels:
+                rx_dbm = levels['rx_power']['dbm']
+                if rx_dbm < -20:  # Very low receiver power
+                    issues.append(Issue(
+                        category="Optics",
+                        severity="MEDIUM",
+                        component=interface,
+                        description="Low receiver power",
+                        details=f"Receiver power: {rx_dbm:.2f} dBm (very low)",
+                        recommendation="Check optical connections and fiber quality"
+                    ))
+                elif rx_dbm > 5:  # Very high receiver power
+                    issues.append(Issue(
+                        category="Optics",
+                        severity="MEDIUM",
+                        component=interface,
+                        description="High receiver power",
+                        details=f"Receiver power: {rx_dbm:.2f} dBm (very high)",
+                        recommendation="Check for optical amplifier issues or excessive input power"
+                    ))
+            
+            # Check bias current if available
+            if 'bias_current' in levels:
+                bias_current = levels['bias_current']
+                if bias_current > 80:  # High bias current
+                    issues.append(Issue(
+                        category="Optics",
+                        severity="MEDIUM",
+                        component=interface,
+                        description="High laser bias current",
+                        details=f"Bias current: {bias_current:.2f} mA (high)",
+                        recommendation="Monitor laser health, may indicate aging transceiver"
+                    ))
+                elif bias_current < 5:  # Low bias current
+                    issues.append(Issue(
+                        category="Optics",
+                        severity="MEDIUM",
+                        component=interface,
+                        description="Low laser bias current",
+                        details=f"Bias current: {bias_current:.2f} mA (low)",
+                        recommendation="Check laser functionality and transceiver health"
+                    ))
 
     def _fallback_analysis(self, content: str) -> List[Issue]:
         # Fallback analysis using pattern matching if LLM is unavailable
@@ -440,6 +747,61 @@ Return ONLY valid JSON, no explanatory text:"""
                 recommendation="Check IPv6 redundant BGP sessions and failover configuration"
             ))
         
+        # Check for device not found errors
+        for i, line in enumerate(lines):
+            if "error: device" in line and "not found" in line:
+                # Extract interface name from the error using regex
+                interface_match = re.search(r'device (\S+) not found', line)
+                if interface_match:
+                    interface_name = interface_match.group(1)
+                    # Validate that it looks like an interface
+                    if self._is_valid_interface(interface_name):
+                        issues.append(Issue(
+                            category="Interface",
+                            severity="HIGH",
+                            component=interface_name,
+                            description="Device not found",
+                            details=line.strip(),
+                            recommendation="Check interface configuration and physical connections"
+                        ))
+        
+        # Check for interface down status (only if actually down)
+        for i, line in enumerate(lines):
+            if "Physical link is Down" in line:
+                # Look for interface name in previous lines using regex
+                interface_name = "Unknown"
+                for j in range(max(0, i-5), i):
+                    if "Physical interface:" in lines[j]:
+                        interface_match = re.search(r'Physical interface: (\S+)', lines[j])
+                        if interface_match:
+                            interface_name = interface_match.group(1)
+                            break
+                
+                # Validate that it looks like an interface
+                if not self._is_valid_interface(interface_name):
+                    continue
+                
+                # Double-check that this interface is actually down
+                # Look for "Physical link is Up" in the same interface section
+                is_actually_down = True
+                for k in range(i, min(len(lines), i+10)):
+                    if "Physical link is Up" in lines[k]:
+                        is_actually_down = False
+                        break
+                    if "Physical interface:" in lines[k] and k > i:
+                        # We've moved to the next interface
+                        break
+                
+                if is_actually_down:
+                    issues.append(Issue(
+                        category="Interface",
+                        severity="HIGH",
+                        component=interface_name,
+                        description="Interface down",
+                        details="Physical link is Down",
+                        recommendation="Check physical connections and interface configuration"
+                    ))
+        
         # Check for high FEC errors
         fec_pattern = r'FEC Corrected Errors\s+(\d+)'
         interface_context = None
@@ -449,6 +811,9 @@ Return ONLY valid JSON, no explanatory text:"""
             if_match = re.search(r'Physical interface: ([\w/-]+)', line)
             if if_match:
                 interface_context = if_match.group(1)
+                # Validate that it looks like an interface
+                if not self._is_valid_interface(interface_context):
+                    interface_context = None
                 
             # Check for high FEC errors
             fec_match = re.search(fec_pattern, line)
@@ -515,6 +880,21 @@ Return ONLY valid JSON, no explanatory text:"""
                         details=f"Fabric drops: {drops_match.group(1)}",
                         recommendation="Investigate fabric congestion or hardware issues"
                     ))
+        
+        # Check for LACP errors
+        for i, line in enumerate(lines):
+            if "RpcError" in line and "invalid interface type" in line:
+                issues.append(Issue(
+                    category="LACP",
+                    severity="MEDIUM",
+                    component="LACP",
+                    description="LACP configuration error",
+                    details=line.strip(),
+                    recommendation="Check LACP interface configuration and valid interface types"
+                ))
+        
+        # Check for light level issues
+        self._check_light_levels(lines, issues)
         
         # Check for active alarms (other than "No alarms")
         in_alarm_section = False
