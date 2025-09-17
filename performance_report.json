@@ -163,9 +163,24 @@ class NetworkLogAnalyzer:
                 
             print("\nChecking Ollama availability...")
             if not self.ollama.is_available():
+                print(f"DEBUG: Ollama not available at {self.ollama.base_url}")
+                print("DEBUG: Make sure Ollama is running: ollama serve")
                 print("\nOllama service not available. Using fallback analysis...")
                 return self._fallback_analysis_multi_ocid(content, requested_ocids)
-            
+
+            # Check if the model is available
+            available_models = self.ollama.get_available_models()
+            print(f"DEBUG: Available models: {available_models}")
+            if self.ollama.model not in available_models:
+                print(f"WARNING: Model {self.ollama.model} not found!")
+                print("DEBUG: Try: ollama pull llama3.2:3b")
+                if available_models:
+                    print(f"DEBUG: Using first available model: {available_models[0]}")
+                    self.ollama.model = available_models[0]
+                else:
+                    print("ERROR: No models available, falling back to pattern matching")
+                    return self._fallback_analysis_multi_ocid(content, requested_ocids)
+
             print(f"\nUsing Ollama model: {self.ollama.model}")
             
             # Use larger chunks and limit total chunks for speed
@@ -228,27 +243,33 @@ class NetworkLogAnalyzer:
 
     def _analyze_chunk_with_llm(self, chunk: str, requested_ocids: List[str] = None) -> List[Issue]:
         """Analyze a chunk of log data with LLM"""
-        analysis_prompt = """Analyze network log data and return results as JSON.
+        analysis_prompt = """Analyze Juniper network device log data and return results as JSON.
 
 Look for these network issues:
-1. Interface down: "Physical link is Down"
-2. BGP sessions down: "bgpSessionState': 'DOWN'" or "bgpIpv6SessionState': 'DOWN'"
-3. Redundancy problems: "NOT_MET_SLA"
-4. Device errors: "error: device"
-5. Fabric drops: "Fabric drops" > 0
-6. High FEC errors: "FEC Corrected Errors" > 10000000000
-7. Active alarms: anything other than "No alarms currently active"
+1. Device errors: "error: device" followed by "not found"
+2. Interface down: "Physical link is Down"
+3. High FEC errors: "FEC Corrected Errors" > 1000000 OR "FEC Uncorrected Errors" > 100
+4. Fabric drops: "Fabric drops" > 0
+5. Active alarms: Lines showing "alarms currently active" with count > 0, followed by alarm details
+6. LACP errors: "RpcError" or "invalid interface type"
+7. BGP sessions down: "bgpSessionState': 'DOWN'" or "bgpIpv6SessionState': 'DOWN'"
+8. High bit/block errors: "Bit errors" or "Errored blocks" with high counts
+
+For FEC errors, use these severity levels:
+- HIGH: FEC Corrected > 2000000 OR FEC Uncorrected > 10000
+- MEDIUM: FEC Corrected > 500000 OR FEC Uncorrected > 1000
+- LOW: FEC Corrected > 100000 OR FEC Uncorrected > 100
 
 Return ONLY this JSON format:
 {
   "issues": [
     {
       "category": "Interface",
-      "severity": "HIGH", 
-      "component": "et-0/1/0",
-      "description": "Physical link is down",
-      "details": "Physical interface: et-0/1/0, Enabled, Physical link is Down",
-      "recommendation": "Check cable connections and interface configuration"
+      "severity": "HIGH",
+      "component": "et-1/1/5",
+      "description": "Critical FEC errors detected",
+      "details": "FEC Corrected Errors: 2482307, FEC Uncorrected Errors: 32566",
+      "recommendation": "Check fiber optic connections and signal quality. Consider replacing optical transceivers."
     }
   ]
 }
@@ -256,7 +277,7 @@ Return ONLY this JSON format:
 If no issues found, return:
 {"issues": []}
 
-JSON only:"""
+Return ONLY valid JSON, no explanatory text:"""
         
         response = self.ollama.analyze_text(analysis_prompt, chunk)
         
@@ -270,16 +291,38 @@ JSON only:"""
             return parsed_issues
         
         # If all JSON parsing fails, return empty list (fallback will handle it)
-        print("Could not parse LLM response, using pattern matching")
+        print("\nDEBUG: All JSON parsing methods failed!")
+        print(f"DEBUG: Response length: {len(response)} characters")
+        print(f"DEBUG: Response contains '{{': {'{' in response}")
+        print(f"DEBUG: Response contains 'issues': {'issues' in response.lower()}")
+        print("WARNING: Could not parse LLM response, falling back to pattern matching")
         return []
     
     def _extract_json_from_response(self, response: str, requested_ocids: List[str] = None) -> List[Issue]:
         """Try multiple methods to extract valid JSON from LLM response"""
+        print(f"DEBUG: LLM raw response (first 500 chars): {response[:500]}...")
+
+        # Method 0: Handle markdown code blocks (```json ... ```)
+        try:
+            import re
+            code_block_pattern = r'```(?:json)?\s*\n?(.*?)\n?```'
+            match = re.search(code_block_pattern, response, re.DOTALL)
+            if match:
+                json_content = match.group(1).strip()
+                print(f"DEBUG: Found JSON in code block: {json_content[:200]}...")
+                data = json.loads(json_content)
+                return self._convert_json_to_issues(data, requested_ocids)
+        except json.JSONDecodeError as e:
+            print(f"DEBUG: Code block JSON parsing failed: {e}")
+            pass
+
         # Method 1: Try parsing the entire response as JSON
         try:
             data = json.loads(response)
+            print(f"DEBUG: Successfully parsed entire response as JSON")
             return self._convert_json_to_issues(data, requested_ocids)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            print(f"DEBUG: Full response JSON parsing failed: {e}")
             pass
         
         # Method 2: Look for JSON between curly braces
@@ -288,9 +331,12 @@ JSON only:"""
             json_end = response.rfind('}') + 1
             if json_start >= 0 and json_end > json_start:
                 json_str = response[json_start:json_end]
+                print(f"DEBUG: Extracted JSON between braces: {json_str[:200]}...")
                 data = json.loads(json_str)
+                print(f"DEBUG: Successfully parsed JSON between braces")
                 return self._convert_json_to_issues(data, requested_ocids)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            print(f"DEBUG: Brace extraction JSON parsing failed: {e}")
             pass
         
         # Method 3: Look for multiple JSON objects
