@@ -1,147 +1,1462 @@
-public CrossConnectDo backfillTenantId(String ccId, String tenantId) throws ValidationException {
-        if (tenantId == null){
-            return getOrThrow(ccId);
-        }
+#!/usr/bin/env python3
+"""
+Network Log Analyzer with Ollama Integration
+Kicks off network monitoring script and uses local Ollama model to analyze output for issues.
+"""
 
-        try( Transaction t = beginTransaction("backfill-tenantId")) {
-            CrossConnectDo cc = getOrThrow(t, ccId);
+import argparse
+import subprocess
+import sys
+import os
+import re
+import json
+import requests
+import time
+from datetime import datetime
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+from tabulate import tabulate
+
+
+@dataclass
+class Issue:
+    """Represents a detected network issue"""
+    category: str
+    severity: str  # HIGH, MEDIUM, LOW
+    component: str
+    description: str
+    details: str
+    recommendation: str = ""
+    ocid: str = ""  # Add OCID to track which network this issue belongs to
+
+
+class OllamaClient:
+    # Client for interacting with local Ollama model
+    
+    def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3.2:3b"):
+        self.base_url = base_url
+        self.model = model
+        
+    def is_available(self) -> bool:
+        # Check if Ollama service is available
+        try:
+            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            return response.status_code == 200
+        except:
+            return False
             
-            if (cc.getTenantId() == null){
-                CrossConnectDo updatedCc = cc.toBuilder().tenantId(tenantId).build();
-                updatedCc = update(t, updatedCc);
-                t.commit();
-                return updatedCc;
-            }
-
-            return cc;
-
-        } catch (CommitConflictException e){
-            throw new RuntimeException("Commit conflict while backfilling tenantId for ccId: " + ccId, e);
-        }
-    }
-
-
-
-    @Test
-    public void GIVEN_getCrossConnect_THEN_backfillsTenantId_WhenMissing() throws Exception {
-        setupCcDependencies( locationBl,
-                patchPanelBl,
-                patchPanelPortPairBl,
-                interfaceBl);
-
-//        CreateCrossConnectInternalDetails createDetails = getCreateCrossConnectDetails().build();
-//        CrossConnectInternal cc = publicClient.createCrossConnect(createCrossConnectRequest.builder()
-//                .CreateCrossConnectInternalDetails(createDetails)
-//                .build()).getCrossConnectInternal();
-
-        CrossConnectInternal cc = createCrossConnect(crossConnectBl,
-                 patchPanelPortPairBl,
-                 locationBl,
-                 "test-CC",
-                 1,
-                crossConnectGroupBl,
-                 deviceBl);
-
-        CrossConnectManagementResourceV1 resourceSpy = spy(CrossConnectManagementResourceV1.class);
-
-        // replace cross connect bl with a spy of the real bl
-        Field crossConnectBl = CrossConnectManagementResourceV1.class.getDeclaredField("crossConnectBl");
-        crossConnectBl.setAccessible(true);
-        Object originalBl = crossConnectBl.get(resourceSpy);
-        CrossConnectBl blSpy = spy((CrossConnectBl) originalBl);
-        crossConnectBl.set(resourceSpy, blSpy);
-
-        CrossConnectDo realDo = blSpy.getOrThrowForAuth(cc.getId());
-        CrossConnectDo doSpy = spy(realDo);
-
-        // set tenacy id to null to simulate missing value and have it backfilled
-        doReturn(null).when(doSpy).getTenantId(); // tenancyId
-        doReturn(doSpy).when(blSpy).getOrThrowForAuth(cc.getId());
-
-        String expectedTenantId = "expected-tenant-id";
-        doReturn(expectedTenantId).when(identityHelper).getTenantId(doSpy.getCompartmentId());
-
-
-        CrossConnectDo afterBackfill = spy(realDo);
-        doReturn(expectedTenantId).when(afterBackfill).getTenantId();
-        doReturn(afterBackfill).when(blSpy).backfillTenantId(cc.getId(), expectedTenantId);
-
-        Response response = resourceSpy.getCrossConnect(cc.getId());
-        CrossConnectInternal returnedCc = (CrossConnectInternal) response.getEntity();
-
-
-        // assert that the returned cc has the backfilled tenant id
-        assertThat(returnedCc.getTenantId()).isNotNull();
-        assertEquals(expectedTenantId, returnedCc.getTenantId());
-
-        verify(blSpy).backfillTenantId(cc.getId(), expectedTenantId);
-    }
-
-    @Test
-    public void GIVEN_toModel_When_CrossConnectDoHasNoTenantId_THEN_backfillTenancyId() throws Exception {
-        setupCcDependencies( locationBl,
-                patchPanelBl,
-                patchPanelPortPairBl,
-                interfaceBl);
-
-//        CreateCrossConnectDetails createDetails = getCreateCrossConnectDetails().build();
-//        CrossConnectInternal cc = publicClient.createCrossConnect(createCrossConnectRequest.builder()
-//                .CreateCrossConnectInternalDetails(createDetails)
-//                .build()).getCrossConnectInternal();
-
-        CrossConnectInternal cc = createCrossConnect(crossConnectBl,
-                patchPanelPortPairBl,
-                locationBl,
-                "test-CC",
-                1,
-                crossConnectGroupBl,
-                deviceBl);
-        
-        CrossConnectDo realDo = crossConnectBl.getOrThrowForAuth(cc.getId());
-        CrossConnectDo doSpy = spy(realDo);
-
-        // set tenacy id to null to simulate missing value and have it backfilled
-        doReturn(null).when(doSpy).getTenantId(); // tenancyId
-        doReturn(realDo.getId()).when(doSpy).getId();
-        doReturn(realDo.getCompartmentId()).when(doSpy).getCompartmentId();
-
-        CrossConnectInternal apiCc = CrossConnectManagementResourceV1.toModel(
-                patchPanelPortPairBl,
-                locationBl,
-                doSpy,
-                encryptionManager,
-                crossConnectGroupBl,
-                deviceBl,crossConnectBl, identityHelper
-        );
-        assertEquals(cc.getCompartmentId(), apiCc.getCompartmentId());
-        assertEquals(cc.getDeviceId(), apiCc.getDeviceId());
-        assertEquals(cc.getPortSpeedShapeName(), apiCc.getPortSpeedShapeName());
-        
-        assertNotNull(realDo.getTenantId());
-        assertNotNull(apiCc.getTenantId());
-    }
-
-
-
-//    protected String getCCTenantId(String compartmentId){
-//        try {
-//            return identityHelper.getTenantId(compartmentId);
-//
-//        } catch (RuntimeException | AuthServerUnavailableException | ValidationException e) {
-//            log.error("Auth service is unavailable to fetch tenantId for compartmentId: " + compartmentId, e);
-//            return null;
-//        }
-//    }
-
-
-if (tenantId == null){
-                try {
-                    tenantId = identityMetadataHelper.getTenantId(crossConnectDo.getCompartmentId());
-                    // tenantId = getCCTenantId(crossConnectDo.getCompartmentId());
-                    crossConnectDo = crossConnectBl.backfillTenantId(crossConnectDo.getId(), tenantId);
-
-                } catch (AuthServerUnavailableException e) {
-                    log.error("Auth service is unavailable to fetch tenantId for compartmentId: " + crossConnectDo.getCompartmentId(), e);
-                    tenantId = null;
+    def get_available_models(self) -> List[str]:
+        # Get list of available models
+        try:
+            response = requests.get(f"{self.base_url}/api/tags")
+            if response.status_code == 200:
+                data = response.json()
+                return [model['name'] for model in data.get('models', [])]
+        except:
+            return []
+        return []
+    
+    def analyze_text(self, prompt: str, context: str) -> str:
+        # Send text to Ollama model for analysis
+        try:
+            payload = {
+                "model": self.model,
+                "prompt": f"{prompt}\n\nNetwork Log Data:\n{context}",
+                "stream": False,
+                "options": {
+                    "temperature": 0.1,  # Low temperature for consistent analysis
+                    "top_p": 0.9,
+                    "repeat_penalty": 1.1
                 }
             }
+            
+            response = requests.post(
+                f"{self.base_url}/api/generate",
+                json=payload,
+                timeout=120
+            )
+            
+            if response.status_code == 200:
+                return response.json().get('response', '')
+            else:
+                return f"Error: {response.status_code}"
+                
+        except Exception as e:
+            return f"Error communicating with Ollama: {e}"
+
+
+def typewriter_print(text: str, delay: float = 0.005):
+    # Print text character by character like ChatGPT - fast but visible
+    import sys
+    import os
+    
+    # Force unbuffered output
+    os.environ['PYTHONUNBUFFERED'] = '1'
+    
+    lines = text.split('\n')
+    for line_idx, line in enumerate(lines):
+        if line.strip():  # Only animate non-empty lines
+            # Print in small chunks for speed while maintaining effect
+            chunk_size = 3  # Print 3 characters at a time
+            for i in range(0, len(line), chunk_size):
+                chunk = line[i:i + chunk_size]
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+                time.sleep(delay)
+            sys.stdout.write('\n')
+        else:
+            sys.stdout.write('\n')
+        sys.stdout.flush()
+
+
+class NetworkLogAnalyzer:
+    # Analyzes network monitoring logs using Ollama LLM
+    
+    def __init__(self, model_name: str = "llama3.2:3b", typewriter_mode: bool = False):
+        self.ollama = OllamaClient(model=model_name)
+        self.issues: List[Issue] = []
+        self.typewriter_mode = typewriter_mode
+        
+    def run_monitoring_script(self, script_path: str, ocids: List[str],  realm: str = None, region: str = None, output_file: str = None,) -> str:
+        # Execute the monitoring script with multiple OCIDs and return output file path
+        if output_file is None:
+            output_file = f"network_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            
+        try:
+            if len(ocids) == 1:
+                print(f"\nExecuting monitoring script for OCID: {ocids[0]}")
+            else:
+                print(f"\nExecuting monitoring script for {len(ocids)} OCIDs: {', '.join(ocids[:3])}{'...' if len(ocids) > 3 else ''}")
+            
+            # Pass OCIDs as space-separated string
+            ocid_string = " ".join(ocids)
+            cmd = [sys.executable, script_path, "--ocid", ocid_string,"--region", region, "--realm", realm  ]
+
+            
+            with open(output_file, 'w') as f:
+                # result = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, 
+                #                       text=True, timeout=600)  # Longer timeout for multiple OCIDs
+                # result = subprocess.run(cmd, text = True, timeout = 600)
+                tee_cmd = cmd + ["|", "tee", output_file]
+                full_cmd = " ".join(cmd) + f" | tee {output_file}"
+                result = subprocess.run(full_cmd, shell = True, text = True, timeout = 600)
+            
+            if result.returncode != 0:
+                print(f"Script exited with code {result.returncode}")
+            else:
+                print(f"Output saved to: {output_file}")
+                
+            return output_file
+            
+        except subprocess.TimeoutExpired:
+            print("Script timed out after 10 minutes")
+            return output_file
+        except Exception as e:
+            print(f"Error running script: {e}")
+            return output_file
+
+    def analyze_log_with_llm(self, log_file: str, requested_ocids: List[str] = None) -> List[Issue]:
+        # Analyze the log file using Ollama LLM
+        try:
+            with open(log_file, 'r') as f:
+                content = f.read()
+                
+            print("\nChecking Ollama availability...")
+            if not self.ollama.is_available():
+                print("\nOllama service not available. Using fallback analysis...")
+                return self._fallback_analysis_multi_ocid(content, requested_ocids)
+            
+            print(f"\nUsing Ollama model: {self.ollama.model}")
+            
+            # Use larger chunks and limit total chunks for speed
+            max_chunk_size = 15000  # Larger chunks = fewer API calls
+            chunks = self._split_content(content, max_chunk_size)
+            
+            # Limit to first 2 chunks for speed, pattern matching will catch the rest
+            if len(chunks) > 2:
+                print(f"\nLarge log detected ({len(chunks)} chunks). Analyzing first 2 chunks for speed...")
+                chunks = chunks[:2]
+            
+            all_issues = []
+            
+            for i, chunk in enumerate(chunks):
+                print(f"\nAnalyzing chunk {i+1}/{len(chunks)}...")
+                issues = self._analyze_chunk_with_llm(chunk, requested_ocids)
+                all_issues.extend(issues)
+            
+            # Always run fallback analysis on full content for comprehensive detection
+            print("\nRunning comprehensive analysis...")
+            fallback_issues = self._fallback_analysis_multi_ocid(content, requested_ocids)
+            all_issues.extend(fallback_issues)
+            
+            # Remove duplicates
+            print("Removing duplicate issues...")
+            deduplicated_issues = self._deduplicate_issues(all_issues)
+            print(f"Removed {len(all_issues) - len(deduplicated_issues)} duplicate issues")
+                
+            return deduplicated_issues
+            
+        except Exception as e:
+            print(f"Error during LLM analysis: {e}")
+            return self._fallback_analysis_multi_ocid(content, requested_ocids)
+
+    def _split_content(self, content: str, max_size: int) -> List[str]:
+        # Split content into manageable chunks
+        if len(content) <= max_size:
+            return [content]
+        
+        chunks = []
+        lines = content.split('\n')
+        current_chunk = ""
+        
+        for line in lines:
+            if len(current_chunk + line + "\n") > max_size:
+                if current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = line + "\n"
+                else:
+                    # Single line is too long, split it
+                    chunks.append(line[:max_size])
+                    current_chunk = line[max_size:] + "\n"
+            else:
+                current_chunk += line + "\n"
+        
+        if current_chunk:
+            chunks.append(current_chunk)
+            
+        return chunks
+
+    def _analyze_chunk_with_llm(self, chunk: str, requested_ocids: List[str] = None) -> List[Issue]:
+        """Analyze a chunk of log data with LLM"""
+        analysis_prompt = """Analyze network log data and return results as JSON.
+
+Look for these network issues:
+1. Interface down: "Physical link is Down"
+2. BGP sessions down: "bgpSessionState': 'DOWN'" or "bgpIpv6SessionState': 'DOWN'"
+3. Redundancy problems: "NOT_MET_SLA"
+4. Device errors: "error: device"
+5. Fabric drops: "Fabric drops" > 0
+6. High FEC errors: "FEC Corrected Errors" > 10000000000
+7. Active alarms: anything other than "No alarms currently active"
+
+Return ONLY this JSON format:
+{
+  "issues": [
+    {
+      "category": "Interface",
+      "severity": "HIGH", 
+      "component": "et-0/1/0",
+      "description": "Physical link is down",
+      "details": "Physical interface: et-0/1/0, Enabled, Physical link is Down",
+      "recommendation": "Check cable connections and interface configuration"
+    }
+  ]
+}
+
+If no issues found, return:
+{"issues": []}
+
+JSON only:"""
+        
+        response = self.ollama.analyze_text(analysis_prompt, chunk)
+        
+        # Clean the response - remove any non-JSON text
+        response = response.strip()
+        
+        # Try multiple JSON extraction methods
+        parsed_issues = self._extract_json_from_response(response, requested_ocids)
+        if parsed_issues is not None:
+            print(f"Successfully parsed {len(parsed_issues)} issues from LLM")
+            return parsed_issues
+        
+        # If all JSON parsing fails, return empty list (fallback will handle it)
+        print("Could not parse LLM response, using pattern matching")
+        return []
+    
+    def _extract_json_from_response(self, response: str, requested_ocids: List[str] = None) -> List[Issue]:
+        """Try multiple methods to extract valid JSON from LLM response"""
+        # Method 1: Try parsing the entire response as JSON
+        try:
+            data = json.loads(response)
+            return self._convert_json_to_issues(data, requested_ocids)
+        except json.JSONDecodeError:
+            pass
+        
+        # Method 2: Look for JSON between curly braces
+        try:
+            json_start = response.find('{')
+            json_end = response.rfind('}') + 1
+            if json_start >= 0 and json_end > json_start:
+                json_str = response[json_start:json_end]
+                data = json.loads(json_str)
+                return self._convert_json_to_issues(data, requested_ocids)
+        except json.JSONDecodeError:
+            pass
+        
+        # Method 3: Look for multiple JSON objects
+        try:
+            # Try to find all JSON-like structures
+            import re
+            json_pattern = r'\{[^{}]*"issues"[^{}]*\[[^\]]*\][^{}]*\}'
+            matches = re.findall(json_pattern, response, re.DOTALL)
+            for match in matches:
+                try:
+                    data = json.loads(match)
+                    return self._convert_json_to_issues(data, requested_ocids)
+                except json.JSONDecodeError:
+                    continue
+        except:
+            pass
+        
+        # Method 4: Try to fix common JSON issues
+        try:
+            # Remove any text before first { and after last }
+            cleaned = response
+            if '{' in cleaned and '}' in cleaned:
+                start = cleaned.find('{')
+                end = cleaned.rfind('}') + 1
+                cleaned = cleaned[start:end]
+                
+                # Fix common issues
+                cleaned = cleaned.replace("'", '"')  # Replace single quotes
+                cleaned = re.sub(r',\s*}', '}', cleaned)  # Remove trailing commas
+                cleaned = re.sub(r',\s*]', ']', cleaned)  # Remove trailing commas in arrays
+                
+                data = json.loads(cleaned)
+                return self._convert_json_to_issues(data, requested_ocids)
+        except:
+            pass
+        
+        return None
+    
+    def _convert_json_to_issues(self, data: dict, requested_ocids: List[str] = None) -> List[Issue]:
+        # Convert parsed JSON data to Issue objects
+        issues = []
+        for issue_data in data.get('issues', []):
+            # Use the first requested OCID if available, otherwise leave blank
+            ocid = requested_ocids[0] if requested_ocids and len(requested_ocids) > 0 else ""
+            issue = Issue(
+                category=issue_data.get('category', 'Unknown'),
+                severity=issue_data.get('severity', 'MEDIUM'),
+                component=issue_data.get('component', 'Unknown'),
+                description=issue_data.get('description', ''),
+                details=issue_data.get('details', ''),
+                recommendation=issue_data.get('recommendation', ''),
+                ocid=ocid
+            )
+            issues.append(issue)
+        return issues
+
+    def _fallback_analysis(self, content: str) -> List[Issue]:
+        # Fallback analysis using pattern matching if LLM is unavailable
+        issues = []
+        lines = content.split('\n')
+        
+        # Check for BGP issues (handle both quote formats)
+        if "bgpSessionState': 'DOWN'" in content or '"bgpSessionState": "DOWN"' in content:
+            issues.append(Issue(
+                category="BGP",
+                severity="HIGH", 
+                component="BGP IPv4 Session",
+                description="BGP IPv4 session is down",
+                details="BGP session state is DOWN",
+                recommendation="Check BGP configuration, routing, and peer connectivity"
+            ))
+            
+        if "bgpIpv6SessionState': 'DOWN'" in content or '"bgpIpv6SessionState": "DOWN"' in content:
+            issues.append(Issue(
+                category="BGP",
+                severity="HIGH", 
+                component="BGP IPv6 Session", 
+                description="BGP IPv6 session is down",
+                details="BGP IPv6 session state is DOWN",
+                recommendation="Check IPv6 BGP configuration and connectivity"
+            ))
+        
+        # Check for redundancy SLA issues (handle both quote formats)
+        if "ipv4bgpSessionRedundancyStatus': 'NOT_MET_SLA'" in content or '"ipv4bgpSessionRedundancyStatus": "NOT_MET_SLA"' in content:
+            issues.append(Issue(
+                category="Redundancy",
+                severity="HIGH",
+                component="IPv4 BGP Redundancy",
+                description="IPv4 BGP redundancy SLA not met",
+                details="ipv4bgpSessionRedundancyStatus: NOT_MET_SLA",
+                recommendation="Check redundant BGP sessions and failover configuration"
+            ))
+            
+        if "ipv6bgpSessionRedundancyStatus': 'NOT_MET_SLA'" in content or '"ipv6bgpSessionRedundancyStatus": "NOT_MET_SLA"' in content:
+            issues.append(Issue(
+                category="Redundancy", 
+                severity="HIGH",
+                component="IPv6 BGP Redundancy",
+                description="IPv6 BGP redundancy SLA not met", 
+                details="ipv6bgpSessionRedundancyStatus: NOT_MET_SLA",
+                recommendation="Check IPv6 redundant BGP sessions and failover configuration"
+            ))
+        
+        # Check for high FEC errors
+        fec_pattern = r'FEC Corrected Errors\s+(\d+)'
+        interface_context = None
+        
+        for i, line in enumerate(lines):
+            # Track current interface context
+            if_match = re.search(r'Physical interface: ([\w/-]+)', line)
+            if if_match:
+                interface_context = if_match.group(1)
+                
+            # Check for high FEC errors
+            fec_match = re.search(fec_pattern, line)
+            if fec_match and interface_context:
+                errors = int(fec_match.group(1))
+                if errors > 10000000000:  # 10B+ errors threshold
+                    issues.append(Issue(
+                        category="Interface",
+                        severity="MEDIUM",
+                        component=interface_context,
+                        description="High FEC corrected errors detected",
+                        details=f"FEC corrected errors: {errors:,} on {interface_context}",
+                        recommendation="Monitor for signal quality issues, check cable connections"
+                    ))
+        
+        # Check for interface issues
+        for i, line in enumerate(lines, 1):
+            # Check for interface down
+            if re.search(r'Physical link is Down', line):
+                interface_match = re.search(r'Physical interface: ([\w/-]+)', line)
+                interface = interface_match.group(1) if interface_match else "Unknown"
+                issues.append(Issue(
+                    category="Interface",
+                    severity="HIGH",
+                    component=interface,
+                    description="Physical link is down",
+                    details=line.strip(),
+                    recommendation="Check cable connections and interface configuration"
+                ))
+            
+            # Check for disabled interfaces
+            if re.search(r'Physical interface: [\w/-]+, Disabled', line):
+                interface_match = re.search(r'Physical interface: ([\w/-]+)', line)
+                interface = interface_match.group(1) if interface_match else "Unknown"
+                issues.append(Issue(
+                    category="Interface",
+                    severity="MEDIUM",
+                    component=interface,
+                    description="Interface is administratively disabled",
+                    details=line.strip(),
+                    recommendation="Enable interface if needed: no shutdown"
+                ))
+            
+            # Check for device not found errors
+            if re.search(r'error: device .* not found', line):
+                issues.append(Issue(
+                    category="Error",
+                    severity="MEDIUM",
+                    component="Device",
+                    description="Device not found error",
+                    details=line.strip(),
+                    recommendation="Verify device name and configuration"
+                ))
+            
+            # Check for fabric drops
+            if re.search(r'Fabric.*drops\s*:\s*(\d+)', line):
+                drops_match = re.search(r'Fabric.*drops\s*:\s*(\d+)', line)
+                if drops_match and int(drops_match.group(1)) > 0:
+                    issues.append(Issue(
+                        category="Fabric", 
+                        severity="MEDIUM",
+                        component="Fabric",
+                        description="Fabric packet drops detected",
+                        details=f"Fabric drops: {drops_match.group(1)}",
+                        recommendation="Investigate fabric congestion or hardware issues"
+                    ))
+        
+        # Check for active alarms (other than "No alarms")
+        in_alarm_section = False
+        for i, line in enumerate(lines, 1):
+            if 'show chassis alarms' in line.lower() or 'show system alarms' in line.lower():
+                in_alarm_section = True
+                alarm_type = "Chassis" if "chassis" in line.lower() else "System"
+                continue
+                
+            if in_alarm_section:
+                if line.strip() and "No alarms currently active" not in line and "Result:" not in line:
+                    if not line.startswith('*') and not line.startswith('<') and line.strip():
+                        issues.append(Issue(
+                            category="Alarm",
+                            severity="HIGH",
+                            component=f"{alarm_type} Alarms",
+                            description="Active alarm detected",
+                            details=line.strip(),
+                            recommendation="Investigate and resolve alarm condition"
+                        ))
+                
+                # Exit alarm section on next command
+                if line.startswith('<') and line.endswith('>'):
+                    in_alarm_section = False
+        
+        return issues
+
+    def _fallback_analysis_multi_ocid(self, content: str, requested_ocids: List[str] = None) -> List[Issue]:
+        # Enhanced fallback analysis that tracks OCID for each issue
+        issues = []
+        lines = content.split('\n')
+        
+        if requested_ocids:
+            # Only analyze the specifically requested OCIDs
+            for ocid in requested_ocids:
+                # Find sections in the log that relate to this OCID
+                ocid_sections = self._extract_sections_for_ocid(content, ocid)
+                for section_content in ocid_sections:
+                    section_issues = self._analyze_section(section_content, ocid)
+                    issues.extend(section_issues)
+        else:
+            # Fallback to old behavior if no specific OCIDs requested
+            bgp_sections = self._split_by_ocid_context(content)
+            for section_ocid, section_content in bgp_sections.items():
+                section_issues = self._analyze_section(section_content, section_ocid)
+                issues.extend(section_issues)
+            
+        return issues
+    
+    def _extract_sections_for_ocid(self, content: str, target_ocid: str) -> List[str]:
+        # Extract sections of content that relate to a specific OCID
+        lines = content.split('\n')
+        sections = []
+        current_section = []
+        in_relevant_section = False
+        
+        for line in lines:
+            # Check if this line starts processing for our target OCID
+            if f"PROCESSING OCID: {target_ocid}" in line:
+                in_relevant_section = True
+                current_section = [line]
+                continue
+            
+            # Check if we've reached the end of this OCID's section
+            if f"END OCID: {target_ocid}" in line:
+                in_relevant_section = False
+                current_section.append(line)
+                sections.append('\n'.join(current_section))
+                current_section = []
+                continue
+            
+            # If we're in a relevant section, or if the line mentions our OCID, include it
+            if in_relevant_section or target_ocid in line:
+                current_section.append(line)
+        
+        # Add any remaining content
+        if current_section:
+            sections.append('\n'.join(current_section))
+        
+        # If no specific sections found, analyze entire content but tag with the requested OCID
+        if not sections:
+            sections.append(content)
+            
+        return sections
+    
+    def _split_by_ocid_context(self, content: str) -> Dict[str, str]:
+        # Split content by OCID context to associate issues with correct OCIDs
+        sections = {}
+        lines = content.split('\n')
+        current_ocid = "unknown"
+        current_section = []
+        
+        for line in lines:
+            # Look for OCID patterns in the line
+            ocid_match = re.search(r'ocid1\.[a-zA-Z0-9.-]+', line)
+            if ocid_match:
+                # Save previous section
+                if current_section:
+                    sections[current_ocid] = '\n'.join(current_section)
+                # Start new section
+                current_ocid = ocid_match.group(0)
+                current_section = [line]
+            else:
+                current_section.append(line)
+        
+        # Save the last section
+        if current_section:
+            sections[current_ocid] = '\n'.join(current_section)
+        
+        # If no OCIDs found, treat as single section
+        if not sections:
+            sections["unknown"] = content
+            
+        return sections
+    
+    def _analyze_section(self, content: str, ocid: str) -> List[Issue]:
+        # Analyze a section of content for a specific OCID - add more checks
+        issues = []
+        lines = content.split('\n')
+        
+        # Check for BGP issues
+        if "bgpSessionState': 'DOWN'" in content or '"bgpSessionState": "DOWN"' in content:
+            issues.append(Issue(
+                category="BGP",
+                severity="HIGH", 
+                component="BGP IPv4 Session",
+                description="BGP IPv4 session is down",
+                details="BGP session state is DOWN",
+                recommendation="Check BGP configuration, routing, and peer connectivity",
+                ocid=ocid
+            ))
+            
+        if "bgpIpv6SessionState': 'DOWN'" in content or '"bgpIpv6SessionState": "DOWN"' in content:
+            issues.append(Issue(
+                category="BGP",
+                severity="HIGH", 
+                component="BGP IPv6 Session", 
+                description="BGP IPv6 session is down",
+                details="BGP IPv6 session state is DOWN",
+                recommendation="Check IPv6 BGP configuration and connectivity",
+                ocid=ocid
+            ))
+        
+        # Check for redundancy SLA issues
+        if "ipv4bgpSessionRedundancyStatus': 'NOT_MET_SLA'" in content or '"ipv4bgpSessionRedundancyStatus": "NOT_MET_SLA"' in content:
+            issues.append(Issue(
+                category="Redundancy",
+                severity="HIGH",
+                component="IPv4 BGP Redundancy",
+                description="IPv4 BGP redundancy SLA not met",
+                details="ipv4bgpSessionRedundancyStatus: NOT_MET_SLA",
+                recommendation="Check redundant BGP sessions and failover configuration",
+                ocid=ocid
+            ))
+            
+        if "ipv6bgpSessionRedundancyStatus': 'NOT_MET_SLA'" in content or '"ipv6bgpSessionRedundancyStatus": "NOT_MET_SLA"' in content:
+            issues.append(Issue(
+                category="Redundancy", 
+                severity="HIGH",
+                component="IPv6 BGP Redundancy",
+                description="IPv6 BGP redundancy SLA not met", 
+                details="ipv6bgpSessionRedundancyStatus: NOT_MET_SLA",
+                recommendation="Check IPv6 redundant BGP sessions and failover configuration",
+                ocid=ocid
+            ))
+        
+        # Check for high FEC errors
+        fec_pattern = r'FEC Corrected Errors\s+(\d+)'
+        interface_context = None
+        
+        for i, line in enumerate(lines):
+            # Track current interface context
+            if_match = re.search(r'Physical interface: ([\w/-]+)', line)
+            if if_match:
+                interface_context = if_match.group(1)
+                
+            # Check for high FEC errors
+            fec_match = re.search(fec_pattern, line)
+            if fec_match and interface_context:
+                errors = int(fec_match.group(1))
+                if errors > 10000000000:  # 10B+ errors threshold
+                    issues.append(Issue(
+                        category="Interface",
+                        severity="MEDIUM",
+                        component=interface_context,
+                        description="High FEC corrected errors detected",
+                        details=f"FEC corrected errors: {errors:,} on {interface_context}",
+                        recommendation="Monitor for signal quality issues, check cable connections",
+                        ocid=ocid
+                    ))
+        
+        # Check for interface issues
+        for i, line in enumerate(lines, 1):
+            # Check for interface down
+            if re.search(r'Physical link is Down', line):
+                interface_match = re.search(r'Physical interface: ([\w/-]+)', line)
+                interface = interface_match.group(1) if interface_match else "Unknown"
+                issues.append(Issue(
+                    category="Interface",
+                    severity="HIGH",
+                    component=interface,
+                    description="Physical link is down",
+                    details=line.strip(),
+                    recommendation="Check cable connections and interface configuration",
+                    ocid=ocid
+                ))
+            
+            # Check for disabled interfaces
+            if re.search(r'Physical interface: [\w/-]+, Disabled', line):
+                interface_match = re.search(r'Physical interface: ([\w/-]+)', line)
+                interface = interface_match.group(1) if interface_match else "Unknown"
+                issues.append(Issue(
+                    category="Interface",
+                    severity="MEDIUM",
+                    component=interface,
+                    description="Interface is administratively disabled",
+                    details=line.strip(),
+                    recommendation="Enable interface if needed: no shutdown",
+                    ocid=ocid
+                ))
+            
+            # Check for device not found errors
+            if re.search(r'error: device .* not found', line):
+                issues.append(Issue(
+                    category="Error",
+                    severity="MEDIUM",
+                    component="Device",
+                    description="Device not found error",
+                    details=line.strip(),
+                    recommendation="Verify device name and configuration",
+                    ocid=ocid
+                ))
+            
+            # Check for fabric drops
+            if re.search(r'Fabric.*drops\s*:\s*(\d+)', line):
+                drops_match = re.search(r'Fabric.*drops\s*:\s*(\d+)', line)
+                if drops_match and int(drops_match.group(1)) > 0:
+                    issues.append(Issue(
+                        category="Fabric", 
+                        severity="MEDIUM",
+                        component="Fabric",
+                        description="Fabric packet drops detected",
+                        details=f"Fabric drops: {drops_match.group(1)}",
+                        recommendation="Investigate fabric congestion or hardware issues",
+                        ocid=ocid
+                    ))
+        
+        # Check for active alarms
+        in_alarm_section = False
+        for i, line in enumerate(lines, 1):
+            if 'show chassis alarms' in line.lower() or 'show system alarms' in line.lower():
+                in_alarm_section = True
+                alarm_type = "Chassis" if "chassis" in line.lower() else "System"
+                continue
+                
+            if in_alarm_section:
+                if line.strip() and "No alarms currently active" not in line and "Result:" not in line:
+                    if not line.startswith('*') and not line.startswith('<') and line.strip():
+                        issues.append(Issue(
+                            category="Alarm",
+                            severity="HIGH",
+                            component=f"{alarm_type} Alarms",
+                            description="Active alarm detected",
+                            details=line.strip(),
+                            recommendation="Investigate and resolve alarm condition",
+                            ocid=ocid
+                        ))
+                
+                # Exit alarm section on next command
+                if line.startswith('<') and line.endswith('>'):
+                    in_alarm_section = False
+        
+        # Check for optical diagnostics issues and add status summary
+        optical_issues = self._check_optical_thresholds(content, ocid)
+        issues.extend(optical_issues)
+        
+        # Always add optical status summary
+        optical_summary = self._generate_optical_status_summary(content, ocid)
+        if optical_summary:
+            issues.append(optical_summary)
+        
+        return issues
+
+    def _check_optical_thresholds(self, content: str, ocid: str) -> List[Issue]:
+        # Check optical diagnostic thresholds for power levels, temperature, and bias current
+        issues = []
+        lines = content.split('\n')
+        
+        current_interface = None
+        current_lane = None
+        in_optical_section = False
+        
+        for i, line in enumerate(lines):
+            # Detect optical diagnostics section
+            if 'show interfaces diagnostics optics' in line:
+                in_optical_section = True
+                interface_match = re.search(r'show interfaces diagnostics optics ([\w/-]+)', line)
+                if interface_match:
+                    current_interface = interface_match.group(1)
+                continue
+            
+            # Exit optical section
+            if in_optical_section and (line.startswith('<') and line.endswith('>')):
+                in_optical_section = False
+                current_interface = None
+                current_lane = None
+                continue
+            
+            if not in_optical_section or not current_interface:
+                continue
+            
+            # Track current lane
+            lane_match = re.search(r'Lane (\d+)', line)
+            if lane_match:
+                current_lane = lane_match.group(1)
+                continue
+            
+            # Check module temperature (applies to entire interface)
+            temp_match = re.search(r'Module temperature\s+:\s+(\d+) degrees C', line)
+            if temp_match:
+                temp = int(temp_match.group(1))
+                if temp >= 70:  # High warning threshold typically 70C
+                    severity = "HIGH" if temp >= 75 else "MEDIUM"
+                    issues.append(Issue(
+                        category="Optical",
+                        severity=severity,
+                        component=current_interface,
+                        description="High module temperature detected",
+                        details=f"Module temperature: {temp}°C on {current_interface}",
+                        recommendation="Check ventilation and ambient temperature. Clean optical module if necessary.",
+                        ocid=ocid
+                    ))
+                elif temp <= 0:  # Low warning threshold typically 0C
+                    issues.append(Issue(
+                        category="Optical",
+                        severity="MEDIUM",
+                        component=current_interface,
+                        description="Low module temperature detected",
+                        details=f"Module temperature: {temp}°C on {current_interface}",
+                        recommendation="Check environmental conditions and heating.",
+                        ocid=ocid
+                    ))
+            
+            # Check module voltage
+            voltage_match = re.search(r'Module voltage\s+:\s+([\d.]+) V', line)
+            if voltage_match:
+                voltage = float(voltage_match.group(1))
+                if voltage > 3.45:  # High warning threshold typically 3.45V
+                    severity = "HIGH" if voltage > 3.46 else "MEDIUM"
+                    issues.append(Issue(
+                        category="Optical",
+                        severity=severity,
+                        component=current_interface,
+                        description="High module voltage detected",
+                        details=f"Module voltage: {voltage}V on {current_interface}",
+                        recommendation="Check power supply stability and module health.",
+                        ocid=ocid
+                    ))
+                elif voltage < 3.15:  # Low warning threshold typically 3.15V
+                    severity = "HIGH" if voltage < 3.13 else "MEDIUM"
+                    issues.append(Issue(
+                        category="Optical",
+                        severity=severity,
+                        component=current_interface,
+                        description="Low module voltage detected",
+                        details=f"Module voltage: {voltage}V on {current_interface}",
+                        recommendation="Check power supply and module connections.",
+                        ocid=ocid
+                    ))
+            
+            # Check laser bias current per lane
+            if current_lane:
+                bias_match = re.search(r'Laser bias current\s+:\s+([\d.]+) mA', line)
+                if bias_match:
+                    bias = float(bias_match.group(1))
+                    if bias > 11.0:  # High warning threshold typically 11mA
+                        severity = "HIGH" if bias > 13.0 else "MEDIUM"
+                        issues.append(Issue(
+                            category="Optical",
+                            severity=severity,
+                            component=f"{current_interface} Lane {current_lane}",
+                            description="High laser bias current detected",
+                            details=f"Laser bias current: {bias}mA on {current_interface} Lane {current_lane}",
+                            recommendation="Check laser health and fiber connection quality.",
+                            ocid=ocid
+                        ))
+                    elif bias < 5.0:  # Low warning threshold typically 5mA
+                        severity = "HIGH" if bias < 3.0 else "MEDIUM"
+                        issues.append(Issue(
+                            category="Optical",
+                            severity=severity,
+                            component=f"{current_interface} Lane {current_lane}",
+                            description="Low laser bias current detected",
+                            details=f"Laser bias current: {bias}mA on {current_interface} Lane {current_lane}",
+                            recommendation="Check laser functionality and power supply.",
+                            ocid=ocid
+                        ))
+                
+                # Check laser output power per lane (in dBm)
+                output_power_match = re.search(r'Laser output power\s+:\s+[\d.]+\s+mW\s+/\s+([-\d.]+)\s+dBm', line)
+                if output_power_match:
+                    power_dbm = float(output_power_match.group(1))
+                    if power_dbm > 3.0:  # High warning threshold typically 3dBm
+                        severity = "HIGH" if power_dbm > 5.0 else "MEDIUM"
+                        issues.append(Issue(
+                            category="Optical",
+                            severity=severity,
+                            component=f"{current_interface} Lane {current_lane}",
+                            description="High laser output power detected",
+                            details=f"Laser output power: {power_dbm}dBm on {current_interface} Lane {current_lane}",
+                            recommendation="Check for overdrive conditions and laser health.",
+                            ocid=ocid
+                        ))
+                    elif power_dbm < -8.0:  # Low warning threshold typically -8dBm
+                        severity = "HIGH" if power_dbm < -10.0 else "MEDIUM"
+                        issues.append(Issue(
+                            category="Optical",
+                            severity=severity,
+                            component=f"{current_interface} Lane {current_lane}",
+                            description="Low laser output power detected",
+                            details=f"Laser output power: {power_dbm}dBm on {current_interface} Lane {current_lane}",
+                            recommendation="Check laser health, fiber connections, and attenuation.",
+                            ocid=ocid
+                        ))
+                
+                # Check laser receiver power per lane (in dBm)
+                rx_power_match = re.search(r'Laser receiver power\s+:\s+[\d.]+\s+mW\s+/\s+([-\d.]+)\s+dBm', line)
+                if rx_power_match:
+                    rx_power_dbm = float(rx_power_match.group(1))
+                    if rx_power_dbm > 4.0:  # High warning threshold typically 4dBm
+                        severity = "HIGH" if rx_power_dbm > 5.0 else "MEDIUM"
+                        issues.append(Issue(
+                            category="Optical",
+                            severity=severity,
+                            component=f"{current_interface} Lane {current_lane}",
+                            description="High laser receiver power detected",
+                            details=f"Laser receiver power: {rx_power_dbm}dBm on {current_interface} Lane {current_lane}",
+                            recommendation="Check for excessive input power from remote end.",
+                            ocid=ocid
+                        ))
+                    elif rx_power_dbm < -11.0:  # Low warning threshold typically -11dBm
+                        severity = "HIGH" if rx_power_dbm < -14.0 else "MEDIUM"
+                        issues.append(Issue(
+                            category="Optical",
+                            severity=severity,
+                            component=f"{current_interface} Lane {current_lane}",
+                            description="Low laser receiver power detected",
+                            details=f"Laser receiver power: {rx_power_dbm}dBm on {current_interface} Lane {current_lane}",
+                            recommendation="Check fiber connections, cleanliness, and remote transmit power.",
+                            ocid=ocid
+                        ))
+                
+                # Check for loss of signal alarms per lane
+                if 'Rx loss of signal alarm' in line and ': On' in line:
+                    issues.append(Issue(
+                        category="Optical",
+                        severity="HIGH",
+                        component=f"{current_interface} Lane {current_lane}",
+                        description="Receiver loss of signal alarm",
+                        details=f"Rx loss of signal alarm active on {current_interface} Lane {current_lane}",
+                        recommendation="Check fiber connections and remote transmitter.",
+                        ocid=ocid
+                    ))
+                
+                if 'Tx loss of signal functionality alarm' in line and ': On' in line:
+                    issues.append(Issue(
+                        category="Optical",
+                        severity="HIGH", 
+                        component=f"{current_interface} Lane {current_lane}",
+                        description="Transmitter loss of signal alarm",
+                        details=f"Tx loss of signal alarm active on {current_interface} Lane {current_lane}",
+                        recommendation="Check transmitter functionality and power supply.",
+                        ocid=ocid
+                    ))
+                
+                if 'Tx laser disabled alarm' in line and ': On' in line:
+                    issues.append(Issue(
+                        category="Optical",
+                        severity="HIGH",
+                        component=f"{current_interface} Lane {current_lane}",
+                        description="Transmitter laser disabled alarm",
+                        details=f"Tx laser disabled alarm active on {current_interface} Lane {current_lane}",
+                        recommendation="Check laser enable status and safety interlocks.",
+                        ocid=ocid
+                    ))
+                
+                # Check for laser output power alarms per lane
+                if 'Laser output power high alarm' in line and ': On' in line:
+                    issues.append(Issue(
+                        category="Optical",
+                        severity="HIGH",
+                        component=f"{current_interface} Lane {current_lane}",
+                        description="Laser output power high alarm",
+                        details=f"Laser output power high alarm active on {current_interface} Lane {current_lane}",
+                        recommendation="Check for overdrive conditions and reduce output power.",
+                        ocid=ocid
+                    ))
+                
+                if 'Laser output power low alarm' in line and ': On' in line:
+                    issues.append(Issue(
+                        category="Optical",
+                        severity="HIGH",
+                        component=f"{current_interface} Lane {current_lane}",
+                        description="Laser output power low alarm", 
+                        details=f"Laser output power low alarm active on {current_interface} Lane {current_lane}",
+                        recommendation="Check laser health and drive current.",
+                        ocid=ocid
+                    ))
+                
+                # Check for warning states (less severe than alarms)
+                warning_checks = [
+                    ('Laser bias current high warning', 'Laser bias current approaching high limit'),
+                    ('Laser bias current low warning', 'Laser bias current approaching low limit'),
+                    ('Laser receiver power high warning', 'Laser receiver power approaching high limit'),
+                    ('Laser receiver power low warning', 'Laser receiver power approaching low limit'),
+                    ('Laser output power high warning', 'Laser output power approaching high limit'),
+                    ('Laser output power low warning', 'Laser output power approaching low limit')
+                ]
+                
+                for warning_pattern, description in warning_checks:
+                    if warning_pattern in line and ': On' in line:
+                        issues.append(Issue(
+                            category="Optical",
+                            severity="MEDIUM",  # Warnings are medium severity
+                            component=f"{current_interface} Lane {current_lane}",
+                            description=description,
+                            details=f"{warning_pattern} active on {current_interface} Lane {current_lane}",
+                            recommendation="Monitor closely - parameter approaching threshold limits.",
+                            ocid=ocid
+                        ))
+                
+                # Check for laser temperature per lane (if present in log)
+                laser_temp_match = re.search(r'Laser temperature\s+:\s+(\d+) degrees C', line)
+                if laser_temp_match:
+                    laser_temp = int(laser_temp_match.group(1))
+                    if laser_temp >= 70:  # High warning threshold typically 70C
+                        severity = "HIGH" if laser_temp >= 75 else "MEDIUM"
+                        issues.append(Issue(
+                            category="Optical",
+                            severity=severity,
+                            component=f"{current_interface} Lane {current_lane}",
+                            description="High laser temperature detected",
+                            details=f"Laser temperature: {laser_temp}°C on {current_interface} Lane {current_lane}",
+                            recommendation="Check laser cooling and ambient temperature.",
+                            ocid=ocid
+                        ))
+                    elif laser_temp <= 0:  # Low warning threshold typically 0C
+                        issues.append(Issue(
+                            category="Optical",
+                            severity="MEDIUM",
+                            component=f"{current_interface} Lane {current_lane}",
+                            description="Low laser temperature detected",
+                            details=f"Laser temperature: {laser_temp}°C on {current_interface} Lane {current_lane}",
+                            recommendation="Check environmental conditions and laser heating.",
+                            ocid=ocid
+                        ))
+            
+            # Check for hardware alarm states (outside lane context)
+            if not current_lane:
+                # Module level alarms
+                for alarm_type in ['temperature high alarm', 'temperature low alarm', 
+                                   'voltage high alarm', 'voltage low alarm']:
+                    if f'Module {alarm_type}' in line.lower() and ': On' in line:
+                        issues.append(Issue(
+                            category="Optical",
+                            severity="HIGH",
+                            component=current_interface,
+                            description=f"Module {alarm_type.replace('alarm', '').strip()} alarm active",
+                            details=f"Module {alarm_type} detected on {current_interface}",
+                            recommendation="Check module environmental conditions and power supply.",
+                            ocid=ocid
+                        ))
+                
+                # Module level warnings
+                for warning_type in ['temperature high warning', 'temperature low warning',
+                                    'voltage high warning', 'voltage low warning']:
+                    if f'Module {warning_type}' in line.lower() and ': On' in line:
+                        issues.append(Issue(
+                            category="Optical",
+                            severity="MEDIUM",  # Warnings are medium severity
+                            component=current_interface,
+                            description=f"Module {warning_type.replace('warning', '').strip()} warning active",
+                            details=f"Module {warning_type} detected on {current_interface}",
+                            recommendation="Monitor closely - module parameter approaching limits.",
+                            ocid=ocid
+                        ))
+                
+                # Per-lane power alarms (when we see them outside lane context)
+                for power_alarm in ['bias current high alarm', 'bias current low alarm',
+                                   'receiver power high alarm', 'receiver power low alarm']:
+                    if f'Laser {power_alarm}' in line.lower() and ': On' in line:
+                        # Try to find which lane this belongs to by looking backwards
+                        lane_context = "Unknown"
+                        for j in range(max(0, i-10), i):
+                            if 'Lane' in lines[j]:
+                                lane_match = re.search(r'Lane (\d+)', lines[j])
+                                if lane_match:
+                                    lane_context = f"Lane {lane_match.group(1)}"
+                                    break
+                        
+                        issues.append(Issue(
+                            category="Optical",
+                            severity="HIGH",
+                            component=f"{current_interface} {lane_context}",
+                            description=f"Laser {power_alarm.replace('alarm', '').strip()} alarm active",
+                            details=f"Laser {power_alarm} detected on {current_interface} {lane_context}",
+                            recommendation="Check laser parameters and thresholds.",
+                            ocid=ocid
+                        ))
+        
+        return issues
+
+    def _generate_optical_status_summary(self, content: str, ocid: str) -> Issue:
+        # Generate optical status summary - always reports light levels
+        lines = content.split('\n')
+        
+        optical_interfaces = {}
+        current_interface = None
+        in_optical_section = False
+        
+        for i, line in enumerate(lines):
+            # Detect optical diagnostics section
+            if 'show interfaces diagnostics optics' in line:
+                in_optical_section = True
+                interface_match = re.search(r'show interfaces diagnostics optics ([\w/-]+)', line)
+                if interface_match:
+                    current_interface = interface_match.group(1)
+                    optical_interfaces[current_interface] = {
+                        'temperature': None,
+                        'voltage': None,
+                        'lanes': {},
+                        'healthy': True
+                    }
+                continue
+            
+            # Exit optical section
+            if in_optical_section and (line.startswith('<') and line.endswith('>')):
+                in_optical_section = False
+                current_interface = None
+                continue
+            
+            if not in_optical_section or not current_interface:
+                continue
+            
+            # Collect optical parameters
+            temp_match = re.search(r'Module temperature\s+:\s+(\d+) degrees C', line)
+            if temp_match:
+                temp = int(temp_match.group(1))
+                optical_interfaces[current_interface]['temperature'] = temp
+                if temp >= 70 or temp <= 0:
+                    optical_interfaces[current_interface]['healthy'] = False
+            
+            voltage_match = re.search(r'Module voltage\s+:\s+([\d.]+) V', line)
+            if voltage_match:
+                voltage = float(voltage_match.group(1))
+                optical_interfaces[current_interface]['voltage'] = voltage
+                if voltage > 3.45 or voltage < 3.15:
+                    optical_interfaces[current_interface]['healthy'] = False
+            
+            # Track lane data
+            lane_match = re.search(r'Lane (\d+)', line)
+            current_lane = None
+            if lane_match:
+                current_lane = lane_match.group(1)
+                optical_interfaces[current_interface]['lanes'][current_lane] = {
+                    'bias_current': None,
+                    'output_power': None,
+                    'rx_power': None
+                }
+                continue
+            
+            # Check if we're in a lane section and collect data
+            if current_lane and current_lane in optical_interfaces[current_interface]['lanes']:
+                bias_match = re.search(r'Laser bias current\s+:\s+([\d.]+) mA', line)
+                if bias_match:
+                    bias = float(bias_match.group(1))
+                    optical_interfaces[current_interface]['lanes'][current_lane]['bias_current'] = bias
+                    if bias > 11.0 or bias < 5.0:
+                        optical_interfaces[current_interface]['healthy'] = False
+                
+                output_power_match = re.search(r'Laser output power\s+:\s+[\d.]+\s+mW\s+/\s+([-\d.]+)\s+dBm', line)
+                if output_power_match:
+                    power_dbm = float(output_power_match.group(1))
+                    optical_interfaces[current_interface]['lanes'][current_lane]['output_power'] = power_dbm
+                    if power_dbm > 3.0 or power_dbm < -8.0:
+                        optical_interfaces[current_interface]['healthy'] = False
+                
+                rx_power_match = re.search(r'Laser receiver power\s+:\s+[\d.]+\s+mW\s+/\s+([-\d.]+)\s+dBm', line)
+                if rx_power_match:
+                    rx_power_dbm = float(rx_power_match.group(1))
+                    optical_interfaces[current_interface]['lanes'][current_lane]['rx_power'] = rx_power_dbm
+                    if rx_power_dbm > 4.0 or rx_power_dbm < -11.0:
+                        optical_interfaces[current_interface]['healthy'] = False
+        
+        if not optical_interfaces:
+            return None
+        
+        # Build status summary
+        overall_healthy = all(data['healthy'] for data in optical_interfaces.values())
+        
+        if overall_healthy:
+            # All interfaces healthy
+            interface_summaries = []
+            for interface, data in optical_interfaces.items():
+                lane_count = len(data['lanes'])
+                temp = data['temperature']
+                voltage = data['voltage']
+                interface_summaries.append(f"{interface}: {temp}°C, {voltage}V, {lane_count} lanes")
+            
+            details = f"Optical parameters within normal ranges:\n" + "\n".join([f"  • {summary}" for summary in interface_summaries])
+            
+            return Issue(
+                category="Optical",
+                severity="INFO",
+                component="Light Levels",
+                description="All optical light levels OK",
+                details=details,
+                recommendation="Optical performance is healthy. Continue monitoring.",
+                ocid=ocid
+            )
+        else:
+            # Some issues found - let the specific threshold issues handle details
+            # But still provide a summary
+            healthy_count = sum(1 for data in optical_interfaces.values() if data['healthy'])
+            total_count = len(optical_interfaces)
+            
+            return Issue(
+                category="Optical",
+                severity="INFO", 
+                component="Light Levels",
+                description=f"Optical status: {healthy_count}/{total_count} interfaces healthy",
+                details=f"See specific optical issues above for details on problematic interfaces.",
+                recommendation="Address specific optical threshold violations listed above.",
+                ocid=ocid
+            )
+
+    def _deduplicate_issues(self, issues: List[Issue]) -> List[Issue]:
+        # Remove duplicate issues based on component, description, and severity"""
+        seen_issues = set()
+        deduplicated = []
+        
+        for issue in issues:
+            # Create a unique key for each issue
+            key = (
+                issue.ocid.strip() if issue.ocid else "",
+                issue.category.strip(),
+                issue.severity.strip(),
+                issue.component.strip(),
+                issue.description.strip()
+            )
+            
+            if key not in seen_issues:
+                seen_issues.add(key)
+                deduplicated.append(issue)
+        
+        return deduplicated
+
+    def generate_summary_table(self, issues: List[Issue]) -> str:
+        # Generate a neat summary table of all issues grouped by OCID"""
+        if not issues:
+            return "No issues detected! All networks appear healthy."
+            
+        # Group issues by OCID
+        issues_by_ocid = {}
+        for issue in issues:
+            ocid = issue.ocid if issue.ocid and issue.ocid != "unknown" else "Unknown Network"
+            if ocid not in issues_by_ocid:
+                issues_by_ocid[ocid] = []
+            issues_by_ocid[ocid].append(issue)
+        
+        # Sort by severity within each OCID group
+        severity_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2, "INFO": 4}
+        for ocid in issues_by_ocid:
+            issues_by_ocid[ocid].sort(key=lambda x: (severity_order.get(x.severity, 5), x.category))
+        
+        # Calculate overall statistics
+        total_severity_counts = {}
+        total_category_counts = {}
+        
+        for issue in issues:
+            total_severity_counts[issue.severity] = total_severity_counts.get(issue.severity, 0) + 1
+            total_category_counts[issue.category] = total_category_counts.get(issue.category, 0) + 1
+        
+        # ANSI color codes for terminal formatting
+        COLORS = {
+            'RED': '\033[1;31m',      # Bold red
+            'ORANGE': '\033[1;33m',   # Bold yellow/orange
+            'GREEN': '\033[1;32m',    # Bold green
+            'BLUE': '\033[1;34m',     # Bold blue for OCID headers
+            'RESET': '\033[0m'        # Reset color
+        }
+        
+        def format_severity(severity):
+            if severity == "HIGH":
+                return f"{COLORS['RED']}{severity}{COLORS['RESET']}"
+            elif severity == "MEDIUM":
+                return f"{COLORS['ORANGE']}{severity}{COLORS['RESET']}"
+            elif severity == "LOW":
+                return f"{COLORS['GREEN']}{severity}{COLORS['RESET']}"
+            elif severity == "INFO":
+                return f"{COLORS['GREEN']}{severity}{COLORS['RESET']}"
+            return severity
+        
+        def truncate_ocid(ocid):
+            """Truncate OCID for display"""
+            if ocid == "Unknown Network":
+                return ocid
+            if len(ocid) > 50:
+                return ocid[:25] + "..." + ocid[-20:]
+            return ocid
+        
+        # Build summary
+        summary = f"""
+MULTI-NETWORK ANALYSIS SUMMARY
+{'='*90}
+Total Networks Analyzed: {len(issues_by_ocid)}
+Total Issues Found: {len(issues)}
+
+Overall Severity Distribution:
+{chr(10).join([f"  {format_severity(sev)}: {count}" for sev, count in total_severity_counts.items()])}
+
+Overall Category Distribution:
+{chr(10).join([f"  {cat}: {count}" for cat, count in total_category_counts.items()])}
+
+{'='*90}
+"""
+        
+        # Add issues grouped by OCID
+        for ocid, ocid_issues in issues_by_ocid.items():
+            # OCID-specific statistics
+            ocid_severity_counts = {}
+            for issue in ocid_issues:
+                ocid_severity_counts[issue.severity] = ocid_severity_counts.get(issue.severity, 0) + 1
+            
+            truncated_ocid = truncate_ocid(ocid)
+            summary += f"""
+{COLORS['BLUE']}NETWORK: {truncated_ocid}{COLORS['RESET']}
+Issues: {len(ocid_issues)} | Severity: {' '.join([f"{format_severity(sev)}({count})" for sev, count in ocid_severity_counts.items()])}
+{'-'*90}"""
+            
+            # List issues for this OCID
+            for i, issue in enumerate(ocid_issues, 1):
+                formatted_severity = format_severity(issue.severity)
+                
+                # Special formatting for optical OK status
+                if issue.description == "All optical light levels OK":
+                    formatted_description = f"All optical light levels {COLORS['GREEN']}OK{COLORS['RESET']}"
+                else:
+                    formatted_description = issue.description
+                
+                summary += f"""
+{i}. {formatted_severity} - {issue.category}
+   Component: {issue.component}
+   Issue: {formatted_description}
+   Details: {issue.details}
+   Action: {issue.recommendation}
+   {'-' * 80}"""
+            
+            summary += "\n"  # Extra space between OCIDs
+        
+        return summary
+
+    def save_analysis_report(self, issues: List[Issue], output_file: str):
+        """Save detailed analysis report to JSON file"""
+        report = {
+            "timestamp": datetime.now().isoformat(),
+            "analyzer_version": "1.0",
+            "model_used": self.ollama.model,
+            "total_issues": len(issues),
+            "summary": {
+                "high_severity": len([i for i in issues if i.severity == "HIGH"]),
+                "medium_severity": len([i for i in issues if i.severity == "MEDIUM"]),
+                "low_severity": len([i for i in issues if i.severity == "LOW"])
+            },
+            "issues": [
+                {
+                    "category": issue.category,
+                    "severity": issue.severity,
+                    "component": issue.component,
+                    "description": issue.description,
+                    "details": issue.details,
+                    "recommendation": issue.recommendation
+                }
+                for issue in issues
+            ]
+        }
+        
+        with open(output_file, 'w') as f:
+            json.dump(report, f, indent=2)
+        
+        print(f"Detailed analysis report saved to: {output_file}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Network Log Analyzer with Ollama")
+    parser.add_argument("--ocid", help="OCID(s) for the monitoring script as space-separated string: \"ocid1 ocid2 ocid3\"")
+    parser.add_argument("--script", default="script.py", help="Path to monitoring script")
+    parser.add_argument("--output", help="Output log file name")
+    parser.add_argument("--model", default="llama3.2:3b", help="Ollama model to use")
+    parser.add_argument("--analyze-only", help="Analyze existing log file (skip script execution)")
+    parser.add_argument("--save-report", help="Save detailed JSON report to file")
+    parser.add_argument("--list-models", action="store_true", help="List available Ollama models")
+    parser.add_argument("--typewriter", action="store_true", help="Enable ChatGPT-style character-by-character output")
+    parser.add_argument("--region", help = "Region for the script")
+    parser.add_argument("--realm", help = "Realm for the script")
+    
+    args = parser.parse_args()
+    
+    analyzer = NetworkLogAnalyzer(model_name=args.model, typewriter_mode=args.typewriter)
+    
+    # Parse space-separated OCIDs if provided
+    ocids = []
+    if args.ocid:
+        ocids = args.ocid.strip().split()
+    
+    print("Network Analysis Tool with Ollama")
+    print("=" * 50)
+    
+    if args.list_models:
+        print("Available Ollama models:")
+        models = analyzer.ollama.get_available_models()
+        for model in models:
+            print(f"  • {model}")
+        return
+    
+    if not args.ocid:
+        parser.error("--ocid is required unless using --list-models")
+    
+    if args.analyze_only:
+        log_file = args.analyze_only
+        print(f"Analyzing existing log file: {log_file}")
+    else:
+        # Execute monitoring script with parsed OCIDs
+        log_file = analyzer.run_monitoring_script(args.script, ocids, args.realm, args.region, args.output)
+        
+    # Analyze the log with LLM
+    print("Analyzing network data with AI...")
+    issues = analyzer.analyze_log_with_llm(log_file, ocids)
+    
+    # Generate and display summary
+    summary = analyzer.generate_summary_table(issues)
+    
+    if args.typewriter:
+        # Print with fast but impressive typewriter effect
+        print("\n[AI] Multi-network analysis streaming...", flush=True)
+        time.sleep(0.5)  # Quick pause
+        print(">>> Processing complete!", flush=True)
+        time.sleep(0.2)
+        print("\n" + "="*50, flush=True)
+        time.sleep(0.1)
+        typewriter_print(summary, delay=0.008)  # Fast but visible
+    else:
+        print(summary)
+    
+    # Save detailed report if requested
+    if args.save_report:
+        analyzer.save_analysis_report(issues, args.save_report)
+    
+    # Return appropriate exit code
+    COLORS = {
+        'RED': '\033[1;31m',      # Bold red
+        'ORANGE': '\033[1;33m',   # Bold yellow/orange  
+        'GREEN': '\033[1;32m',    # Bold green
+        'RESET': '\033[0m'        # Reset color
+    }
+    
+    if any(issue.severity == "HIGH" for issue in issues):
+        message = f"\n{COLORS['RED']}[CRITICAL] High severity issues detected across networks!{COLORS['RESET']}"
+        if args.typewriter:
+            typewriter_print(message, delay=0.02)
+        else:
+            print(message)
+        sys.exit(2)
+    elif any(issue.severity == "MEDIUM" for issue in issues):
+        message = f"\n{COLORS['ORANGE']}[WARNING] Medium severity issues detected across networks.{COLORS['RESET']}"
+        if args.typewriter:
+            typewriter_print(message, delay=0.02)
+        else:
+            print(message)
+        sys.exit(1)
+    else:
+        message = f"\n{COLORS['GREEN']}[OK] No critical issues found across all networks.{COLORS['RESET']}"
+        if args.typewriter:
+            typewriter_print(message, delay=0.02)
+        else:
+            print(message)
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
