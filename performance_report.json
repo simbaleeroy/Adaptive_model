@@ -1,308 +1,294 @@
-# '''
-# Script to data associated with an ocid
+#!/usr/bin/env python3
+"""
+Unit tests for file.py - OCID data retrieval functionality
+"""
 
-# Usage:
-# python3 path/-to/c3_ncp_tool2.py --ocid "<ocid1> <ocid2>.." --region "<region>" --realm "<realm>"
-
-# '''
-
-
-
-
-import logging
-import argparse
-import json
-import requests
-import subprocess
-import os
+import unittest
+from unittest.mock import Mock, patch, MagicMock, call
 import json
 import sys
-from YubiSigner import create_auth_signer
-from TelesisEnableQoS.utils import run_command
-import warnings
-import re
-import socket
-import time
-warnings.filterwarnings("ignore")
+import os
+import argparse
+from io import StringIO
 
-PROXY_TEMPLATE = "bastion-ad1.rb.{region}.{devops_dns_name}"
-VPN_API_TEMPLATE = "vpn-api-internal.splat.svc.ad1.{region}" # == hostname | server comment this line for testing in alpha and uncomment when done
-# VPN_API_TEMPLATE = "vpn-api-internal-alpha.splat.svc.ad1.{region}" # comment out after testing in alpha
+# Add the current directory to the path to import the module
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# LOCAL_PORT = 44421
+# Import the module under test
+import file as ocid_module
 
 
-def get_free_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(('', 0))
-        return s.getsockname()[1]
+class TestOCIDDataRetrieval(unittest.TestCase):
+    """Test cases for OCID data retrieval functionality"""
 
-LOCAL_PORT = get_free_port()
-
-def init_parser():
-    parser = argparse.ArgumentParser(
-        description="Enable Arp on devices",
-        epilog="Example: python3 ocid_c3_ncp_tool.py --ocid ocid1.crossconnect.region1.sea.aaaaaaaa2sz23y3g5a2m5uvxsp2ypmy6jti6mlp7ofezcmp3def4jjjpq2sa --realm oc1 --region -iad")
-    parser.add_argument("--ocid", action="store",
-                        help="Ocid")
-    parser.add_argument("--realm", action="store",
-                        help="Realm")
-    parser.add_argument("--region", action="store",
-                        help="Region")
-    # parser.add_argument('--tenancy', action = "store")
-    return parser
-
-
-def setup(realm, region):
-    regionTemp = region
-
-    realmTemp =  realm # "OC1"
-
-    global hostname
-    global signer
-
-    # Clean Tunnel
-    print("SetUp Step 3 :Clean the Tunnel")
-    # Change this according to region.
-    # proxy = PROXY_TEMPLATE.format(region=json_data['region'], devops_dns_name="oci.oraclerealm17.com")
-    proxy = PROXY_TEMPLATE.format(region=regionTemp, devops_dns_name="oci.oracleiaas.com")
-    clean_tunnel(proxy)
-
-    # Create Tunnel
-    print("SetUp Step 4 :Create tunnel to vpn-api")
-    run_command("ssh -f -N -D {port} {proxy}".format(port=LOCAL_PORT, proxy=proxy))
-
-    print("SetUp Step 5 : Create Yubikey Signer")
-    # Create Yubikey Signer
-    signer = create_auth_signer(realmTemp) # put realm param
-
-
-    if regionTemp == 'us-phoenix-1':
-        regionTemp = 'r2'
-
-    hostname = VPN_API_TEMPLATE.format(region=regionTemp)
-    print("SetUp Completed ")
-
-
-def clean_tunnel(proxy):
-    run_command("ps ax | grep ssh | grep {proxy} | cut -d' ' -f 1 | xargs kill".format(proxy=proxy),
-                exit_when_fail=False)
-
-
-def getC3MultiAttributes(_ocid):
-    attributes = {}
-    resource_name = "None"
-    ocids = ['virtualCircuit', 'crossConnect', 'crossConnectGroup']
-
-    # for each_ocid in multiple_ocids:
-    for ocid_type in ocids:
-        response = requests.get(
-        'https://{hostname}/v1/management/{ocid_type}s/{ocid}'.format(hostname=hostname, ocid_type=ocid_type,ocid=_ocid),
-        auth=signer,
-        proxies={'https': 'socks5h://127.0.0.1:{port}'.format(port=LOCAL_PORT)},
-        verify=False)
-        requestResponse = json.loads(response.text)
-        if "code" not in requestResponse:
-            resource_name = ocid_type
-            attributes = {resource_name:requestResponse}
-            break
-
-
-    return attributes
-
-
-def remove_color_codes(text):
-    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[@~])')
-    return ansi_escape.sub('', text)
-
-
-def ncp(region, data_retrieved):
-    
-    print(f'region: {region}')
-    
-    script_path = "OpsScripts/OpsScripts/ncpcli_script.sh" # might need to change these values
-    temp_path = "OpsScripts/OpsScripts/temp_script.sh"
-   
-
-    for resource, attributes in data_retrieved.items():
-        if resource == 'virtualCircuit':
-            deviceID = attributes["configSnippetAttributes"][0]["routerName"] 
-            portChannel = attributes["configSnippetAttributes"][0]["vcInterface"] 
-            customerIp= attributes["crossConnectMappings"][0]["customerBgpPeeringIp"] 
-        elif resource == 'crossConnect':
-            deviceID = attributes["ociLogicalDeviceName"] 
-            portChannel = "none" # might need a value
-            customerIp = 'none' # might need a value
-        else:
-            deviceID = attributes["ociPhysicalDeviceName"]
-            portChannel = "none" # might need a value
-            customerIp = 'none' # might need a value
+    def setUp(self):
+        """Set up test fixtures before each test method."""
+        self.sample_ocid = "ocid1.crossconnect.region1.sea.aaaaaaaa2sz23y3g5a2m5uvxsp2ypmy6jti6mlp7ofezcmp3def4jjjpq2sa"
+        self.sample_vc_ocid = "ocid1.virtualcircuit.region1.sea.aaaaaaaa2sz23y3g5a2m5uvxsp2ypmy6jti6mlp7ofezcmp3def4jjjpq2sa"
+        self.sample_ccg_ocid = "ocid1.crossconnectgroup.region1.sea.aaaaaaaa2sz23y3g5a2m5uvxsp2ypmy6jti6mlp7ofezcmp3def4jjjpq2sa"
         
-    
-    """
-    ociPhysicalDeviceName --> deviceID
-    ociLogicalDeviceName --> CC's is same as VC's routerName
-    """
-    print(f'\nregion and deviceId are {region, deviceID}')
-    juniper_arista = "juniper" # need to know more about jfab, ffab, ets
-    ets = []
-    # jfab = []
+        # Sample response data
+        self.sample_crossconnect_data = {
+            "id": self.sample_ocid,
+            "ociPhysicalDeviceName": "device-001",
+            "ociLogicalDeviceName": "logical-device-001",
+            "lifecycleState": "ACTIVE"
+        }
         
+        self.sample_virtualcircuit_data = {
+            "id": self.sample_vc_ocid,
+            "configSnippetAttributes": [{
+                "routerName": "router-001",
+                "vcInterface": "et-0/0/1"
+            }],
+            "crossConnectMappings": [{
+                "customerBgpPeeringIp": "10.0.0.1",
+                "crossConnectOrCrossConnectGroupId": self.sample_ocid
+            }]
+        }
+        
+        self.sample_crossconnectgroup_data = {
+            "id": self.sample_ccg_ocid,
+            "ociPhysicalDeviceName": "group-device-001",
+            "lifecycleState": "ACTIVE"
+        }
+
+    def test_get_free_port(self):
+        """Test get_free_port function returns a valid port number."""
+        port = ocid_module.get_free_port()
+        self.assertIsInstance(port, int)
+        self.assertGreaterEqual(port, 1024)  # Should be a valid port number
+        self.assertLessEqual(port, 65535)
+
+    def test_init_parser(self):
+        """Test argument parser initialization."""
+        parser = ocid_module.init_parser()
+        self.assertIsInstance(parser, argparse.ArgumentParser)
+        
+        # Test that required arguments are defined
+        args = parser.parse_args(['--ocid', 'test-ocid', '--realm', 'oc1', '--region', 'us-phoenix-1'])
+        self.assertEqual(args.ocid, 'test-ocid')
+        self.assertEqual(args.realm, 'oc1')
+        self.assertEqual(args.region, 'us-phoenix-1')
+
+    @patch('requests.get')
+    def test_getC3MultiAttributes_success_crossconnect(self, mock_get):
+        """Test getC3MultiAttributes with successful crossconnect response."""
+        # Mock error response for first type, success for crossConnect
+        error_response = {"code": "NotFound", "message": "Resource not found"}
+        success_response = self.sample_crossconnect_data
+        
+        mock_get.side_effect = [
+            Mock(text=json.dumps(error_response)),  # virtualCircuit fails
+            Mock(text=json.dumps(success_response)),  # crossConnect succeeds
+            Mock(text=json.dumps(error_response))   # crossConnectGroup fails (won't be called)
+        ]
+        
+        # Set the global variables directly
+        ocid_module.hostname = 'test-hostname'
+        ocid_module.signer = Mock()
+        ocid_module.LOCAL_PORT = 12345
+        
+        result = ocid_module.getC3MultiAttributes(self.sample_ocid)
+        
+        # Verify the result
+        self.assertIn('crossConnect', result)
+        self.assertEqual(result['crossConnect'], self.sample_crossconnect_data)
+        
+        # Verify two API calls were made (virtualCircuit failed, crossConnect succeeded)
+        self.assertEqual(mock_get.call_count, 2)
+
+    @patch('requests.get')
+    def test_getC3MultiAttributes_success_virtualcircuit(self, mock_get):
+        """Test getC3MultiAttributes with successful virtualcircuit response."""
+        # Mock successful response for virtualCircuit (first in sequence)
+        mock_response = Mock()
+        mock_response.text = json.dumps(self.sample_virtualcircuit_data)
+        mock_get.return_value = mock_response
+        
+        # Set the global variables directly
+        ocid_module.hostname = 'test-hostname'
+        ocid_module.signer = Mock()
+        ocid_module.LOCAL_PORT = 12345
+        
+        result = ocid_module.getC3MultiAttributes(self.sample_vc_ocid)
+        
+        # Verify the result
+        self.assertIn('virtualCircuit', result)
+        self.assertEqual(result['virtualCircuit'], self.sample_virtualcircuit_data)
+        
+        # Verify only one API call was made (first one succeeded)
+        self.assertEqual(mock_get.call_count, 1)
+
+    @patch('requests.get')
+    def test_getC3MultiAttributes_error_response(self, mock_get):
+        """Test getC3MultiAttributes with error response."""
+        # Mock error response
+        error_response = {"code": "NotFound", "message": "Resource not found"}
+        mock_response = Mock()
+        mock_response.text = json.dumps(error_response)
+        mock_get.return_value = mock_response
+        
+        # Set the global variables directly
+        ocid_module.hostname = 'test-hostname'
+        ocid_module.signer = Mock()
+        ocid_module.LOCAL_PORT = 12345
+        
+        result = ocid_module.getC3MultiAttributes(self.sample_ocid)
+        
+        # Should return empty dict when all requests fail
+        self.assertEqual(result, {})
+
+    def test_C3Data(self):
+        """Test C3Data function."""
+        test_data = {"test": "data"}
+        
+        # Capture print output
+        with patch('builtins.print') as mock_print:
+            ocid_module.C3Data(test_data)
+            mock_print.assert_called_once_with(f'\n{test_data}')
 
 
-    try:
-        print("starting temp script....")
+class TestOCIDDataRetrievalIntegration(unittest.TestCase):
+    """Integration tests for OCID data retrieval functionality"""
+
+    def setUp(self):
+        """Set up test fixtures for integration tests."""
+        self.sample_ocid = "ocid1.crossconnect.region1.sea.aaaaaaaa2sz23y3g5a2m5uvxsp2ypmy6jti6mlp7ofezcmp3def4jjjpq2sa"
+        self.sample_vc_ocid = "ocid1.virtualcircuit.region1.sea.aaaaaaaa2sz23y3g5a2m5uvxsp2ypmy6jti6mlp7ofezcmp3def4jjjpq2sa"
+        self.sample_ccg_ocid = "ocid1.crossconnectgroup.region1.sea.aaaaaaaa2sz23y3g5a2m5uvxsp2ypmy6jti6mlp7ofezcmp3def4jjjpq2sa"
+
+    @patch('requests.get')
+    def test_end_to_end_crossconnect_retrieval(self, mock_get):
+        """Test end-to-end crossconnect data retrieval."""
+        # Mock error responses for first two types, success for crossConnect
+        error_response = {"code": "NotFound", "message": "Resource not found"}
+        success_response = {
+            "id": self.sample_ocid,
+            "ociPhysicalDeviceName": "device-001",
+            "ociLogicalDeviceName": "logical-device-001",
+            "lifecycleState": "ACTIVE"
+        }
         
-        subprocess.run(
-            [temp_path, region, deviceID],
-            check = True
-        )
+        mock_get.side_effect = [
+            Mock(text=json.dumps(error_response)),  # virtualCircuit fails
+            Mock(text=json.dumps(success_response)),  # crossConnect succeeds
+            Mock(text=json.dumps(error_response))   # crossConnectGroup fails (won't be called)
+        ]
         
-        while True:
-            if os.path.exists("output.log"):
-    
-                with open("output.log", "r") as file:
-                    content = file.read()
-                    if "Cheers!" not in content:
-                        # print(f'process not done yet; file length: {len(content)}')
-                        continue
-                        time.sleep(5)
-                # temp_lines = result.stdout.splitlines()
-                    #print(f'temp lines:{temp_lines}')
-            with open("output.log", "r") as file:
-                content = file.read()
-                print(f'\nlength content: {len(content)}')
-                # print(f'content --> {content}')
-                exp = r'et-\d+/\d+/\d+'
-                print(f'\n exracting interfaces...')
-                ets = re.findall(exp, content)
-                print(f'\nfound interfaces: {ets}')
-                break
+        # Set the global variables directly
+        ocid_module.hostname = 'test-hostname'
+        ocid_module.signer = Mock()
+        ocid_module.LOCAL_PORT = 12345
+        
+        result = ocid_module.getC3MultiAttributes("test-ocid")
+        
+        # Verify the complete flow
+        self.assertIn('crossConnect', result)
+        self.assertEqual(result['crossConnect']['ociPhysicalDeviceName'], 'device-001')
+
+    @patch('requests.get')
+    def test_end_to_end_virtualcircuit_retrieval(self, mock_get):
+        """Test end-to-end virtualcircuit data retrieval."""
+        # Mock successful API response
+        mock_response = Mock()
+        mock_response.text = json.dumps({
+            "id": self.sample_vc_ocid,
+            "configSnippetAttributes": [{
+                "routerName": "router-001",
+                "vcInterface": "et-0/0/1"
+            }],
+            "crossConnectMappings": [{
+                "customerBgpPeeringIp": "10.0.0.1",
+                "crossConnectOrCrossConnectGroupId": self.sample_ocid
+            }]
+        })
+        mock_get.return_value = mock_response
+        
+        # Set the global variables directly
+        ocid_module.hostname = 'test-hostname'
+        ocid_module.signer = Mock()
+        ocid_module.LOCAL_PORT = 12345
+        
+        result = ocid_module.getC3MultiAttributes("test-vc-ocid")
+        
+        # Verify the complete flow
+        self.assertIn('virtualCircuit', result)
+        self.assertEqual(result['virtualCircuit']['configSnippetAttributes'][0]['routerName'], 'router-001')
+
+    @patch('requests.get')
+    def test_end_to_end_crossconnectgroup_retrieval(self, mock_get):
+        """Test end-to-end crossconnectgroup data retrieval."""
+        # Mock error responses for first two types, success for crossConnectGroup
+        error_response = {"code": "NotFound", "message": "Resource not found"}
+        success_response = {
+            "id": self.sample_ccg_ocid,
+            "ociPhysicalDeviceName": "group-device-001",
+            "lifecycleState": "ACTIVE"
+        }
+        
+        mock_get.side_effect = [
+            Mock(text=json.dumps(error_response)),  # virtualCircuit fails
+            Mock(text=json.dumps(error_response)),  # crossConnect fails
+            Mock(text=json.dumps(success_response))  # crossConnectGroup succeeds
+        ]
+        
+        # Set the global variables directly
+        ocid_module.hostname = 'test-hostname'
+        ocid_module.signer = Mock()
+        ocid_module.LOCAL_PORT = 12345
+        
+        result = ocid_module.getC3MultiAttributes("test-ccg-ocid")
+        
+        # Verify the complete flow
+        self.assertIn('crossConnectGroup', result)
+        self.assertEqual(result['crossConnectGroup']['ociPhysicalDeviceName'], 'group-device-001')
+
+    def test_error_handling_invalid_ocid(self):
+        """Test error handling with invalid OCID format."""
+        # Set the global variables directly
+        ocid_module.hostname = 'test-hostname'
+        ocid_module.signer = Mock()
+        ocid_module.LOCAL_PORT = 12345
+        
+        with patch('requests.get') as mock_get:
+            # Mock error response for all OCID types
+            error_response = {"code": "InvalidParameter", "message": "Invalid OCID format"}
+            mock_response = Mock()
+            mock_response.text = json.dumps(error_response)
+            mock_get.return_value = mock_response
             
-            continue
-            
-    except subprocess.CalledProcessError as e:
-            print("Temp script failed:", e)
-            return None
-    try:
-        print("starting ncp  script")
-        # print(f"ets: {ets}, jfab: {jfab}")
-        subprocess.run(
-            [script_path, region, deviceID, customerIp, juniper_arista,  " ".join(ets), portChannel, resource],
-            check=True
-            # capture_output = True,
-            # text = True
-        )
+            result = ocid_module.getC3MultiAttributes("invalid-ocid")
+            self.assertEqual(result, {})
 
-        with open("output2.log", "r") as file:
-            content = file.read()
-        return content
-
-    except subprocess.CalledProcessError as e:
-        print("NCP Script failed:", e)
-        return None
-
-
-
-def C3Data(data_retrieved):
-    
-    print(f'\n{data_retrieved}') # for the sake of debugging
-
-
-def _get_jwt(ad="ad1", region="r2"):
-    """ Generates JWT via SSH for accessing devops portal """
-    command = f"ssh operator-access-token.svc.{ ad }.{ region } 'generate --mode=jwt'"
-    jwt = subprocess.check_output(command, shell=True)
-    return jwt.decode()
-
-
-def regions():
-    """ Fetches all regions and their attributes from the devops portal """
-    jwt = _get_jwt()
-    url = "https://devops.oci.oraclecorp.com/api/shepherd/v0/regions"
-    response = requests.get(url, headers={"Authorization": f"bearer { jwt }"}, verify=False)
-    response.raise_for_status()
-    return response.json().get("items", [])
-
-
-def realms():
-    """
-    Generates a dict of all realms with their attributes:
-    {
-        "OC1": {},
-        "OC2": {},
-        ...
-    }
-    """
-    realms = dict()
-    for region in regions():
-        this_realm = region.get("realm")
-
-        # New realm, insert attributes and start region list
-        if this_realm not in realms:
-            realms[this_realm] = region.pop("realmAttributes")
-            realms[this_realm]["regions"] = [region]
-
-        # Existing realm, extend region list only
-        else:
-            realms[this_realm]["regions"].append(region)
-
-    return realms
-
-
-def main():
-    args = init_parser().parse_args()
-    setup(args.realm, args.region)
-
-    ocids = args.ocid
-    ocids = ocids.split()   
-
-    _realms = realms()
-
-    # print(f"realms: {_realms[args.realm]['regions']}") # _realms[args.realm]['region']
-    # _regions = _realms[args.realm]['regions']
-
-    ncp_region_value = args.region # not yet the right value for ncp operations
-
-    for i in range(len(_realms[args.realm]['regions'])):
-        if _realms[args.realm]['regions'][i]['region'] == args.region: # comment out this line for testing in alpha then uncomment when done
-            ncp_region_value = _realms[args.realm]['regions'][i]['airportCode'].lower()
-            print(f'ncp_region_value for NCP operations: {ncp_region_value}')
-            break
-
-
-
-    for ocid in ocids:
-        print(f"\n{'='*70}")
-        print(f'\nPROCCESSING OCID: {ocid}')
-        print(f"\n{'='*70}")
-
-        data_retrieved = getC3MultiAttributes(ocid)
-   
-        if "virtualCircuit" in data_retrieved.keys():
-            C3Data(data_retrieved)
-            print(f"\nfetching the virtualCircuit's CC/CCG ...")
-            print(f'\nCC/CCG of the virtualCircuiit is: {data_retrieved["virtualCircuit"]["crossConnectMappings"][0]["crossConnectOrCrossConnectGroupId"]}')
-            data_retrieved_2 = getC3MultiAttributes(data_retrieved["virtualCircuit"]["crossConnectMappings"][0]["crossConnectOrCrossConnectGroupId"])
-            C3Data(data_retrieved_2)
-        else:
-            C3Data(data_retrieved)
-
-    
-        print("\nNCP Attributes: ")
+    @patch('requests.get')
+    def test_api_call_sequence(self, mock_get):
+        """Test that API calls are made in the correct sequence."""
+        # Mock error responses for first two types, success for third
+        error_response = {"code": "NotFound", "message": "Resource not found"}
+        success_response = {"id": "test-ccg", "ociPhysicalDeviceName": "device-001"}
         
-        device_data = ncp(ncp_region_value, data_retrieved)
-        print(f'\ndata for ncp : {device_data}')
+        mock_get.side_effect = [
+            Mock(text=json.dumps(error_response)),  # virtualCircuit fails
+            Mock(text=json.dumps(error_response)),  # crossConnect fails  
+            Mock(text=json.dumps(success_response))  # crossConnectGroup succeeds
+        ]
         
-           
-        print(f"\n{'='*70}")
-        print(f'\nEND OCID: {ocid}')
-        print(f"\n{'='*70}")
-    
+        # Set the global variables directly
+        ocid_module.hostname = 'test-hostname'
+        ocid_module.signer = Mock()
+        ocid_module.LOCAL_PORT = 12345
+        
+        result = ocid_module.getC3MultiAttributes("test-ocid")
+        
+        # Verify all three API calls were made
+        self.assertEqual(mock_get.call_count, 3)
+        
+        # Verify the successful result
+        self.assertIn('crossConnectGroup', result)
+        self.assertEqual(result['crossConnectGroup']['ociPhysicalDeviceName'], 'device-001')
 
 
-
-
-if __name__== "__main__":
-    main()
+if __name__ == '__main__':
+    # Run the tests
+    unittest.main(verbosity=2)
