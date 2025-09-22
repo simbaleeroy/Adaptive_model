@@ -1,25 +1,70 @@
-public CrossConnectDo backfillTenantId(String ccId, String tenantId) throws ValidationException {
+@Test
+public void GIVEN_backfillTenantId_WHEN_tenantIdIsMissing_THEN_updatesDatabase() throws Exception {
+    // Create a CrossConnect without tenantId
+    Transaction t = crossConnectBl.beginTransaction("create-cc-no-tenant");
+    CrossConnectDo ccWithoutTenant = crossConnectBl.create(t, CrossConnectDo.builder()
+            .displayName("test-CC-no-tenant")
+            .compartmentId(ManagementResourceTestHelper.MY_COMPARTMENT)
+            .location(ManagementResourceTestHelper.LOCATION_ID)
+            .portSpeed(ManagementResourceTestHelper.MY_PORT_SPEED)
+            .interfaceId(ManagementResourceTestHelper.INTERFACE_PREFIX + "1")
+            .state(CrossConnectDo.State.PENDING_CUSTOMER)
+            .connectionHintsNear(new String[] {})
+            .connectionHintsFar(new String[] {})
+            .deviceId("test_dev")
+            .tenantId(null) // Explicitly set to null
+            .build());
+    t.commit();
 
-        if (tenantId == null){
-            return getOrThrow(ccId);
-        }
+    // Verify tenantId is null before backfill
+    CrossConnectDo beforeBackfill = crossConnectBl.getOrThrow(ccWithoutTenant.getId());
+    assertNull("TenantId should be null before backfill", beforeBackfill.getTenantId());
 
-        try( Transaction t = beginTransaction("backfill-tenantId")) {
-            CrossConnectDo cc = getOrThrow(t, ccId);
-            if(cc.getTenantId() != null){
-                return cc;
-            }
+    String newTenantId = "backfilled-tenant-id-123";
 
-            else{
-                CrossConnectDo updatedCc = cc.toBuilder().tenantId(tenantId).build();
-                updatedCc = update(t, updatedCc);
-                t.commit();
-                return updatedCc;
-            }
+    // Call backfillTenantId with new tenantId
+    CrossConnectDo result = crossConnectBl.backfillTenantId(ccWithoutTenant.getId(), newTenantId);
+
+    // Verify the returned object has the new tenantId
+    assertNotNull("Result should not be null", result);
+    assertEquals("ID should match", ccWithoutTenant.getId(), result.getId());
+    assertEquals("TenantId should be backfilled", newTenantId, result.getTenantId());
+
+    // Verify the update was actually persisted to the database
+    CrossConnectDo persisted = crossConnectBl.getOrThrow(ccWithoutTenant.getId());
+    assertEquals("TenantId should be persisted in database", newTenantId, persisted.getTenantId());
+    assertEquals("Other fields should remain unchanged", beforeBackfill.getDisplayName(), persisted.getDisplayName());
+    assertEquals("Other fields should remain unchanged", beforeBackfill.getCompartmentId(),
+            persisted.getCompartmentId());
+}
 
 
-        } catch (CommitConflictException e){
-            throw new RuntimeException("Commit conflict while backfilling tenantId for ccId: " + ccId, e);
-        }
+/**
+ * Test that backfillTenantId handles null tenantId input without throwing
+ * exceptions
+ */
+@Test
+public void GIVEN_backfillTenantId_WHEN_tenantIdIsNull_THEN_returnsOriginalObjectWithoutError() throws Exception {
+    CrossConnectInternal cc = createCrossConnect(crossConnectBl,
+            patchPanelPortPairBl,
+            locationBl,
+            "test-CC",
+            1,
+            crossConnectGroupBl,
+            deviceBl);
 
-    }
+    CrossConnectDo originalDo = crossConnectBl.getOrThrowForAuth(cc.getId());
+    String originalTenantId = originalDo.getTenantId();
+
+    // Call backfillTenantId with null tenantId
+    CrossConnectDo result = crossConnectBl.backfillTenantId(cc.getId(), null);
+
+    // Should return the original object unchanged
+    assertNotNull("Result should not be null", result);
+    assertEquals("ID should match", originalDo.getId(), result.getId());
+    assertEquals("TenantId should remain unchanged", originalTenantId, result.getTenantId());
+
+    // Verify database is unchanged
+    CrossConnectDo persisted = crossConnectBl.getOrThrow(cc.getId());
+    assertEquals("Database should be unchanged", originalTenantId, persisted.getTenantId());
+}
