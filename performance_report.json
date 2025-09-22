@@ -1,110 +1,179 @@
- /// ///////////////////////////////////////////////////////
-    @GET
-    @Path("/tenancy/{tenancyId}/export")
-    @Produces({ "application/json" })
-    @Timed(name = "export-tenancy-data")
-    @VpnSkipAuthorization
-    public Response exportTenancyData(@PathParam("tenancyId") String tenancyId) throws ValidationException {
-        Validation.OCIDValidate(tenancyId);
+@GET
+@Path("/tenancy/{tenancyId}/export")
+@Produces({ "application/json" })
+@Timed(name = "export-tenancy-data")
+@VpnSkipAuthorization
+public Response exportTenancyData(@PathParam("tenancyId") String tenancyId) throws ValidationException {
+    Validation.OCIDValidate(tenancyId);
 
-        javax.ws.rs.core.StreamingOutput stream = (output) -> {
-            com.fasterxml.jackson.core.JsonGenerator gen = null;
-            try {
-                gen = mapper.getFactory().createGenerator(output, com.fasterxml.jackson.core.JsonEncoding.UTF8);
-                gen.writeStartObject();
+    javax.ws.rs.core.StreamingOutput stream = (output) -> {
+        com.fasterxml.jackson.core.JsonGenerator gen = null;
+        try {
+            gen = mapper.getFactory().createGenerator(output, com.fasterxml.jackson.core.JsonEncoding.UTF8);
+            gen.writeStartObject();
 
-                // predicate: checks tenantId then falls back to compartment resolution
-                java.util.function.Predicate<Object> belongsToTenancy = (obj) -> {
+            // predicate: checks tenantId then falls back to compartment resolution
+            java.util.function.Predicate<Object> belongsToTenancy = (obj) -> {
+                try {
+                    if (obj == null)
+                        return false;
+                    // Try tenantId getter
                     try {
-                        if (obj == null)
-                            return false;
-                        // Try tenantId getter
-                        try {
-                            java.lang.reflect.Method m = obj.getClass().getMethod("getTenantId");
-                            Object tenantId = m.invoke(obj);
-                            if (tenantId != null)
-                                return tenancyId.equals(tenantId.toString());
-                        } catch (NoSuchMethodException ignore) {
-                        }
-                        // Try compartmentId getter
-                        try {
-                            java.lang.reflect.Method mc = obj.getClass().getMethod("getCompartmentId");
-                            Object compartmentId = mc.invoke(obj);
-                            if (compartmentId != null) {
-                                String resolved = identityHelper.getTenantId(compartmentId.toString());
+                        java.lang.reflect.Method m = obj.getClass().getMethod("getTenantId");
+                        Object tenantId = m.invoke(obj);
+                        if (tenantId != null)
+                            return tenancyId.equals(tenantId.toString());
+                    } catch (NoSuchMethodException ignore) {
+                    }
+                    // Try compartmentId getter
+                    try {
+                        java.lang.reflect.Method mc = obj.getClass().getMethod("getCompartmentId");
+                        Object compartmentId = mc.invoke(obj);
+                        if (compartmentId != null) {
+                            String resolved = identityHelper.getTenantId(compartmentId.toString());
+                            // Add null check for resolved tenant ID
+                            if (resolved != null) {
                                 return tenancyId.equals(resolved);
                             }
-                        } catch (NoSuchMethodException ignore) {
                         }
-                    } catch (Exception e) {
-                        log.warn("Failed tenancy check for object {}", obj, e);
+                    } catch (NoSuchMethodException ignore) {
                     }
-                    return false;
-                };
+                } catch (Exception e) {
+                    log.warn("Failed tenancy check for object {}", obj, e);
+                }
+                return false;
+            };
 
-                // Helper that writes an array field by streaming items from a ScanAllIterable
-                com.fasterxml.jackson.core.JsonGenerator finalGen = gen;
-                java.util.function.BiConsumer<String, java.util.function.Supplier<java.util.stream.Stream<?>>> writeArray = (
-                        fieldName, streamSupplier) -> {
-                    try {
-                        finalGen.writeFieldName(fieldName);
-                        finalGen.writeStartArray();
-                        java.util.stream.Stream<?> s = streamSupplier.get();
+            // Helper that writes an array field by streaming items from a ScanAllIterable
+            com.fasterxml.jackson.core.JsonGenerator finalGen = gen;
+            java.util.function.BiConsumer<String, java.util.function.Supplier<java.util.stream.Stream<?>>> writeArray = (
+                    fieldName, streamSupplier) -> {
+                try {
+                    finalGen.writeFieldName(fieldName);
+                    finalGen.writeStartArray();
+                    java.util.stream.Stream<?> s = streamSupplier.get();
+                    // Add null check for stream
+                    if (s != null) {
                         java.util.Iterator<?> it = s.iterator();
                         while (it.hasNext()) {
                             Object item = it.next();
-                            if (belongsToTenancy.test(item)) {
+                            if (item != null && belongsToTenancy.test(item)) {
                                 mapper.writeValue(finalGen, item);
                             }
                         }
-                        finalGen.writeEndArray();
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
                     }
-                };
+                    finalGen.writeEndArray();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            };
 
-                // CrossConnects
-                writeArray.accept("crossConnects", () -> ScanAllIterable.from(crossConnectBl::list, 200).stream());
+            // CrossConnects - add null safety
+            writeArray.accept("crossConnects", () -> {
+                try {
+                    java.util.List<?> list = crossConnectBl.list();
+                    return list != null ? ScanAllIterable.from(() -> list, 200).stream()
+                            : java.util.stream.Stream.empty();
+                } catch (Exception e) {
+                    log.warn("Failed to get crossConnects list", e);
+                    return java.util.stream.Stream.empty();
+                }
+            });
 
-                // CrossConnectGroups
-                writeArray.accept("crossConnectGroups",
-                        () -> ScanAllIterable.from(crossConnectGroupBl::list, 200).stream());
+            // CrossConnectGroups - add null safety
+            writeArray.accept("crossConnectGroups", () -> {
+                try {
+                    java.util.List<?> list = crossConnectGroupBl.list();
+                    return list != null ? ScanAllIterable.from(() -> list, 200).stream()
+                            : java.util.stream.Stream.empty();
+                } catch (Exception e) {
+                    log.warn("Failed to get crossConnectGroups list", e);
+                    return java.util.stream.Stream.empty();
+                }
+            });
 
-                // VirtualCircuits
-                writeArray.accept("virtualCircuits", () -> ScanAllIterable.from(virtualCircuitBl::list, 200).stream());
+            // VirtualCircuits - add null safety
+            writeArray.accept("virtualCircuits", () -> {
+                try {
+                    java.util.List<?> list = virtualCircuitBl.list();
+                    return list != null ? ScanAllIterable.from(() -> list, 200).stream()
+                            : java.util.stream.Stream.empty();
+                } catch (Exception e) {
+                    log.warn("Failed to get virtualCircuits list", e);
+                    return java.util.stream.Stream.empty();
+                }
+            });
 
-                // IPsec Connections
-                writeArray.accept("ipsecConnections",
-                        () -> ScanAllIterable.from(iPsecConnectionBl::list, 200).stream());
+            // IPsec Connections - add null safety
+            writeArray.accept("ipsecConnections", () -> {
+                try {
+                    java.util.List<?> list = iPsecConnectionBl.list();
+                    return list != null ? ScanAllIterable.from(() -> list, 200).stream()
+                            : java.util.stream.Stream.empty();
+                } catch (Exception e) {
+                    log.warn("Failed to get ipsecConnections list", e);
+                    return java.util.stream.Stream.empty();
+                }
+            });
 
-                // Remote Peering Connections
-                writeArray.accept("remotePeeringConnections",
-                        () -> ScanAllIterable.from(remotePeeringConnectionBl::list, 200).stream());
+            // Remote Peering Connections - add null safety
+            writeArray.accept("remotePeeringConnections", () -> {
+                try {
+                    java.util.List<?> list = remotePeeringConnectionBl.list();
+                    return list != null ? ScanAllIterable.from(() -> list, 200).stream()
+                            : java.util.stream.Stream.empty();
+                } catch (Exception e) {
+                    log.warn("Failed to get remotePeeringConnections list", e);
+                    return java.util.stream.Stream.empty();
+                }
+            });
 
-                // Tunnels
-                writeArray.accept("tunnels", () -> ScanAllIterable.from(tunnelBl::list, 200).stream());
+            // Tunnels - add null safety
+            writeArray.accept("tunnels", () -> {
+                try {
+                    java.util.List<?> list = tunnelBl.list();
+                    return list != null ? ScanAllIterable.from(() -> list, 200).stream()
+                            : java.util.stream.Stream.empty();
+                } catch (Exception e) {
+                    log.warn("Failed to get tunnels list", e);
+                    return java.util.stream.Stream.empty();
+                }
+            });
 
-                // Devices (filtered by tenancy like other resources)
-                writeArray.accept("devices", () -> ScanAllIterable.from(deviceBl::list, 200).stream());
+            // Devices - add null safety
+            writeArray.accept("devices", () -> {
+                try {
+                    java.util.List<?> list = deviceBl.list();
+                    return list != null ? ScanAllIterable.from(() -> list, 200).stream()
+                            : java.util.stream.Stream.empty();
+                } catch (Exception e) {
+                    log.warn("Failed to get devices list", e);
+                    return java.util.stream.Stream.empty();
+                }
+            });
 
-                // tenancy metadata
-                gen.writeFieldName("tenancyMetadata");
-                mapper.writeValue(gen, tenancyMetadataBl.get(tenancyId).orElse(null));
-
-                gen.writeEndObject();
-                gen.flush();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            } finally {
-                if (gen != null)
-                    try {
-                        gen.close();
-                    } catch (IOException ignored) {
-                    }
+            // tenancy metadata - add null safety
+            gen.writeFieldName("tenancyMetadata");
+            try {
+                java.util.Optional<?> tenancyMetadata = tenancyMetadataBl.get(tenancyId);
+                mapper.writeValue(gen, tenancyMetadata.orElse(null));
+            } catch (Exception e) {
+                log.warn("Failed to get tenancy metadata for {}", tenancyId, e);
+                gen.writeNull();
             }
-        };
 
-        return Response.ok(stream).type(javax.ws.rs.core.MediaType.APPLICATION_JSON).build();
-    }
+            gen.writeEndObject();
+            gen.flush();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } finally {
+            if (gen != null)
+                try {
+                    gen.close();
+                } catch (IOException ignored) {
+                }
+        }
+    };
 
-    ////////////////////////////////////////////////////////////////////////////////////
+    return Response.ok(stream).type(javax.ws.rs.core.MediaType.APPLICATION_JSON).build();
+}
