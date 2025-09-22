@@ -1,96 +1,182 @@
-   public void GIVEN_exportTenancyData_WHEN_objectsBelongToTenancy_THEN_includedInJson() throws Exception {
-        String tenancyId = "test-tenancy-id";
+/**
+ * Test that objects belonging to the tenancy are included in the JSON export
+ */
+@Test
+public void GIVEN_exportTenancyData_WHEN_objectsBelongToTenancy_THEN_includedInJson() throws Exception {
+    String tenancyId = "ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-        // Create sample DOs: one with tenantId set, one with compartmentId that resolves to tenancyId, and one that doesn't belong
-        CrossConnectDo ccBelongs = CrossConnectDo.builder().id(UUID.randomUUID().toString()).compartmentId("comp1").tenantId(tenancyId).build();
-        CrossConnectDo ccNotBelong = CrossConnectDo.builder().id(UUID.randomUUID().toString()).compartmentId("comp_not").tenantId("otherTenant").build();
+    // Create sample DOs: one with tenantId set, one with compartmentId that
+    // resolves to tenancyId, and one that doesn't belong
+    CrossConnectDo ccBelongs = CrossConnectDo.builder()
+            .id(UUID.randomUUID().toString())
+            .compartmentId("comp1")
+            .tenantId(tenancyId)
+            .build();
 
-        VirtualCircuitDo vcBelongsByComp = VirtualCircuitDo.builder().id(UUID.randomUUID().toString()).compartmentId("comp2").build();
+    CrossConnectDo ccNotBelong = CrossConnectDo.builder()
+            .id(UUID.randomUUID().toString())
+            .compartmentId("comp_not")
+            .tenantId("otherTenant")
+            .build();
 
-        IPsecConnectionDo ipsecNot = IPsecConnectionDo.builder().id(UUID.randomUUID().toString()).compartmentId("comp_x").build();
+    VirtualCircuitDo vcBelongsByComp = VirtualCircuitDo.builder()
+            .id(UUID.randomUUID().toString())
+            .compartmentId("comp2")
+            .build();
 
-        // Devices should always be included
-        DeviceDo device1 = DeviceDo.builder().id("dev1").name("dev1").build();
+    IPsecConnectionDo ipsecNot = IPsecConnectionDo.builder()
+            .id(UUID.randomUUID().toString())
+            .compartmentId("comp_x")
+            .build();
 
-        // Mock streams returned by BLs (exportTenancyData uses ScanAllIterable.from(...).stream())
-        when(crossConnectBl.stream()).thenReturn(Arrays.asList(ccBelongs, ccNotBelong).stream());
-        when(crossConnectGroupBl.stream()).thenReturn((new ArrayList<CrossConnectGroupDo>()).stream());
-        when(virtualCircuitBl.stream()).thenReturn(Arrays.asList(vcBelongsByComp).stream());
-        when(iPsecConnectionBl.stream()).thenReturn(Arrays.asList(ipsecNot).stream());
-        when(remotePeeringConnectionBl.stream()).thenReturn(java.util.Collections.<RemotePeeringConnectionDo>emptyList().stream());
-        when(tunnelBl.stream()).thenReturn(java.util.Collections.<TunnelDo>emptyList().stream());
-        when(deviceBl.stream()).thenReturn(Arrays.asList(device1).stream());
+    // Devices should always be included
+    DeviceDo device1 = DeviceDo.builder()
+            .id("dev1")
+            .name("dev1")
+            .build();
 
-        // identityHelper resolves compartments comp2 -> tenancyId, comp1 already has tenantId
-        when(identityHelper.getTenantId(eq("comp2"))).thenReturn(tenancyId);
-        when(identityHelper.getTenantId(matches("comp_not|comp_x"))).thenReturn("otherTenant");
+    // Mock streams returned by BLs (exportTenancyData uses
+    // ScanAllIterable.from(...).stream())
+    when(crossConnectBl.list()).thenReturn(Arrays.asList(ccBelongs, ccNotBelong));
+    when(crossConnectGroupBl.list()).thenReturn(Collections.emptyList());
+    when(virtualCircuitBl.list()).thenReturn(Arrays.asList(vcBelongsByComp));
+    when(iPsecConnectionBl.list()).thenReturn(Arrays.asList(ipsecNot));
+    when(remotePeeringConnectionBl.list()).thenReturn(Collections.emptyList());
+    when(tunnelBl.list()).thenReturn(Collections.emptyList());
+    when(deviceBl.list()).thenReturn(Arrays.asList(device1));
 
-        // tenancy metadata
-        TenancyMetadataDo tmd = TenancyMetadataDo.builder().id(tenancyId).build();
-        when(tenancyMetadataBl.get(eq(tenancyId))).thenReturn(Optional.of(tmd));
+    // identityHelper resolves compartments comp2 -> tenancyId, comp1 already has
+    // tenantId
+    when(identityHelper.getTenantId(eq("comp2"))).thenReturn(tenancyId);
+    when(identityHelper.getTenantId(matches("comp_not|comp_x"))).thenReturn("otherTenant");
 
-        // Call API and capture StreamingOutput
-        Response resp = managementResource.exportTenancyData(tenancyId);
-        assertEquals(200, resp.getStatus());
+    // tenancy metadata
+    TenancyMetadataDo tmd = TenancyMetadataDo.builder().id(tenancyId).build();
+    when(tenancyMetadataBl.get(eq(tenancyId))).thenReturn(Optional.of(tmd));
 
-        javax.ws.rs.core.StreamingOutput stream = (javax.ws.rs.core.StreamingOutput) resp.getEntity();
-        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-        stream.write(baos);
+    // Call API and capture StreamingOutput
+    Response resp = managementResource.exportTenancyData(tenancyId);
+    assertEquals(200, resp.getStatus());
 
-        // Parse JSON
-        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
-        com.fasterxml.jackson.databind.JsonNode root = om.readTree(baos.toByteArray());
+    javax.ws.rs.core.StreamingOutput stream = (javax.ws.rs.core.StreamingOutput) resp.getEntity();
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    stream.write(baos);
 
-        // crossConnects should include only ccBelongs
-        com.fasterxml.jackson.databind.JsonNode ccArray = root.get("crossConnects");
-        assertEquals(1, ccArray.size());
-        assertEquals(ccBelongs.getId(), ccArray.get(0).get("id").asText());
+    // Parse JSON
+    ObjectMapper om = new ObjectMapper();
+    JsonNode root = om.readTree(baos.toByteArray());
 
-        // virtualCircuits should include vcBelongsByComp
-        com.fasterxml.jackson.databind.JsonNode vcArray = root.get("virtualCircuits");
-        assertEquals(1, vcArray.size());
-        assertEquals(vcBelongsByComp.getId(), vcArray.get(0).get("id").asText());
+    // crossConnects should include only ccBelongs
+    JsonNode ccArray = root.get("crossConnects");
+    assertEquals(1, ccArray.size());
+    assertEquals(ccBelongs.getId(), ccArray.get(0).get("id").asText());
 
-        // ipsecConnections should be empty (comp_x resolves to otherTenant)
-        com.fasterxml.jackson.databind.JsonNode ipsecArray = root.get("ipsecConnections");
-        assertEquals(0, ipsecArray.size());
+    // virtualCircuits should include vcBelongsByComp
+    JsonNode vcArray = root.get("virtualCircuits");
+    assertEquals(1, vcArray.size());
+    assertEquals(vcBelongsByComp.getId(), vcArray.get(0).get("id").asText());
 
-        // devices should include device1 regardless of tenancy
-        com.fasterxml.jackson.databind.JsonNode devArray = root.get("devices");
-        assertEquals(1, devArray.size());
-        assertEquals("dev1", devArray.get(0).get("id").asText());
+    // ipsecConnections should be empty (comp_x resolves to otherTenant)
+    JsonNode ipsecArray = root.get("ipsecConnections");
+    assertEquals(0, ipsecArray.size());
 
-        // tenancyMetadata present
-        com.fasterxml.jackson.databind.JsonNode tMeta = root.get("tenancyMetadata");
-        assertEquals(tenancyId, tMeta.get("id").asText());
-    }
+    // devices should include device1 regardless of tenancy
+    JsonNode devArray = root.get("devices");
+    assertEquals(1, devArray.size());
+    assertEquals("dev1", devArray.get(0).get("id").asText());
 
-    @Test
-    public void GIVEN_exportTenancyData_WHEN_noMatchingResources_THEN_arraysAreEmptyButDevicesIncluded() throws Exception {
-        String tenancyId = "test-tenantId";
+    // tenancyMetadata present
+    JsonNode tMeta = root.get("tenancyMetadata");
+    assertEquals(tenancyId, tMeta.get("id").asText());
+}
 
-        when(crossConnectBl.stream()).thenReturn(java.util.Collections.<CrossConnectDo>emptyList().stream());
-        when(crossConnectGroupBl.stream()).thenReturn(java.util.Collections.<CrossConnectGroupDo>emptyList().stream());
-        when(virtualCircuitBl.stream()).thenReturn(java.util.Collections.<VirtualCircuitDo>emptyList().stream());
-        when(iPsecConnectionBl.stream()).thenReturn(java.util.Collections.<IPsecConnectionDo>emptyList().stream());
-        when(remotePeeringConnectionBl.stream()).thenReturn(java.util.Collections.<RemotePeeringConnectionDo>emptyList().stream());
-        when(tunnelBl.stream()).thenReturn(java.util.Collections.<TunnelDo>emptyList().stream());
+/**
+ * Test that when no resources match the tenancy, arrays are empty but devices
+ * are still included
+ */
+@Test
+public void GIVEN_exportTenancyData_WHEN_noMatchingResources_THEN_arraysAreEmptyButDevicesIncluded()
+        throws Exception {
+    String tenancyId = "ocid1.tenancy.oc1..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-        DeviceDo device1 = DeviceDo.builder().id("devA").name("devA").build();
-        when(deviceBl.stream()).thenReturn(Arrays.asList(device1).stream());
+    when(crossConnectBl.list()).thenReturn(Collections.emptyList());
+    when(crossConnectGroupBl.list()).thenReturn(Collections.emptyList());
+    when(virtualCircuitBl.list()).thenReturn(Collections.emptyList());
+    when(iPsecConnectionBl.list()).thenReturn(Collections.emptyList());
+    when(remotePeeringConnectionBl.list()).thenReturn(Collections.emptyList());
+    when(tunnelBl.list()).thenReturn(Collections.emptyList());
 
-        when(tenancyMetadataBl.get(eq(tenancyId))).thenReturn(Optional.empty());
+    DeviceDo device1 = DeviceDo.builder()
+            .id("devA")
+            .name("devA")
+            .build();
+    when(deviceBl.list()).thenReturn(Arrays.asList(device1));
 
-        Response resp = managementResource.exportTenancyData(tenancyId);
-        javax.ws.rs.core.StreamingOutput stream = (javax.ws.rs.core.StreamingOutput) resp.getEntity();
-        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-        stream.write(baos);
+    when(tenancyMetadataBl.get(eq(tenancyId))).thenReturn(Optional.empty());
 
-        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
-        com.fasterxml.jackson.databind.JsonNode root = om.readTree(baos.toByteArray());
+    Response resp = managementResource.exportTenancyData(tenancyId);
+    javax.ws.rs.core.StreamingOutput stream = (javax.ws.rs.core.StreamingOutput) resp.getEntity();
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    stream.write(baos);
 
-        assertEquals(0, root.get("crossConnects").size());
-        assertEquals(0, root.get("virtualCircuits").size());
-        assertEquals(1, root.get("devices").size());
-        assertTrue(root.get("tenancyMetadata").isNull());
-    }
+    ObjectMapper om = new ObjectMapper();
+    JsonNode root = om.readTree(baos.toByteArray());
+
+    assertEquals(0, root.get("crossConnects").size());
+    assertEquals(0, root.get("virtualCircuits").size());
+    assertEquals(1, root.get("devices").size());
+    assertTrue(root.get("tenancyMetadata").isNull());
+}
+
+/**
+ * Test that invalid OCID format throws ValidationException
+ */
+@Test
+public void GIVEN_exportTenancyData_WHEN_invalidOcid_THEN_throwsValidationException() {
+    String invalidTenancyId = "invalid-ocid";
+
+    // This should throw ValidationException due to OCID validation
+    assertThrows(ValidationException.class, () -> {
+        managementResource.exportTenancyData(invalidTenancyId);
+    });
+}
+
+/**
+ * Test that null values from BL methods are handled gracefully
+ */
+@Test
+public void GIVEN_exportTenancyData_WHEN_blMethodsReturnNull_THEN_handlesGracefully() throws Exception {
+    String tenancyId = "ocid1.tenancy.oc1..cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+
+    // Mock BL methods to return null
+    when(crossConnectBl.list()).thenReturn(null);
+    when(crossConnectGroupBl.list()).thenReturn(null);
+    when(virtualCircuitBl.list()).thenReturn(null);
+    when(iPsecConnectionBl.list()).thenReturn(null);
+    when(remotePeeringConnectionBl.list()).thenReturn(null);
+    when(tunnelBl.list()).thenReturn(null);
+    when(deviceBl.list()).thenReturn(null);
+
+    when(tenancyMetadataBl.get(eq(tenancyId))).thenReturn(Optional.empty());
+
+    // Should not throw exception, should handle nulls gracefully
+    Response resp = managementResource.exportTenancyData(tenancyId);
+    assertEquals(200, resp.getStatus());
+
+    javax.ws.rs.core.StreamingOutput stream = (javax.ws.rs.core.StreamingOutput) resp.getEntity();
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    stream.write(baos);
+
+    ObjectMapper om = new ObjectMapper();
+    JsonNode root = om.readTree(baos.toByteArray());
+
+    // All arrays should be empty due to null handling
+    assertEquals(0, root.get("crossConnects").size());
+    assertEquals(0, root.get("crossConnectGroups").size());
+    assertEquals(0, root.get("virtualCircuits").size());
+    assertEquals(0, root.get("ipsecConnections").size());
+    assertEquals(0, root.get("remotePeeringConnections").size());
+    assertEquals(0, root.get("tunnels").size());
+    assertEquals(0, root.get("devices").size());
+    assertTrue(root.get("tenancyMetadata").isNull());
+}
