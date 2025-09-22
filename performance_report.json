@@ -1,429 +1,308 @@
-import unittest
-from unittest.mock import patch, MagicMock, Mock
+# '''
+# Script to data associated with an ocid
+
+# Usage:
+# python3 path/-to/c3_ncp_tool2.py --ocid "<ocid1> <ocid2>.." --region "<region>" --realm "<realm>"
+
+# '''
+
+
+
+
+import logging
+import argparse
 import json
 import requests
-import sys
+import subprocess
 import os
+import json
+import sys
+from YubiSigner import create_auth_signer
+from TelesisEnableQoS.utils import run_command
+import warnings
+import re
+import socket
+import time
+warnings.filterwarnings("ignore")
 
-# Import your actual script - adjust the module name as needed
-from your_script_name import getC3MultiAttributes  # Replace 'your_script_name' with actual filename
+PROXY_TEMPLATE = "bastion-ad1.rb.{region}.{devops_dns_name}"
+VPN_API_TEMPLATE = "vpn-api-internal.splat.svc.ad1.{region}" # == hostname | server comment this line for testing in alpha and uncomment when done
+# VPN_API_TEMPLATE = "vpn-api-internal-alpha.splat.svc.ad1.{region}" # comment out after testing in alpha
 
-class TestGetC3MultiAttributes(unittest.TestCase):
+# LOCAL_PORT = 44421
+
+
+def get_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(('', 0))
+        return s.getsockname()[1]
+
+LOCAL_PORT = get_free_port()
+
+def init_parser():
+    parser = argparse.ArgumentParser(
+        description="Enable Arp on devices",
+        epilog="Example: python3 ocid_c3_ncp_tool.py --ocid ocid1.crossconnect.region1.sea.aaaaaaaa2sz23y3g5a2m5uvxsp2ypmy6jti6mlp7ofezcmp3def4jjjpq2sa --realm oc1 --region -iad")
+    parser.add_argument("--ocid", action="store",
+                        help="Ocid")
+    parser.add_argument("--realm", action="store",
+                        help="Realm")
+    parser.add_argument("--region", action="store",
+                        help="Region")
+    # parser.add_argument('--tenancy', action = "store")
+    return parser
+
+
+def setup(realm, region):
+    regionTemp = region
+
+    realmTemp =  realm # "OC1"
+
+    global hostname
+    global signer
+
+    # Clean Tunnel
+    print("SetUp Step 3 :Clean the Tunnel")
+    # Change this according to region.
+    # proxy = PROXY_TEMPLATE.format(region=json_data['region'], devops_dns_name="oci.oraclerealm17.com")
+    proxy = PROXY_TEMPLATE.format(region=regionTemp, devops_dns_name="oci.oracleiaas.com")
+    clean_tunnel(proxy)
+
+    # Create Tunnel
+    print("SetUp Step 4 :Create tunnel to vpn-api")
+    run_command("ssh -f -N -D {port} {proxy}".format(port=LOCAL_PORT, proxy=proxy))
+
+    print("SetUp Step 5 : Create Yubikey Signer")
+    # Create Yubikey Signer
+    signer = create_auth_signer(realmTemp) # put realm param
+
+
+    if regionTemp == 'us-phoenix-1':
+        regionTemp = 'r2'
+
+    hostname = VPN_API_TEMPLATE.format(region=regionTemp)
+    print("SetUp Completed ")
+
+
+def clean_tunnel(proxy):
+    run_command("ps ax | grep ssh | grep {proxy} | cut -d' ' -f 1 | xargs kill".format(proxy=proxy),
+                exit_when_fail=False)
+
+
+def getC3MultiAttributes(_ocid):
+    attributes = {}
+    resource_name = "None"
+    ocids = ['virtualCircuit', 'crossConnect', 'crossConnectGroup']
+
+    # for each_ocid in multiple_ocids:
+    for ocid_type in ocids:
+        response = requests.get(
+        'https://{hostname}/v1/management/{ocid_type}s/{ocid}'.format(hostname=hostname, ocid_type=ocid_type,ocid=_ocid),
+        auth=signer,
+        proxies={'https': 'socks5h://127.0.0.1:{port}'.format(port=LOCAL_PORT)},
+        verify=False)
+        requestResponse = json.loads(response.text)
+        if "code" not in requestResponse:
+            resource_name = ocid_type
+            attributes = {resource_name:requestResponse}
+            break
+
+
+    return attributes
+
+
+def remove_color_codes(text):
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[@~])')
+    return ansi_escape.sub('', text)
+
+
+def ncp(region, data_retrieved):
     
-    def setUp(self):
-        """Set up test fixtures before each test method."""
-        # Sample test data based on your crossConnect example
-        self.sample_crossconnect_response = {
-            'id': 'ocid1.crossconnect.region1.sea.aaaaaaaattso4pewZozn6vuk7lfsuj6my3tbq4iwpr6oppn5hspdk3oc3prq',
-            'compartmentId': 'ocid1.compartment.region1..aaaaaaaab6vkgvxuu5zf2vedqwmyjs2kggp3yjpvyvyuomoayrysnnyhmcua',
-            'portId': None,
-            'deviceId': '2e6d0f68-2e5e-4af8-90d5-a4a8291bca05',
-            'interfaceId': '96c336c-6b5c-414c-8014-32791e70fa6d',
-            'vcsToVlans': [],
-            'portName': '24',
-            'locationName': 'SEA-R1-ALPHA-FAKE-LOCATION',
-            'portSpeedShapeName': '10 Gbps',
-            'lifecycleState': 'PROVISIONED',
-            'lifecycleStateInternal': None,
-            'crossConnectGroupId': None,
-            'displayName': 'common_rt_test',
-            'customerReferenceId': None,
-            'timeCreated': '2024-05-20T08:00:42.949Z',
-            'interfaceDescr': None,
-            'freeformTags': {},
-            'definedTags': {},
-            'macsecProperties': {
-                'state': 'DISABLED',
-                'primaryKey': None,
-                'encryptionCipher': None,
-                'bypassFilter': False
-            },
-            'mkaServerPriority': 0,
-            'rekeyPeriod': 3600,
-            'replayProtectionWindow': 0,
-            'allowUnprotectedTraffic': False,
-            'globalPopCcMetadata': None,
-            'ociPhysicalDeviceName': 'alpha-tc2-fake-fcagg1',
-            'ociLogicalDeviceName': 'alpha-tc2-fake-j1-vpn1'
-        }
-        
-        self.sample_virtual_circuit_response = {
-            'id': 'ocid1.virtualcircuit.region1.sea.aaaaaaaa123456789',
-            'compartmentId': 'ocid1.compartment.region1...',
-            'displayName': 'test_virtual_circuit',
-            'lifecycleState': 'PROVISIONED',
-            'timeCreated': '2024-05-20T08:00:42.949Z',
-            'type': 'PRIVATE',
-            'bandwidthShapeName': '1 Gbps'
-        }
-        
-        self.sample_crossconnect_group_response = {
-            'id': 'ocid1.crossconnectgroup.region1.sea.aaaaaaaa987654321',
-            'compartmentId': 'ocid1.compartment.region1...',
-            'displayName': 'test_crossconnect_group',
-            'lifecycleState': 'PROVISIONED',
-            'timeCreated': '2024-05-20T08:00:42.949Z',
-            'customerReferenceId': 'test-ref-123'
-        }
+    print(f'region: {region}')
+    
+    script_path = "OpsScripts/OpsScripts/ncpcli_script.sh" # might need to change these values
+    temp_path = "OpsScripts/OpsScripts/temp_script.sh"
+   
 
-        # Sample OCID for testing - single OCID as per your function signature
-        self.test_ocid = 'ocid1.crossconnect.region1.sea.aaaaaaaattso4pewZozn6vuk7lfsuj6my3tbq4iwpr6oppn5hspdk3oc3prq'
+    for resource, attributes in data_retrieved.items():
+        if resource == 'virtualCircuit':
+            deviceID = attributes["configSnippetAttributes"][0]["routerName"] 
+            portChannel = attributes["configSnippetAttributes"][0]["vcInterface"] 
+            customerIp= attributes["crossConnectMappings"][0]["customerBgpPeeringIp"] 
+        elif resource == 'crossConnect':
+            deviceID = attributes["ociLogicalDeviceName"] 
+            portChannel = "none" # might need a value
+            customerIp = 'none' # might need a value
+        else:
+            deviceID = attributes["ociPhysicalDeviceName"]
+            portChannel = "none" # might need a value
+            customerIp = 'none' # might need a value
         
-        # Mock environment variables that might be used
-        self.test_hostname = 'test-api.example.com'
-        self.test_local_port = '8080'
+    
+    """
+    ociPhysicalDeviceName --> deviceID
+    ociLogicalDeviceName --> CC's is same as VC's routerName
+    """
+    print(f'\nregion and deviceId are {region, deviceID}')
+    juniper_arista = "juniper" # need to know more about jfab, ffab, ets
+    ets = []
+    # jfab = []
+        
 
-    @patch.dict(os.environ, {'hostname': 'test-api.example.com', 'LOCAL_PORT': '8080'})
-    @patch('requests.get')
-    @patch('json.loads')
-    def test_crossconnect_successful_request(self, mock_json_loads, mock_requests_get):
-        """Test successful crossconnect data retrieval."""
-        # Mock the HTTP response
-        mock_response = Mock()
-        mock_response.text = json.dumps(self.sample_crossconnect_response)
-        mock_requests_get.return_value = mock_response
-        
-        # Mock json.loads to return our sample data
-        mock_json_loads.return_value = self.sample_crossconnect_response
-        
-        # Call the function - NO REAL API CALL MADE due to @patch('requests.get')
-        result = getC3MultiAttributes(self.test_ocid)
-        
-        # Verify the requests.get call was made correctly
-        mock_requests_get.assert_called_once()
-        call_args, call_kwargs = mock_requests_get.call_args
-        
-        # Check URL construction
-        expected_url_pattern = 'https://test-api.example.com/v1/management/crossconnects/'
-        self.assertIn(expected_url_pattern, call_args[0])
-        self.assertIn(self.test_ocid, call_args[0])
-        
-        # Check authentication parameter
-        self.assertIn('auth', call_kwargs)
-        
-        # Check proxies parameter
-        self.assertIn('proxies', call_kwargs)
-        self.assertIn('https', call_kwargs['proxies'])
-        
-        # Check verify parameter
-        self.assertEqual(call_kwargs['verify'], False)
-        
-        # Verify json.loads was called with response.text
-        mock_json_loads.assert_called_once_with(mock_response.text)
-        
-        # Check return value structure
-        expected_result = {'resource_name': self.sample_crossconnect_response}
-        self.assertEqual(result, expected_result)
-        pass
 
-    @patch.dict(os.environ, {'hostname': 'test-api.example.com', 'LOCAL_PORT': '8080'})
-    @patch('requests.get')
-    @patch('json.loads')
-    def test_virtual_circuit_successful_request(self, mock_json_loads, mock_requests_get):
-        """Test successful virtual circuit data retrieval."""
-        virtual_circuit_ocid = 'ocid1.virtualcircuit.region1.sea.aaaaaaaa123456789'
+    try:
+        print("starting temp script....")
         
-        mock_response = Mock()
-        mock_response.text = json.dumps(self.sample_virtual_circuit_response)
-        mock_requests_get.return_value = mock_response
-        mock_json_loads.return_value = self.sample_virtual_circuit_response
+        subprocess.run(
+            [temp_path, region, deviceID],
+            check = True
+        )
         
-        # result = getC3MultiAttributes(virtual_circuit_ocid)
-        
-        # Verify URL contains virtualcircuit
-        call_args = mock_requests_get.call_args[0]
-        # self.assertIn('virtualcircuit', call_args[0])
-        # self.assertIn(virtual_circuit_ocid, call_args[0])
-        pass
-
-    @patch.dict(os.environ, {'hostname': 'test-api.example.com', 'LOCAL_PORT': '8080'})
-    @patch('requests.get')
-    @patch('json.loads')
-    def test_crossconnect_group_successful_request(self, mock_json_loads, mock_requests_get):
-        """Test successful crossconnect group data retrieval."""
-        ccg_ocid = 'ocid1.crossconnectgroup.region1.sea.aaaaaaaa987654321'
-        
-        mock_response = Mock()
-        mock_response.text = json.dumps(self.sample_crossconnect_group_response)
-        mock_requests_get.return_value = mock_response
-        mock_json_loads.return_value = self.sample_crossconnect_group_response
-        
-        # result = getC3MultiAttributes(ccg_ocid)
-        
-        # Verify URL contains crossconnectgroup
-        call_args = mock_requests_get.call_args[0]
-        # self.assertIn('crossconnectgroup', call_args[0])
-        # self.assertIn(ccg_ocid, call_args[0])
-        pass
-
-    @patch.dict(os.environ, {'hostname': 'test-api.example.com', 'LOCAL_PORT': '8080'})
-    @patch('requests.get')
-    @patch('json.loads')
-    def test_response_with_code_field(self, mock_json_loads, mock_requests_get):
-        """Test handling when response contains 'code' field (error condition)."""
-        # Create a response that contains 'code' field
-        error_response = {
-            'code': 'NotFound',
-            'message': 'Resource not found'
-        }
-        
-        mock_response = Mock()
-        mock_response.text = json.dumps(error_response)
-        mock_requests_get.return_value = mock_response
-        mock_json_loads.return_value = error_response
-        
-        # result = getC3MultiAttributes(self.test_ocid)
-        
-        # When response contains 'code', function should return early
-        # The function should not set resource_name and should return empty attributes
-        # expected_result = {}  # or whatever your function returns for error cases
-        # self.assertEqual(result, expected_result)
-        pass
-
-    @patch.dict(os.environ, {'hostname': 'test-api.example.com', 'LOCAL_PORT': '8080'})
-    @patch('requests.get')
-    def test_json_decode_error_handling(self, mock_requests_get):
-        """Test handling of invalid JSON responses."""
-        mock_response = Mock()
-        mock_response.text = "Invalid JSON response"
-        mock_requests_get.return_value = mock_response
-        
-        # The json.loads should raise JSONDecodeError
-        with patch('json.loads', side_effect=json.JSONDecodeError("Invalid JSON", "doc", 0)):
-            # with self.assertRaises(json.JSONDecodeError):
-            #     getC3MultiAttributes(self.test_ocid)
-            pass
-
-    @patch.dict(os.environ, {'hostname': 'test-api.example.com', 'LOCAL_PORT': '8080'})
-    @patch('requests.get')
-    def test_requests_exception_handling(self, mock_requests_get):
-        """Test handling of requests exceptions."""
-        # Test connection error
-        mock_requests_get.side_effect = requests.exceptions.ConnectionError("Connection failed")
-        
-        # with self.assertRaises(requests.exceptions.ConnectionError):
-        #     getC3MultiAttributes(self.test_ocid)
-        
-        # Test timeout
-        mock_requests_get.side_effect = requests.exceptions.Timeout("Request timed out")
-        
-        # with self.assertRaises(requests.exceptions.Timeout):
-        #     getC3MultiAttributes(self.test_ocid)
-        pass
-
-    def test_ocid_type_parsing(self):
-        """Test parsing of OCID types from the ocids list."""
-        test_cases = [
-            ('ocid1.virtualcircuit.region1.sea.test', 'virtualcircuit'),
-            ('ocid1.crossconnect.region1.sea.test', 'crossconnect'),
-            ('ocid1.crossconnectgroup.region1.sea.test', 'crossconnectgroup')
-        ]
-        
-        for ocid, expected_type in test_cases:
-            # This simulates the logic: ocid_type in ocids loop
-            ocids = ['virtualcircuit', 'crossconnect', 'crossconnectgroup']
+        while True:
+            if os.path.exists("output.log"):
+    
+                with open("output.log", "r") as file:
+                    content = file.read()
+                    if "Cheers!" not in content:
+                        # print(f'process not done yet; file length: {len(content)}')
+                        continue
+                        time.sleep(5)
+                # temp_lines = result.stdout.splitlines()
+                    #print(f'temp lines:{temp_lines}')
+            with open("output.log", "r") as file:
+                content = file.read()
+                print(f'\nlength content: {len(content)}')
+                # print(f'content --> {content}')
+                exp = r'et-\d+/\d+/\d+'
+                print(f'\n exracting interfaces...')
+                ets = re.findall(exp, content)
+                print(f'\nfound interfaces: {ets}')
+                break
             
-            # The function extracts type from OCID and checks if it's in the ocids list
-            ocid_parts = ocid.split('.')
-            if len(ocid_parts) >= 2:
-                ocid_type = ocid_parts[1]
-                self.assertIn(ocid_type, ocids)
-                self.assertEqual(ocid_type, expected_type)
+            continue
+            
+    except subprocess.CalledProcessError as e:
+            print("Temp script failed:", e)
+            return None
+    try:
+        print("starting ncp  script")
+        # print(f"ets: {ets}, jfab: {jfab}")
+        subprocess.run(
+            [script_path, region, deviceID, customerIp, juniper_arista,  " ".join(ets), portChannel, resource],
+            check=True
+            # capture_output = True,
+            # text = True
+        )
 
-    @patch.dict(os.environ, {'hostname': 'test-api.example.com', 'LOCAL_PORT': '8080'})
-    @patch('requests.get')
-    @patch('json.loads')
-    def test_url_construction_format(self, mock_json_loads, mock_requests_get):
-        """Test that URLs are constructed in the correct format."""
-        mock_response = Mock()
-        mock_response.text = json.dumps(self.sample_crossconnect_response)
-        mock_requests_get.return_value = mock_response
-        mock_json_loads.return_value = self.sample_crossconnect_response
-        
-        # result = getC3MultiAttributes(self.test_ocid)
-        
-        call_args = mock_requests_get.call_args[0]
-        url = call_args[0]
-        
-        # Based on your code: 'https://{hostname}/v1/management/{ocid_type}s/{ocid}'
-        # Note: the 's' is added to ocid_type (crossconnect -> crossconnects)
-        expected_patterns = [
-            'https://',
-            'test-api.example.com',
-            '/v1/management/',
-            'crossconnects/',  # plural form
-            self.test_ocid
-        ]
-        
-        for pattern in expected_patterns:
-            # self.assertIn(pattern, url)
-            pass
+        with open("output2.log", "r") as file:
+            content = file.read()
+        return content
 
-    @patch.dict(os.environ, {'hostname': 'test-api.example.com', 'LOCAL_PORT': '8080'})
-    @patch('requests.get')
-    @patch('json.loads')
-    def test_auth_parameter(self, mock_json_loads, mock_requests_get):
-        """Test that authentication is properly configured."""
-        mock_response = Mock()
-        mock_response.text = json.dumps(self.sample_crossconnect_response)
-        mock_requests_get.return_value = mock_response
-        mock_json_loads.return_value = self.sample_crossconnect_response
-        
-        # result = getC3MultiAttributes(self.test_ocid)
-        
-        call_kwargs = mock_requests_get.call_args[1]
-        
-        # Check that auth parameter is present
-        # self.assertIn('auth', call_kwargs)
-        # The actual auth object would be 'signer' in your code
-        pass
-
-    @patch.dict(os.environ, {'hostname': 'test-api.example.com', 'LOCAL_PORT': '8080'})
-    @patch('requests.get')
-    @patch('json.loads')
-    def test_proxies_configuration(self, mock_json_loads, mock_requests_get):
-        """Test that proxies are properly configured."""
-        mock_response = Mock()
-        mock_response.text = json.dumps(self.sample_crossconnect_response)
-        mock_requests_get.return_value = mock_response
-        mock_json_loads.return_value = self.sample_crossconnect_response
-        
-        # result = getC3MultiAttributes(self.test_ocid)
-        
-        call_kwargs = mock_requests_get.call_args[1]
-        
-        # Check proxies configuration
-        # self.assertIn('proxies', call_kwargs)
-        # Expected: {'https': 'socks5h://127.0.0.1:{port}'}
-        # expected_proxy = f'socks5h://127.0.0.1:8080'
-        # self.assertEqual(call_kwargs['proxies']['https'], expected_proxy)
-        pass
-
-    @patch.dict(os.environ, {'hostname': 'test-api.example.com', 'LOCAL_PORT': '8080'})
-    @patch('requests.get')
-    @patch('json.loads')
-    def test_verify_false_parameter(self, mock_json_loads, mock_requests_get):
-        """Test that verify=False is set correctly."""
-        mock_response = Mock()
-        mock_response.text = json.dumps(self.sample_crossconnect_response)
-        mock_requests_get.return_value = mock_response
-        mock_json_loads.return_value = self.sample_crossconnect_response
-        
-        # result = getC3MultiAttributes(self.test_ocid)
-        
-        call_kwargs = mock_requests_get.call_args[1]
-        
-        # Check that verify is set to False
-        # self.assertEqual(call_kwargs['verify'], False)
-        pass
-
-    def test_return_value_structure(self):
-        """Test the structure of the returned attributes dictionary."""
-        # Based on your code, the function returns:
-        # attributes = {'resource_name': requestResponse}
-        
-        expected_structure = {
-            'resource_name': self.sample_crossconnect_response
-        }
-        
-        # Verify the structure has the expected key
-        self.assertIn('resource_name', expected_structure)
-        self.assertIsInstance(expected_structure['resource_name'], dict)
-
-    def test_ocids_list_contents(self):
-        """Test that the ocids list contains the expected resource types."""
-        ocids = ['virtualcircuit', 'crossconnect', 'crossconnectgroup']
-        
-        expected_types = ['virtualcircuit', 'crossconnect', 'crossconnectgroup']
-        
-        for expected_type in expected_types:
-            self.assertIn(expected_type, ocids)
-        
-        # Verify the list has exactly 3 items
-        self.assertEqual(len(ocids), 3)
-
-    def test_invalid_ocid_format(self):
-        """Test behavior with invalid OCID formats."""
-        invalid_ocids = [
-            'invalid-ocid',
-            'ocid1.invalid.region1.sea.test',  # invalid resource type
-            'ocid1..region1.sea.test',  # empty resource type
-            '',  # empty string
-            'not-an-ocid-at-all'
-        ]
-        
-        ocids = ['virtualcircuit', 'crossconnect', 'crossconnectgroup']
-        
-        for invalid_ocid in invalid_ocids:
-            parts = invalid_ocid.split('.')
-            if len(parts) >= 2:
-                ocid_type = parts[1]
-                # Invalid OCID types should not be in the ocids list
-                if ocid_type not in ocids:
-                    self.assertNotIn(ocid_type, ocids)
+    except subprocess.CalledProcessError as e:
+        print("NCP Script failed:", e)
+        return None
 
 
-class TestEnvironmentVariables(unittest.TestCase):
-    """Test environment variable handling."""
+
+def C3Data(data_retrieved):
     
-    def test_missing_hostname_env_var(self):
-        """Test behavior when hostname environment variable is missing."""
-        with patch.dict(os.environ, {}, clear=True):
-            # Your function likely uses os.environ.get('hostname') or similar
-            # Test that it handles missing environment variables gracefully
-            hostname = os.environ.get('hostname', 'default-hostname')
-            self.assertEqual(hostname, 'default-hostname')
+    print(f'\n{data_retrieved}') # for the sake of debugging
 
-    def test_missing_local_port_env_var(self):
-        """Test behavior when LOCAL_PORT environment variable is missing."""
-        with patch.dict(os.environ, {}, clear=True):
-            local_port = os.environ.get('LOCAL_PORT', '8080')
-            self.assertEqual(local_port, '8080')
 
-    @patch.dict(os.environ, {'hostname': 'custom-host.com', 'LOCAL_PORT': '9000'})
-    def test_custom_environment_variables(self):
-        """Test with custom environment variables."""
-        hostname = os.environ.get('hostname')
-        local_port = os.environ.get('LOCAL_PORT')
+def _get_jwt(ad="ad1", region="r2"):
+    """ Generates JWT via SSH for accessing devops portal """
+    command = f"ssh operator-access-token.svc.{ ad }.{ region } 'generate --mode=jwt'"
+    jwt = subprocess.check_output(command, shell=True)
+    return jwt.decode()
+
+
+def regions():
+    """ Fetches all regions and their attributes from the devops portal """
+    jwt = _get_jwt()
+    url = "https://devops.oci.oraclecorp.com/api/shepherd/v0/regions"
+    response = requests.get(url, headers={"Authorization": f"bearer { jwt }"}, verify=False)
+    response.raise_for_status()
+    return response.json().get("items", [])
+
+
+def realms():
+    """
+    Generates a dict of all realms with their attributes:
+    {
+        "OC1": {},
+        "OC2": {},
+        ...
+    }
+    """
+    realms = dict()
+    for region in regions():
+        this_realm = region.get("realm")
+
+        # New realm, insert attributes and start region list
+        if this_realm not in realms:
+            realms[this_realm] = region.pop("realmAttributes")
+            realms[this_realm]["regions"] = [region]
+
+        # Existing realm, extend region list only
+        else:
+            realms[this_realm]["regions"].append(region)
+
+    return realms
+
+
+def main():
+    args = init_parser().parse_args()
+    setup(args.realm, args.region)
+
+    ocids = args.ocid
+    ocids = ocids.split()   
+
+    _realms = realms()
+
+    # print(f"realms: {_realms[args.realm]['regions']}") # _realms[args.realm]['region']
+    # _regions = _realms[args.realm]['regions']
+
+    ncp_region_value = args.region # not yet the right value for ncp operations
+
+    for i in range(len(_realms[args.realm]['regions'])):
+        if _realms[args.realm]['regions'][i]['region'] == args.region: # comment out this line for testing in alpha then uncomment when done
+            ncp_region_value = _realms[args.realm]['regions'][i]['airportCode'].lower()
+            print(f'ncp_region_value for NCP operations: {ncp_region_value}')
+            break
+
+
+
+    for ocid in ocids:
+        print(f"\n{'='*70}")
+        print(f'\nPROCCESSING OCID: {ocid}')
+        print(f"\n{'='*70}")
+
+        data_retrieved = getC3MultiAttributes(ocid)
+   
+        if "virtualCircuit" in data_retrieved.keys():
+            C3Data(data_retrieved)
+            print(f"\nfetching the virtualCircuit's CC/CCG ...")
+            print(f'\nCC/CCG of the virtualCircuiit is: {data_retrieved["virtualCircuit"]["crossConnectMappings"][0]["crossConnectOrCrossConnectGroupId"]}')
+            data_retrieved_2 = getC3MultiAttributes(data_retrieved["virtualCircuit"]["crossConnectMappings"][0]["crossConnectOrCrossConnectGroupId"])
+            C3Data(data_retrieved_2)
+        else:
+            C3Data(data_retrieved)
+
+    
+        print("\nNCP Attributes: ")
         
-        self.assertEqual(hostname, 'custom-host.com')
-        self.assertEqual(local_port, '9000')
-
-
-if __name__ == '__main__':
-    # Run specific test method:
-    # python -m unittest TestGetC3MultiAttributes.test_crossconnect_successful_request
+        device_data = ncp(ncp_region_value, data_retrieved)
+        print(f'\ndata for ncp : {device_data}')
+        
+           
+        print(f"\n{'='*70}")
+        print(f'\nEND OCID: {ocid}')
+        print(f"\n{'='*70}")
     
-    # Run specific test class:
-    # python -m unittest TestGetC3MultiAttributes
-    
-    # Run all tests with verbose output:
-    unittest.main(verbosity=2)
 
-# Example usage and test execution:
-"""
-# Install required packages
-pip install requests
 
-# Run all tests
-python -m unittest test_c3_multi_attributes.py -v
 
-# Run specific test class
-python -m unittest TestGetC3MultiAttributes -v
 
-# Run specific test method
-python -m unittest TestGetC3MultiAttributes.test_crossconnect_successful_request -v
-
-# If you prefer pytest (install with: pip install pytest)
-pytest test_c3_multi_attributes.py -v
-pytest test_c3_multi_attributes.py::TestGetC3MultiAttributes::test_crossconnect_successful_request -v
-
-# Run with coverage (install with: pip install coverage)
-coverage run -m unittest test_c3_multi_attributes.py
-coverage report
-coverage html
-
-# To run tests and show which assertions would be active:
-# Uncomment the assertion lines (remove the # comments) in the test methods
-# after you've imported your actual getC3MultiAttributes function
-"""
+if __name__== "__main__":
+    main()
