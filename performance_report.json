@@ -1,12 +1,2 @@
-TenancyMetadataDo tmd = TenancyMetadataDo.builder().id(tenancyId).build();
-        when(tenancyMetadataBl.get(eq(tenancyId))).thenReturn(Optional.of(tmd));
-
-        // Debug: Test Jackson serialization
-        System.out.println("DEBUG TEST: Testing Jackson serialization:");
-        try {
-                ObjectMapper testMapper = new ObjectMapper();
-                String ccBelongsJson = testMapper.writeValueAsString(ccBelongs);
-                System.out.println("DEBUG TEST: ccBelongs serializes to: " + ccBelongsJson);
-        } catch (Exception e) {
-                System.out.println("DEBUG TEST: Jackson serialization failed: " + e.getMessage());
-        }
+DEBUG TEST: Testing Jackson serialization:
+DEBUG TEST: ccBelongs serializes to: {"id":"f32799f1-a1a2-4b0c-8ea6-6bef38ecabca","dateCreated":1758646718798,"lastUpdated":null,"stateComment":null,"groupId":"f32799f1-a1a2-4b0c-8ea6-6bef38ecabca","lastStateChanged":1758646718799,"lastKievTxTimestamp":0,"kievTxTimestamp":null,"displayName":null,"tags":null,"compartmentId":"comp1","state":null,"portId":null,"portSpeed":null,"location":null,"crossConnectGroupId":null,"deviceId":null,"interfaceId":null,"connectionHintsNear":null,"connectionHintsFar":null,"vcsToVlans":null,"customerReferenceId":null,"interfaceDescr":null,"enableQinQ":null,"properties":null,"macsecEnabled":null,"macsecKey":null,"macsecPropertiesInternal":null,"encryptionCipher":null,"oboToken":null,"globalPopCcMetadata":null,"oboTokenClob":null,"enableInterfaceHoldTimer":null,"tenantId":"ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","interfaceDownTimeValue":null,"globalPopControllerVirtualCc":false,"ffabQfxCanary":false,"fcStaticCanary":false,"pfabClusterId":null,"svlanNumberForQfx":null,"100GSkuEnabled":false,"vcToVlanHelper":{"idsToReservations":{},"associatedIds":[]},"qinQEnabled":false}
