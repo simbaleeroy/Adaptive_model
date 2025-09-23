@@ -1,3 +1,123 @@
-java: cannot infer type arguments for com.oracle.pic.kiev.mapping.ScanPage<>
-  reason: cannot infer type-variable(s) V
-    (actual and formal argument lists differ in length)
+// Simple test methods for debugging exportTenancyData functionality
+// Copy these methods into your existing test class that extends ManagementResourceV1TestBase
+
+/**
+ * Test that objects belonging to the tenancy are included in the JSON export
+ * 
+ * To use this test:
+ * 1. Copy this method into your existing test class
+ * 2. Add the missing mock:
+ * when(identityHelper.getTenantId(eq("comp1"))).thenReturn(tenancyId);
+ * 3. Run the test and check the debug output
+ */
+public void GIVEN_exportTenancyData_WHEN_objectsBelongToTenancy_THEN_includedInJson() throws Exception {
+        String tenancyId = "ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+        // Create sample DOs: one with tenantId set, one with compartmentId that
+        // resolves to tenancyId, and one that doesn't belong
+        CrossConnectDo ccBelongs = CrossConnectDo.builder()
+                        .id(UUID.randomUUID().toString())
+                        .compartmentId("comp1")
+                        .tenantId(tenancyId)
+                        .build();
+
+        CrossConnectDo ccNotBelong = CrossConnectDo.builder()
+                        .id(UUID.randomUUID().toString())
+                        .compartmentId("comp_not")
+                        .tenantId("otherTenant")
+                        .build();
+
+        VirtualCircuitDo vcBelongsByComp = VirtualCircuitDo.builder()
+                        .id(UUID.randomUUID().toString())
+                        .compartmentId("comp2")
+                        .build();
+
+        IPsecConnectionDo ipsecNot = IPsecConnectionDo.builder()
+                        .id(UUID.randomUUID().toString())
+                        .compartmentId("comp_x")
+                        .build();
+
+        // Devices should always be included
+        DeviceDo device1 = DeviceDo.builder()
+                        .id("dev1")
+                        .name("dev1")
+                        .build();
+
+        // Mock BL list methods - return List objects (as expected by the
+        // implementation)
+        when(crossConnectBl.list(isNull(), anyInt())).thenReturn(Arrays.asList(ccBelongs, ccNotBelong));
+        when(crossConnectGroupBl.list(isNull(), anyInt())).thenReturn(Collections.emptyList());
+        when(virtualCircuitBl.list(isNull(), anyInt())).thenReturn(Arrays.asList(vcBelongsByComp));
+        when(iPsecConnectionBl.list(isNull(), anyInt())).thenReturn(Arrays.asList(ipsecNot));
+        when(remotePeeringConnectionBl.list(isNull(), anyInt())).thenReturn(Collections.emptyList());
+        when(tunnelBl.list(isNull(), anyInt())).thenReturn(Collections.emptyList());
+        when(deviceBl.list(isNull(), anyInt())).thenReturn(Arrays.asList(device1));
+
+        // identityHelper resolves compartments comp2 -> tenancyId, comp1 already has
+        // tenantId
+        when(identityHelper.getTenantId(eq("comp2"))).thenReturn(tenancyId);
+        when(identityHelper.getTenantId(eq("comp1"))).thenReturn(tenancyId); // THIS IS THE KEY FIX!
+        when(identityHelper.getTenantId(matches("comp_not|comp_x"))).thenReturn("otherTenant");
+
+        // Debug: Print test setup
+        System.out.println("DEBUG TEST: ccBelongs tenantId: " + ccBelongs.getTenantId());
+        System.out.println("DEBUG TEST: ccBelongs compartmentId: " + ccBelongs.getCompartmentId());
+        System.out.println("DEBUG TEST: ccNotBelong tenantId: " + ccNotBelong.getTenantId());
+        System.out.println("DEBUG TEST: ccNotBelong compartmentId: " + ccNotBelong.getCompartmentId());
+        System.out.println("DEBUG TEST: vcBelongsByComp compartmentId: " + vcBelongsByComp.getCompartmentId());
+        System.out.println("DEBUG TEST: ipsecNot compartmentId: " + ipsecNot.getCompartmentId());
+        System.out.println("DEBUG TEST: target tenancyId: " + tenancyId);
+
+        // tenancy metadata
+        TenancyMetadataDo tmd = TenancyMetadataDo.builder().id(tenancyId).build();
+        when(tenancyMetadataBl.get(eq(tenancyId))).thenReturn(Optional.of(tmd));
+
+        // Call API and capture StreamingOutput
+        Response resp = managementResource.exportTenancyData(tenancyId);
+        assertEquals(200, resp.getStatus());
+
+        javax.ws.rs.core.StreamingOutput stream = (javax.ws.rs.core.StreamingOutput) resp.getEntity();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        stream.write(baos);
+
+        // Parse JSON
+        ObjectMapper om = new ObjectMapper();
+        JsonNode root = om.readTree(baos.toByteArray());
+
+        // Debug: Print the entire JSON response
+        System.out.println("DEBUG TEST: Full JSON response: " + root.toString());
+
+        // Debug: Print crossConnects array specifically
+        JsonNode ccArray = root.get("crossConnects");
+        System.out.println("DEBUG TEST: crossConnects array size: " + ccArray.size());
+        System.out.println("DEBUG TEST: crossConnects array content: " + ccArray.toString());
+
+        // crossConnects should include only ccBelongs
+        assertEquals(1, ccArray.size());
+        assertEquals(ccBelongs.getId(), ccArray.get(0).get("id").asText());
+
+        // virtualCircuits should include vcBelongsByComp
+        JsonNode vcArray = root.get("virtualCircuits");
+        System.out.println("DEBUG TEST: virtualCircuits array size: " + vcArray.size());
+        System.out.println("DEBUG TEST: virtualCircuits array content: " + vcArray.toString());
+        assertEquals(1, vcArray.size());
+        assertEquals(vcBelongsByComp.getId(), vcArray.get(0).get("id").asText());
+
+        // ipsecConnections should be empty (comp_x resolves to otherTenant)
+        JsonNode ipsecArray = root.get("ipsecConnections");
+        System.out.println("DEBUG TEST: ipsecConnections array size: " + ipsecArray.size());
+        System.out.println("DEBUG TEST: ipsecConnections array content: " + ipsecArray.toString());
+        assertEquals(0, ipsecArray.size());
+
+        // devices should include device1 regardless of tenancy
+        JsonNode devArray = root.get("devices");
+        System.out.println("DEBUG TEST: devices array size: " + devArray.size());
+        System.out.println("DEBUG TEST: devices array content: " + devArray.toString());
+        assertEquals(1, devArray.size());
+        assertEquals("dev1", devArray.get(0).get("id").asText());
+
+        // tenancyMetadata present
+        JsonNode tMeta = root.get("tenancyMetadata");
+        System.out.println("DEBUG TEST: tenancyMetadata content: " + tMeta.toString());
+        assertEquals(tenancyId, tMeta.get("id").asText());
+}
