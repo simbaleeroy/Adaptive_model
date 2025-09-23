@@ -1,6 +1,24 @@
+DEBUG TEST: ccBelongs tenantId: ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+DEBUG TEST: ccBelongs compartmentId: comp1
+DEBUG TEST: ccNotBelong tenantId: otherTenant
+DEBUG TEST: ccNotBelong compartmentId: comp_not
+DEBUG TEST: vcBelongsByComp compartmentId: comp2
+DEBUG TEST: ipsecNot compartmentId: comp_x
+DEBUG TEST: target tenancyId: ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+DEBUG TEST: ccBelongs.getTenantId() via reflection: ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+DEBUG TEST: ccBelongs.getCompartmentId() via reflection: comp1
+DEBUG TEST: identityHelper.getTenantId('comp1') returns: ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+DEBUG TEST: identityHelper.getTenantId('comp2') returns: ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+DEBUG TEST: Response entity type: com.oracle.pic.vpn.api.resources.ManagementResourceV1$$Lambda$240/0x000000a8014bb3a8
+DEBUG TEST: Response entity: com.oracle.pic.vpn.api.resources.ManagementResourceV1$$Lambda$240/0x000000a8014bb3a8@6a0d47e8
+DEBUG TEST: Stream is null: false
 DEBUG TEST: Stream write completed successfully
 DEBUG TEST: Raw stream content length: 547
 DEBUG TEST: Raw stream content: {"crossConnects":[],"crossConnectGroups":[],"virtualCircuits":[],"ipsecConnections":[],"remotePeeringConnections":[],"tunnels":[],"devices":[],"tenancyMetadata":{"id":"ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","dateCreated":1758645898498,"lastUpdated":null,"stateComment":null,"legalEntityName":null,"whiteListProperties":null,"verifiedPublicPrefixes":null,"verifiedPublicAsns":null,"whitelistedIpSecSetIds":null,"whitelistedVpnTeSetIds":null,"whitelistedLocations":null,"vcIdList":null,"compSettings":null}}
 DEBUG TEST: Full JSON response: {"crossConnects":[],"crossConnectGroups":[],"virtualCircuits":[],"ipsecConnections":[],"remotePeeringConnections":[],"tunnels":[],"devices":[],"tenancyMetadata":{"id":"ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","dateCreated":1758645898498,"lastUpdated":null,"stateComment":null,"legalEntityName":null,"whiteListProperties":null,"verifiedPublicPrefixes":null,"verifiedPublicAsns":null,"whitelistedIpSecSetIds":null,"whitelistedVpnTeSetIds":null,"whitelistedLocations":null,"vcIdList":null,"compSettings":null}}
 DEBUG TEST: crossConnects array size: 0
 DEBUG TEST: crossConnects array content: []
+
+java.lang.AssertionError: 
+Expected :1
+Actual   :0
