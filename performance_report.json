@@ -1,10 +1,6 @@
-// Debug: Check if stream is null
-        System.out.println("DEBUG TEST: Stream is null: " + (stream == null));
-
-        try {
-                stream.write(baos);
-                System.out.println("DEBUG TEST: Stream write completed successfully");
-        } catch (Exception e) {
-                System.out.println("DEBUG TEST: Stream write failed: " + e.getMessage());
-                e.printStackTrace();
-        }
+DEBUG TEST: Stream write completed successfully
+DEBUG TEST: Raw stream content length: 547
+DEBUG TEST: Raw stream content: {"crossConnects":[],"crossConnectGroups":[],"virtualCircuits":[],"ipsecConnections":[],"remotePeeringConnections":[],"tunnels":[],"devices":[],"tenancyMetadata":{"id":"ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","dateCreated":1758645898498,"lastUpdated":null,"stateComment":null,"legalEntityName":null,"whiteListProperties":null,"verifiedPublicPrefixes":null,"verifiedPublicAsns":null,"whitelistedIpSecSetIds":null,"whitelistedVpnTeSetIds":null,"whitelistedLocations":null,"vcIdList":null,"compSettings":null}}
+DEBUG TEST: Full JSON response: {"crossConnects":[],"crossConnectGroups":[],"virtualCircuits":[],"ipsecConnections":[],"remotePeeringConnections":[],"tunnels":[],"devices":[],"tenancyMetadata":{"id":"ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","dateCreated":1758645898498,"lastUpdated":null,"stateComment":null,"legalEntityName":null,"whiteListProperties":null,"verifiedPublicPrefixes":null,"verifiedPublicAsns":null,"whitelistedIpSecSetIds":null,"whitelistedVpnTeSetIds":null,"whitelistedLocations":null,"vcIdList":null,"compSettings":null}}
+DEBUG TEST: crossConnects array size: 0
+DEBUG TEST: crossConnects array content: []
