@@ -1,5 +1,4 @@
-/// ///////////////////////////////////////////////////////
-    @GET
+@GET
     @Path("/tenancy/{tenancyId}/export")
     @Produces({ "application/json" })
     @Timed(name = "export-tenancy-data")
@@ -42,98 +41,126 @@
                     return false;
                 };
 
-                // Helper that writes an array field by streaming items from a ScanAllIterable
-                com.fasterxml.jackson.core.JsonGenerator finalGen = gen;
-                java.util.function.BiConsumer<String, java.util.function.Supplier<java.util.stream.Stream<?>>> writeArray = (
-                        fieldName, streamSupplier) -> {
-                    try {
-                        finalGen.writeFieldName(fieldName);
-                        finalGen.writeStartArray();
-                        java.util.stream.Stream<?> s = streamSupplier.get();
-                        if (s != null) {
-                            java.util.Iterator<?> it = s.iterator();
-                            while (it.hasNext()) {
-                                Object item = it.next();
-                                if (item != null && belongsToTenancy.test(item)) {
-                                    mapper.writeValue(finalGen, item);
-                                }
-                            }
-                        }
-                        finalGen.writeEndArray();
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                };
+                // Simple approach - directly fetch and write each resource type
 
                 // CrossConnects
-                writeArray.accept("crossConnects", () -> {
-                    try {
-                        return ScanAllIterable.from(crossConnectBl::list, 200).stream();
-                    } catch (Exception e) {
-                        log.warn("Failed to get crossConnects list", e);
-                        return java.util.stream.Stream.empty();
+                gen.writeFieldName("crossConnects");
+                gen.writeStartArray();
+                try {
+                    java.util.List<?> crossConnects = crossConnectBl.list(null, 1000);
+                    if (crossConnects != null) {
+                        for (Object item : crossConnects) {
+                            if (item != null && belongsToTenancy.test(item)) {
+                                mapper.writeValue(gen, item);
+                            }
+                        }
                     }
-                });
+                } catch (Exception e) {
+                    log.warn("Failed to get crossConnects list", e);
+                }
+                gen.writeEndArray();
 
                 // CrossConnectGroups
-                writeArray.accept("crossConnectGroups", () -> {
-                    try {
-                        return ScanAllIterable.from(crossConnectGroupBl::list, 200).stream();
-                    } catch (Exception e) {
-                        log.warn("Failed to get crossConnectGroups list", e);
-                        return java.util.stream.Stream.empty();
+                gen.writeFieldName("crossConnectGroups");
+                gen.writeStartArray();
+                try {
+                    java.util.List<?> crossConnectGroups = crossConnectGroupBl.list(null, 1000);
+                    if (crossConnectGroups != null) {
+                        for (Object item : crossConnectGroups) {
+                            if (item != null && belongsToTenancy.test(item)) {
+                                mapper.writeValue(gen, item);
+                            }
+                        }
                     }
-                });
+                } catch (Exception e) {
+                    log.warn("Failed to get crossConnectGroups list", e);
+                }
+                gen.writeEndArray();
 
                 // VirtualCircuits
-                writeArray.accept("virtualCircuits", () -> {
-                    try {
-                        return ScanAllIterable.from(virtualCircuitBl::list, 200).stream();
-                    } catch (Exception e) {
-                        log.warn("Failed to get virtualCircuits list", e);
-                        return java.util.stream.Stream.empty();
+                gen.writeFieldName("virtualCircuits");
+                gen.writeStartArray();
+                try {
+                    java.util.List<?> virtualCircuits = virtualCircuitBl.list(null, 1000);
+                    if (virtualCircuits != null) {
+                        for (Object item : virtualCircuits) {
+                            if (item != null && belongsToTenancy.test(item)) {
+                                mapper.writeValue(gen, item);
+                            }
+                        }
                     }
-                });
+                } catch (Exception e) {
+                    log.warn("Failed to get virtualCircuits list", e);
+                }
+                gen.writeEndArray();
 
                 // IPsec Connections
-                writeArray.accept("ipsecConnections", () -> {
-                    try {
-                        return ScanAllIterable.from(iPsecConnectionBl::list, 200).stream();
-                    } catch (Exception e) {
-                        log.warn("Failed to get ipsecConnections list", e);
-                        return java.util.stream.Stream.empty();
+                gen.writeFieldName("ipsecConnections");
+                gen.writeStartArray();
+                try {
+                    java.util.List<?> ipsecConnections = iPsecConnectionBl.list(null, 1000);
+                    if (ipsecConnections != null) {
+                        for (Object item : ipsecConnections) {
+                            if (item != null && belongsToTenancy.test(item)) {
+                                mapper.writeValue(gen, item);
+                            }
+                        }
                     }
-                });
+                } catch (Exception e) {
+                    log.warn("Failed to get ipsecConnections list", e);
+                }
+                gen.writeEndArray();
 
                 // Remote Peering Connections
-                writeArray.accept("remotePeeringConnections", () -> {
-                    try {
-                        return ScanAllIterable.from(remotePeeringConnectionBl::list, 200).stream();
-                    } catch (Exception e) {
-                        log.warn("Failed to get remotePeeringConnections list", e);
-                        return java.util.stream.Stream.empty();
+                gen.writeFieldName("remotePeeringConnections");
+                gen.writeStartArray();
+                try {
+                    java.util.List<?> remotePeeringConnections = remotePeeringConnectionBl.list(null, 1000);
+                    if (remotePeeringConnections != null) {
+                        for (Object item : remotePeeringConnections) {
+                            if (item != null && belongsToTenancy.test(item)) {
+                                mapper.writeValue(gen, item);
+                            }
+                        }
                     }
-                });
+                } catch (Exception e) {
+                    log.warn("Failed to get remotePeeringConnections list", e);
+                }
+                gen.writeEndArray();
 
                 // Tunnels
-                writeArray.accept("tunnels", () -> {
-                    try {
-                        return ScanAllIterable.from(tunnelBl::list, 200).stream();
-                    } catch (Exception e) {
-                        log.warn("Failed to get tunnels list", e);
-                        return java.util.stream.Stream.empty();
+                gen.writeFieldName("tunnels");
+                gen.writeStartArray();
+                try {
+                    java.util.List<?> tunnels = tunnelBl.list(null, 1000);
+                    if (tunnels != null) {
+                        for (Object item : tunnels) {
+                            if (item != null && belongsToTenancy.test(item)) {
+                                mapper.writeValue(gen, item);
+                            }
+                        }
                     }
-                });
+                } catch (Exception e) {
+                    log.warn("Failed to get tunnels list", e);
+                }
+                gen.writeEndArray();
 
-                // Devices (filtered by tenancy like other resources)
-                writeArray.accept("devices", () -> {
-                    try {
-                        return ScanAllIterable.from(deviceBl::list, 200).stream();
-                    } catch (Exception e) {
-                        log.warn("Failed to get devices list", e);
-                        return java.util.stream.Stream.empty();
+                // Devices
+                gen.writeFieldName("devices");
+                gen.writeStartArray();
+                try {
+                    java.util.List<?> devices = deviceBl.list(null, 1000);
+                    if (devices != null) {
+                        for (Object item : devices) {
+                            if (item != null && belongsToTenancy.test(item)) {
+                                mapper.writeValue(gen, item);
+                            }
+                        }
                     }
-                });
+                } catch (Exception e) {
+                    log.warn("Failed to get devices list", e);
+                }
+                gen.writeEndArray();
 
                 // tenancy metadata
                 gen.writeFieldName("tenancyMetadata");
