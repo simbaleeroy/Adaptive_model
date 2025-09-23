@@ -1,13 +1,9 @@
-when(crossConnectBl.stream()).thenReturn(Arrays.asList(ccBelongs, ccNotBelong).stream());
-        when(crossConnectGroupBl.stream()).thenReturn((new ArrayList<CrossConnectGroupDo>()).stream());
-        when(virtualCircuitBl.stream()).thenReturn(Arrays.asList(vcBelongsByComp).stream());
-        when(iPsecConnectionBl.stream()).thenReturn(Arrays.asList(ipsecNot).stream());
-        //when(remotePeeringConnectionBl.stream()).thenReturn(java.util.Collections.<RemotePeeringConnectionDo>emptyList().stream());
-        when(tunnelBl.stream()).thenReturn(java.util.Collections.<TunnelDo>emptyList().stream());
-        when(deviceBl.stream()).thenReturn(Arrays.asList(device1).stream());
-        // identityHelper resolves compartments comp2 -> tenancyId, comp1 already has
-        // tenantId
-        when(identityHelper.getTenantId(eq("comp2"))).thenReturn(tenancyId);
-        when(identityHelper.getTenantId(eq("comp1"))).thenReturn(tenancyId); // THIS IS THE KEY FIX!
-        when(identityHelper.getTenantId(matches("comp_not|comp_x"))).thenReturn("otherTenant");
-        
+crossConnectBl.stream()
+                            .filter(item -> item != null && belongsToTenancy.test(item))
+                            .forEach(item -> {
+                                try {
+                                    mapper.writeValue(gen, item);
+                                } catch (Exception e) {
+                                    log.warn("Failed to write crossConnect item", e);
+                                }
+                            });
