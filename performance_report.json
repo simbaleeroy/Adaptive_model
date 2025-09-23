@@ -1,5 +1,4 @@
- // Debug: Check what's in the stream
-        byte[] streamBytes = baos.toByteArray();
-        String streamContent = new String(streamBytes);
-        System.out.println("DEBUG TEST: Raw stream content length: " + streamBytes.length);
-        System.out.println("DEBUG TEST: Raw stream content: " + streamContent);
+System.out.println("DEBUG TEST: Response status: " + resp.getStatus());
+        System.out.println("DEBUG TEST: Response entity type: "
+                        + (resp.getEntity() != null ? resp.getEntity().getClass().getName() : "null"));
+        System.out.println("DEBUG TEST: Response entity: " + resp.getEntity());
