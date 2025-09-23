@@ -1,2 +1,12 @@
-DEBUG TEST: Mock crossConnectBl.list() will return: 2 items
-DEBUG TEST: Mock crossConnectBl.list() items: [CrossConnectDo(super=PublicNamedScanDo(super=PublicBaseDo(super=BaseDo(id=aef52b69-35a4-4c1d-a48d-08726bb45f66, dateCreated=Tue Sep 23 09:55:05 PDT 2025, lastUpdated=null, stateComment=null), groupId=aef52b69-35a4-4c1d-a48d-08726bb45f66, lastStateChanged=Tue Sep 23 09:55:05 PDT 2025), displayName=null, tags=null), compartmentId=comp1, state=null, portId=null, portSpeed=null, location=null, crossConnectGroupId=null, deviceId=null, interfaceId=null, connectionHintsNear=null, connectionHintsFar=null, vcsToVlans=null, sVlanNumberForQfx=null, pFabClusterId=null, customerReferenceId=null, interfaceDescr=null, enableQinQ=null, properties=null, macsecEnabled=null, macsecKey=null, macsecPropertiesInternal=null, encryptionCipher=null, oboToken=null, globalPopCcMetadata=null, oboTokenClob=null, enableInterfaceHoldTimer=null, tenantId=ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, interfaceDownTimeValue=null), CrossConnectDo(super=PublicNamedScanDo(super=PublicBaseDo(super=BaseDo(id=d3c5f9ff-9045-4f0c-bd3e-749d22c15177, dateCreated=Tue Sep 23 09:55:05 PDT 2025, lastUpdated=null, stateComment=null), groupId=d3c5f9ff-9045-4f0c-bd3e-749d22c15177, lastStateChanged=Tue Sep 23 09:55:05 PDT 2025), displayName=null, tags=null), compartmentId=comp_not, state=null, portId=null, portSpeed=null, location=null, crossConnectGroupId=null, deviceId=null, interfaceId=null, connectionHintsNear=null, connectionHintsFar=null, vcsToVlans=null, sVlanNumberForQfx=null, pFabClusterId=null, customerReferenceId=null, interfaceDescr=null, enableQinQ=null, properties=null, macsecEnabled=null, macsecKey=null, macsecPropertiesInternal=null, encryptionCipher=null, oboToken=null, globalPopCcMetadata=null, oboTokenClob=null, enableInterfaceHoldTimer=null, tenantId=otherTenant, interfaceDownTimeValue=null)]
+TenancyMetadataDo tmd = TenancyMetadataDo.builder().id(tenancyId).build();
+        when(tenancyMetadataBl.get(eq(tenancyId))).thenReturn(Optional.of(tmd));
+
+        // Debug: Test Jackson serialization
+        System.out.println("DEBUG TEST: Testing Jackson serialization:");
+        try {
+                ObjectMapper testMapper = new ObjectMapper();
+                String ccBelongsJson = testMapper.writeValueAsString(ccBelongs);
+                System.out.println("DEBUG TEST: ccBelongs serializes to: " + ccBelongsJson);
+        } catch (Exception e) {
+                System.out.println("DEBUG TEST: Jackson serialization failed: " + e.getMessage());
+        }
