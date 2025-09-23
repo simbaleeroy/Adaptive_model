@@ -1,3 +1,10 @@
-DEBUG TEST: Response status: 200
-DEBUG TEST: Response entity type: com.oracle.pic.vpn.api.resources.ManagementResourceV1$$Lambda$240/0x00000004014bb3a8
-DEBUG TEST: Response entity: com.oracle.pic.vpn.api.resources.ManagementResourceV1$$Lambda$240/0x00000004014bb3a8@125df632
+// Debug: Check if stream is null
+        System.out.println("DEBUG TEST: Stream is null: " + (stream == null));
+
+        try {
+                stream.write(baos);
+                System.out.println("DEBUG TEST: Stream write completed successfully");
+        } catch (Exception e) {
+                System.out.println("DEBUG TEST: Stream write failed: " + e.getMessage());
+                e.printStackTrace();
+        }
