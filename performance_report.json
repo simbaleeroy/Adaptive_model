@@ -1,70 +1,161 @@
-@Test
-public void GIVEN_backfillTenantId_WHEN_tenantIdIsMissing_THEN_updatesDatabase() throws Exception {
-    // Create a CrossConnect without tenantId
-    Transaction t = crossConnectBl.beginTransaction("create-cc-no-tenant");
-    CrossConnectDo ccWithoutTenant = crossConnectBl.create(t, CrossConnectDo.builder()
-            .displayName("test-CC-no-tenant")
-            .compartmentId(ManagementResourceTestHelper.MY_COMPARTMENT)
-            .location(ManagementResourceTestHelper.LOCATION_ID)
-            .portSpeed(ManagementResourceTestHelper.MY_PORT_SPEED)
-            .interfaceId(ManagementResourceTestHelper.INTERFACE_PREFIX + "1")
-            .state(CrossConnectDo.State.PENDING_CUSTOMER)
-            .connectionHintsNear(new String[] {})
-            .connectionHintsFar(new String[] {})
-            .deviceId("test_dev")
-            .tenantId(null) // Explicitly set to null
-            .build());
-    t.commit();
+/// ///////////////////////////////////////////////////////
+    @GET
+    @Path("/tenancy/{tenancyId}/export")
+    @Produces({ "application/json" })
+    @Timed(name = "export-tenancy-data")
+    @VpnSkipAuthorization
+    public Response exportTenancyData(@PathParam("tenancyId") String tenancyId) throws ValidationException {
+        Validation.OCIDValidate(tenancyId);
 
-    // Verify tenantId is null before backfill
-    CrossConnectDo beforeBackfill = crossConnectBl.getOrThrow(ccWithoutTenant.getId());
-    assertNull("TenantId should be null before backfill", beforeBackfill.getTenantId());
+        javax.ws.rs.core.StreamingOutput stream = (output) -> {
+            com.fasterxml.jackson.core.JsonGenerator gen = null;
+            try {
+                gen = mapper.getFactory().createGenerator(output, com.fasterxml.jackson.core.JsonEncoding.UTF8);
+                gen.writeStartObject();
 
-    String newTenantId = "backfilled-tenant-id-123";
+                // predicate: checks tenantId then falls back to compartment resolution
+                java.util.function.Predicate<Object> belongsToTenancy = (obj) -> {
+                    try {
+                        if (obj == null)
+                            return false;
+                        // Try tenantId getter
+                        try {
+                            java.lang.reflect.Method m = obj.getClass().getMethod("getTenantId");
+                            Object tenantId = m.invoke(obj);
+                            if (tenantId != null)
+                                return tenancyId.equals(tenantId.toString());
+                        } catch (NoSuchMethodException ignore) {
+                        }
+                        // Try compartmentId getter
+                        try {
+                            java.lang.reflect.Method mc = obj.getClass().getMethod("getCompartmentId");
+                            Object compartmentId = mc.invoke(obj);
+                            if (compartmentId != null) {
+                                String resolved = identityHelper.getTenantId(compartmentId.toString());
+                                return tenancyId.equals(resolved);
+                            }
+                        } catch (NoSuchMethodException ignore) {
+                        }
+                    } catch (Exception e) {
+                        log.warn("Failed tenancy check for object {}", obj, e);
+                    }
+                    return false;
+                };
 
-    // Call backfillTenantId with new tenantId
-    CrossConnectDo result = crossConnectBl.backfillTenantId(ccWithoutTenant.getId(), newTenantId);
+                // Helper that writes an array field by streaming items from a ScanAllIterable
+                com.fasterxml.jackson.core.JsonGenerator finalGen = gen;
+                java.util.function.BiConsumer<String, java.util.function.Supplier<java.util.stream.Stream<?>>> writeArray = (
+                        fieldName, streamSupplier) -> {
+                    try {
+                        finalGen.writeFieldName(fieldName);
+                        finalGen.writeStartArray();
+                        java.util.stream.Stream<?> s = streamSupplier.get();
+                        if (s != null) {
+                            java.util.Iterator<?> it = s.iterator();
+                            while (it.hasNext()) {
+                                Object item = it.next();
+                                if (item != null && belongsToTenancy.test(item)) {
+                                    mapper.writeValue(finalGen, item);
+                                }
+                            }
+                        }
+                        finalGen.writeEndArray();
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                };
 
-    // Verify the returned object has the new tenantId
-    assertNotNull("Result should not be null", result);
-    assertEquals("ID should match", ccWithoutTenant.getId(), result.getId());
-    assertEquals("TenantId should be backfilled", newTenantId, result.getTenantId());
+                // CrossConnects
+                writeArray.accept("crossConnects", () -> {
+                    try {
+                        return ScanAllIterable.from(crossConnectBl::list, 200).stream();
+                    } catch (Exception e) {
+                        log.warn("Failed to get crossConnects list", e);
+                        return java.util.stream.Stream.empty();
+                    }
+                });
 
-    // Verify the update was actually persisted to the database
-    CrossConnectDo persisted = crossConnectBl.getOrThrow(ccWithoutTenant.getId());
-    assertEquals("TenantId should be persisted in database", newTenantId, persisted.getTenantId());
-    assertEquals("Other fields should remain unchanged", beforeBackfill.getDisplayName(), persisted.getDisplayName());
-    assertEquals("Other fields should remain unchanged", beforeBackfill.getCompartmentId(),
-            persisted.getCompartmentId());
-}
+                // CrossConnectGroups
+                writeArray.accept("crossConnectGroups", () -> {
+                    try {
+                        return ScanAllIterable.from(crossConnectGroupBl::list, 200).stream();
+                    } catch (Exception e) {
+                        log.warn("Failed to get crossConnectGroups list", e);
+                        return java.util.stream.Stream.empty();
+                    }
+                });
 
+                // VirtualCircuits
+                writeArray.accept("virtualCircuits", () -> {
+                    try {
+                        return ScanAllIterable.from(virtualCircuitBl::list, 200).stream();
+                    } catch (Exception e) {
+                        log.warn("Failed to get virtualCircuits list", e);
+                        return java.util.stream.Stream.empty();
+                    }
+                });
 
-/**
- * Test that backfillTenantId handles null tenantId input without throwing
- * exceptions
- */
-@Test
-public void GIVEN_backfillTenantId_WHEN_tenantIdIsNull_THEN_returnsOriginalObjectWithoutError() throws Exception {
-    CrossConnectInternal cc = createCrossConnect(crossConnectBl,
-            patchPanelPortPairBl,
-            locationBl,
-            "test-CC",
-            1,
-            crossConnectGroupBl,
-            deviceBl);
+                // IPsec Connections
+                writeArray.accept("ipsecConnections", () -> {
+                    try {
+                        return ScanAllIterable.from(iPsecConnectionBl::list, 200).stream();
+                    } catch (Exception e) {
+                        log.warn("Failed to get ipsecConnections list", e);
+                        return java.util.stream.Stream.empty();
+                    }
+                });
 
-    CrossConnectDo originalDo = crossConnectBl.getOrThrowForAuth(cc.getId());
-    String originalTenantId = originalDo.getTenantId();
+                // Remote Peering Connections
+                writeArray.accept("remotePeeringConnections", () -> {
+                    try {
+                        return ScanAllIterable.from(remotePeeringConnectionBl::list, 200).stream();
+                    } catch (Exception e) {
+                        log.warn("Failed to get remotePeeringConnections list", e);
+                        return java.util.stream.Stream.empty();
+                    }
+                });
 
-    // Call backfillTenantId with null tenantId
-    CrossConnectDo result = crossConnectBl.backfillTenantId(cc.getId(), null);
+                // Tunnels
+                writeArray.accept("tunnels", () -> {
+                    try {
+                        return ScanAllIterable.from(tunnelBl::list, 200).stream();
+                    } catch (Exception e) {
+                        log.warn("Failed to get tunnels list", e);
+                        return java.util.stream.Stream.empty();
+                    }
+                });
 
-    // Should return the original object unchanged
-    assertNotNull("Result should not be null", result);
-    assertEquals("ID should match", originalDo.getId(), result.getId());
-    assertEquals("TenantId should remain unchanged", originalTenantId, result.getTenantId());
+                // Devices (filtered by tenancy like other resources)
+                writeArray.accept("devices", () -> {
+                    try {
+                        return ScanAllIterable.from(deviceBl::list, 200).stream();
+                    } catch (Exception e) {
+                        log.warn("Failed to get devices list", e);
+                        return java.util.stream.Stream.empty();
+                    }
+                });
 
-    // Verify database is unchanged
-    CrossConnectDo persisted = crossConnectBl.getOrThrow(cc.getId());
-    assertEquals("Database should be unchanged", originalTenantId, persisted.getTenantId());
-}
+                // tenancy metadata
+                gen.writeFieldName("tenancyMetadata");
+                try {
+                    mapper.writeValue(gen, tenancyMetadataBl.get(tenancyId).orElse(null));
+                } catch (Exception e) {
+                    log.warn("Failed to get tenancy metadata for tenancyId: {}", tenancyId, e);
+                    gen.writeNull();
+                }
+
+                gen.writeEndObject();
+                gen.flush();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            } finally {
+                if (gen != null)
+                    try {
+                        gen.close();
+                    } catch (IOException ignored) {
+                    }
+            }
+        };
+
+        return Response.ok(stream).type(javax.ws.rs.core.MediaType.APPLICATION_JSON).build();
+    }
