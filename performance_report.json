@@ -1,9 +1,30 @@
-crossConnectBl.stream()
-                            .filter(item -> item != null && belongsToTenancy.test(item))
-                            .forEach(item -> {
-                                try {
-                                    mapper.writeValue(gen, item);
-                                } catch (Exception e) {
-                                    log.warn("Failed to write crossConnect item", e);
-                                }
-                            });
+@Test
+public void GIVEN_exportTenancyData_WHEN_noMatchingResources_THEN_arraysAreEmptyButDevicesIncluded() throws Exception {
+    String tenancyId = "test-tenantId";
+
+    when(crossConnectBl.stream()).thenReturn(java.util.Collections.<CrossConnectDo>emptyList().stream());
+    when(crossConnectGroupBl.stream()).thenReturn(java.util.Collections.<CrossConnectGroupDo>emptyList().stream());
+    when(virtualCircuitBl.stream()).thenReturn(java.util.Collections.<VirtualCircuitDo>emptyList().stream());
+    when(iPsecConnectionBl.stream()).thenReturn(java.util.Collections.<IPsecConnectionDo>emptyList().stream());
+    when(remotePeeringConnectionBl.stream())
+            .thenReturn(java.util.Collections.<RemotePeeringConnectionDo>emptyList().stream());
+    when(tunnelBl.stream()).thenReturn(java.util.Collections.<TunnelDo>emptyList().stream());
+
+    DeviceDo device1 = DeviceDo.builder().id("devA").name("devA").build();
+    when(deviceBl.stream()).thenReturn(Arrays.asList(device1).stream());
+
+    when(tenancyMetadataBl.get(eq(tenancyId))).thenReturn(Optional.empty());
+
+    Response resp = managementResource.exportTenancyData(tenancyId);
+    javax.ws.rs.core.StreamingOutput stream = (javax.ws.rs.core.StreamingOutput) resp.getEntity();
+    java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+    stream.write(baos);
+
+    com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+    com.fasterxml.jackson.databind.JsonNode root = om.readTree(baos.toByteArray());
+
+    assertEquals(0, root.get("crossConnects").size());
+    assertEquals(0, root.get("virtualCircuits").size());
+    assertEquals(1, root.get("devices").size());
+    assertTrue(root.get("tenancyMetadata").isNull());
+}
