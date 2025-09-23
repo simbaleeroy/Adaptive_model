@@ -1,4 +1,3 @@
-System.out.println("DEBUG TEST: Response status: " + resp.getStatus());
-        System.out.println("DEBUG TEST: Response entity type: "
-                        + (resp.getEntity() != null ? resp.getEntity().getClass().getName() : "null"));
-        System.out.println("DEBUG TEST: Response entity: " + resp.getEntity());
+DEBUG TEST: Response status: 200
+DEBUG TEST: Response entity type: com.oracle.pic.vpn.api.resources.ManagementResourceV1$$Lambda$240/0x00000004014bb3a8
+DEBUG TEST: Response entity: com.oracle.pic.vpn.api.resources.ManagementResourceV1$$Lambda$240/0x00000004014bb3a8@125df632
