@@ -1,22 +1,5 @@
-try {
-                java.lang.reflect.Method getTenantIdMethod = ccBelongs.getClass().getMethod("getTenantId");
-                Object tenantIdValue = getTenantIdMethod.invoke(ccBelongs);
-                System.out.println("DEBUG TEST: ccBelongs.getTenantId() via reflection: " + tenantIdValue);
-        } catch (Exception e) {
-                System.out.println("DEBUG TEST: ccBelongs.getTenantId() method not found or failed: " + e.getMessage());
-        }
-
-        try {
-                java.lang.reflect.Method getCompartmentIdMethod = ccBelongs.getClass().getMethod("getCompartmentId");
-                Object compartmentIdValue = getCompartmentIdMethod.invoke(ccBelongs);
-                System.out.println("DEBUG TEST: ccBelongs.getCompartmentId() via reflection: " + compartmentIdValue);
-        } catch (Exception e) {
-                System.out.println("DEBUG TEST: ccBelongs.getCompartmentId() method not found or failed: "
-                                + e.getMessage());
-        }
-
-        // Debug: Test the identityHelper mock directly
-        System.out.println("DEBUG TEST: identityHelper.getTenantId('comp1') returns: "
-                        + identityHelper.getTenantId("comp1"));
-        System.out.println("DEBUG TEST: identityHelper.getTenantId('comp2') returns: "
-                        + identityHelper.getTenantId("comp2"));
+ // Debug: Check what's in the stream
+        byte[] streamBytes = baos.toByteArray();
+        String streamContent = new String(streamBytes);
+        System.out.println("DEBUG TEST: Raw stream content length: " + streamBytes.length);
+        System.out.println("DEBUG TEST: Raw stream content: " + streamContent);
