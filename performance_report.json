@@ -1,8 +1,28 @@
- public static String getCcTenantId(String compartmentId, IdentityMetadataHelper identityMetadataHelper) {
-        try {
-            return identityMetadataHelper.getTenantId(compartmentId);
-        } catch (Exception e){
-            log.error(" Failed to fetch tenantId of from compartmentId {} of this CrossConnectGroup",  compartmentId, e);
-            return null;
+ public static CrossConnectDo backfillTenantId(String ccId, String tenantId,
+                                                  Optional<BaseBl> baseBl,
+                                                  Optional<GenericBaseBl> genericBaseBl,
+                                                  Optional<CrossConnectBl> crossConnectBl) throws ValidationException { 
+        
+        if (tenantId == null) {
+            return (CrossConnectDo) baseBl.getOrThrow(ccId);
         }
+        else {
+
+            try (Transaction t = genericBaseBl.beginTransaction("backfill-tenantId")) {
+                CrossConnectDo cc = (CrossConnectDo) baseBl.getOrThrow(t, ccId);
+                if (cc.getTenantId() != null) {
+                    return cc;
+                } else {
+                    CrossConnectDo updatedCc = cc.toBuilder().tenantId(tenantId).build();
+                    updatedCc = crossConnectBl.update(t, updatedCc);
+                    t.commit();
+                    return updatedCc;
+                }
+
+            } catch (CommitConflictException e) {
+                throw new RuntimeException("Commit conflict while backfilling tenantId for ccId: " + ccId, e);
+            }
+
+        }
+
     }
