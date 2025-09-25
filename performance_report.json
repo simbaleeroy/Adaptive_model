@@ -1,28 +1,25 @@
- public static CrossConnectDo backfillTenantId(String ccId, String tenantId,
-                                                  Optional<BaseBl> baseBl,
-                                                  Optional<GenericBaseBl> genericBaseBl,
-                                                  Optional<CrossConnectBl> crossConnectBl) throws ValidationException { 
-        
+return baseBl.map(bl -> {
         if (tenantId == null) {
-            return (CrossConnectDo) baseBl.getOrThrow(ccId);
+            return (CrossConnectDo) bl.getOrThrow(ccId);
+        } else {
+            // Use flatMap to ensure both genericBaseBl and crossConnectBl are present
+            return genericBaseBl.flatMap(genBl -> 
+                crossConnectBl.map(ccBl -> {
+                    try (Transaction t = genBl.beginTransaction("backfill-tenantId")) {
+                        CrossConnectDo cc = (CrossConnectDo) bl.getOrThrow(t, ccId);
+                        if (cc.getTenantId() != null) {
+                            return cc;
+                        } else {
+                            CrossConnectDo updatedCc = cc.toBuilder().tenantId(tenantId).build();
+                            updatedCc = ccBl.update(t, updatedCc);
+                            t.commit();
+                            return updatedCc;
+                        }
+                    } catch (CommitConflictException e) {
+                        throw new RuntimeException("Commit conflict while backfilling tenantId for ccId: " + ccId, e);
+                    }
+                })
+            ).orElseThrow(() -> new ValidationException("GenericBaseBl and CrossConnectBl are required for tenantId backfill"));
         }
-        else {
-
-            try (Transaction t = genericBaseBl.beginTransaction("backfill-tenantId")) {
-                CrossConnectDo cc = (CrossConnectDo) baseBl.getOrThrow(t, ccId);
-                if (cc.getTenantId() != null) {
-                    return cc;
-                } else {
-                    CrossConnectDo updatedCc = cc.toBuilder().tenantId(tenantId).build();
-                    updatedCc = crossConnectBl.update(t, updatedCc);
-                    t.commit();
-                    return updatedCc;
-                }
-
-            } catch (CommitConflictException e) {
-                throw new RuntimeException("Commit conflict while backfilling tenantId for ccId: " + ccId, e);
-            }
-
-        }
-
-    }
+    }).orElseThrow(() -> new ValidationException("BaseBl is required but not provided"));
+}
