@@ -1,4 +1,76 @@
- crossConnectDo = CrossConnectBl.backfillTenantId(crossConnectDo.getId(), tenantId,
-                        Optional.empty(),
-                        Optional.empty(),
-                        Optional.empty());
+    @Test
+    public void GIVEN_backfillTenantId_WHEN_tenantIdIsNull_THEN_doesNotUpdateDatabase() throws Exception {
+        // Arrange
+        String ccgID = UUID.randomUUID().toString();
+        String tenantID = "test";
+        CrossConnectGroupDo ccg = CrossConnectGroupDo.builder().id(ccgID).build();
+        CrossConnectGroupBl crossConnectGroupBl = mock(CrossConnectGroupBl.class);
+        when(crossConnectGroupBl.getOrThrow(ccgID)).thenReturn(ccg);
+
+        System.out.println("value of current tenantId is " + ccg.getTenantId());
+
+        // Act
+        CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgID, tenantID);
+
+        // Assert
+        assertEquals(ccgID, result);
+        verify(crossConnectGroupBl, never()).update(any(), any());
+        verify(crossConnectGroupBl, never()).beginTransaction(any());
+    }
+
+    @Test
+    public void GIVEN_backfillTenantId_WHEN_ccgTenantIdIsNotNull_THEN_doesNotUpdateDatabase() throws Exception {
+        // Arrange
+        String ccgID = UUID.randomUUID().toString();
+        String tenantID = "tenantID";
+        CrossConnectGroupDo ccg = CrossConnectGroupDo.builder().id(ccgID).tenantId("existingTenantId").build();
+        CrossConnectGroupBl crossConnectGroupBl = mock(CrossConnectGroupBl.class);
+        when(crossConnectGroupBl.getOrThrow(any(), eq(ccgID))).thenReturn(ccg);
+        when(crossConnectGroupBl.beginTransaction(any())).thenReturn(mock(Transaction.class));
+
+        // Act
+        CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgID, tenantID);
+
+        // Assert
+        assertEquals(ccg, result);
+        verify(crossConnectGroupBl, never()).update(any(), any());
+    }
+
+    @Test
+    public void GIVEN_backfillTenantId_WHEN_commitConflict_THEN_throwsRuntimeException() throws Exception {
+        // Arrange
+        String ccgID = UUID.randomUUID().toString();
+        String tenantID = "tenantID";
+        CrossConnectGroupDo ccg = CrossConnectGroupDo.builder().id(ccgID).tenantId(null).build();
+        Transaction t = mock(Transaction.class);
+        CrossConnectGroupBl crossConnectGroupBl = mock(CrossConnectGroupBl.class);
+        when(crossConnectGroupBl.beginTransaction(any())).thenReturn(t);
+        when(crossConnectGroupBl.getOrThrow(any(), eq(ccgID))).thenReturn(ccg);
+        when(crossConnectGroupBl.update(any(), any())).thenThrow(CommitConflictException.class);
+
+        // Act and Assert
+        assertThrows(RuntimeException.class, () -> crossConnectGroupBl.backfillTenantId(ccgID, tenantID));
+        verify(t, never()).commit();
+    }
+
+    @Test
+    public void GIVEN_backfillTenantId_WHEN_ccgTenantIdIsNull_THEN_updatesDatabase() throws Exception {
+        // Arrange
+        String ccgID = UUID.randomUUID().toString();
+        String tenantID = "tenantID";
+        CrossConnectGroupDo ccg = CrossConnectGroupDo.builder().id(ccgID).tenantId(null).build();
+        CrossConnectGroupDo updatedCcg = ccg.toBuilder().tenantId(tenantID).build();
+        Transaction t = mock(Transaction.class);
+        CrossConnectGroupBl crossConnectGroupBl = mock(CrossConnectGroupBl.class);
+        when(crossConnectGroupBl.beginTransaction(any())).thenReturn(t);
+        when(crossConnectGroupBl.getOrThrow(any(), eq(ccgID))).thenReturn(ccg);
+        when(crossConnectGroupBl.update(any(), any())).thenReturn(updatedCcg);
+
+        // Act
+        CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgID, tenantID);
+
+        // Assert
+        assertEquals(updatedCcg, result);
+        verify(crossConnectGroupBl).update(any(), any());
+        verify(t).commit();
+    }
