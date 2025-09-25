@@ -1,25 +1,27 @@
-return baseBl.map(bl -> {
-        if (tenantId == null) {
-            return (CrossConnectDo) bl.getOrThrow(ccId);
-        } else {
-            // Use flatMap to ensure both genericBaseBl and crossConnectBl are present
-            return genericBaseBl.flatMap(genBl -> 
-                crossConnectBl.map(ccBl -> {
-                    try (Transaction t = genBl.beginTransaction("backfill-tenantId")) {
-                        CrossConnectDo cc = (CrossConnectDo) bl.getOrThrow(t, ccId);
-                        if (cc.getTenantId() != null) {
-                            return cc;
-                        } else {
-                            CrossConnectDo updatedCc = cc.toBuilder().tenantId(tenantId).build();
-                            updatedCc = ccBl.update(t, updatedCc);
-                            t.commit();
-                            return updatedCc;
-                        }
-                    } catch (CommitConflictException e) {
-                        throw new RuntimeException("Commit conflict while backfilling tenantId for ccId: " + ccId, e);
-                    }
-                })
-            ).orElseThrow(() -> new ValidationException("GenericBaseBl and CrossConnectBl are required for tenantId backfill"));
+// Check if all required Optionals are present
+    if (!baseBl.isPresent()) {
+        throw new ValidationException("BaseBl is required but not provided");
+    }
+    
+    if (tenantId == null) {
+        return (CrossConnectDo) baseBl.get().getOrThrow(ccId);
+    } else {
+        // Check if genericBaseBl and crossConnectBl are present for the transaction path
+        if (!genericBaseBl.isPresent() || !crossConnectBl.isPresent()) {
+            throw new ValidationException("GenericBaseBl and CrossConnectBl are required for tenantId backfill");
         }
-    }).orElseThrow(() -> new ValidationException("BaseBl is required but not provided"));
-}
+        
+        try (Transaction t = genericBaseBl.get().beginTransaction("backfill-tenantId")) {
+            CrossConnectDo cc = (CrossConnectDo) baseBl.get().getOrThrow(t, ccId);
+            if (cc.getTenantId() != null) {
+                return cc;
+            } else {
+                CrossConnectDo updatedCc = cc.toBuilder().tenantId(tenantId).build();
+                updatedCc = crossConnectBl.get().update(t, updatedCc);
+                t.commit();
+                return updatedCc;
+            }
+        } catch (CommitConflictException e) {
+            throw new RuntimeException("Commit conflict while backfilling tenantId for ccId: " + ccId, e);
+        }
+    }
