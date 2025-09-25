@@ -1,1 +1,8 @@
-
+ public static String getCcTenantId(String compartmentId, IdentityMetadataHelper identityMetadataHelper) {
+        try {
+            return identityMetadataHelper.getTenantId(compartmentId);
+        } catch (Exception e){
+            log.error(" Failed to fetch tenantId of from compartmentId {} of this CrossConnectGroup",  compartmentId, e);
+            return null;
+        }
+    }
