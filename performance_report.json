@@ -1,27 +1,4 @@
-// Check if all required Optionals are present
-    if (!baseBl.isPresent()) {
-        throw new ValidationException("BaseBl is required but not provided");
-    }
-    
-    if (tenantId == null) {
-        return (CrossConnectDo) baseBl.get().getOrThrow(ccId);
-    } else {
-        // Check if genericBaseBl and crossConnectBl are present for the transaction path
-        if (!genericBaseBl.isPresent() || !crossConnectBl.isPresent()) {
-            throw new ValidationException("GenericBaseBl and CrossConnectBl are required for tenantId backfill");
-        }
-        
-        try (Transaction t = genericBaseBl.get().beginTransaction("backfill-tenantId")) {
-            CrossConnectDo cc = (CrossConnectDo) baseBl.get().getOrThrow(t, ccId);
-            if (cc.getTenantId() != null) {
-                return cc;
-            } else {
-                CrossConnectDo updatedCc = cc.toBuilder().tenantId(tenantId).build();
-                updatedCc = crossConnectBl.get().update(t, updatedCc);
-                t.commit();
-                return updatedCc;
-            }
-        } catch (CommitConflictException e) {
-            throw new RuntimeException("Commit conflict while backfilling tenantId for ccId: " + ccId, e);
-        }
-    }
+ crossConnectDo = CrossConnectBl.backfillTenantId(crossConnectDo.getId(), tenantId,
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty());
