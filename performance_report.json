@@ -1,1 +1,1792 @@
+package com.oracle.pic.vpn.api.resources;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.oracle.pic.commons.testing.UnitTest;
+import com.oracle.pic.commons.util.AvailabilityDomain;
+import com.oracle.pic.identity.authentication.error.AuthServerUnavailableException;
+import com.oracle.pic.kiev.Transaction;
+import com.oracle.pic.kiev.exceptions.CommitConflictException;
+import com.oracle.pic.kiev.mapping.ScanPage;
+import com.oracle.pic.vpn.VpnRegion;
+import com.oracle.pic.vpn.api.resources.util.ManagementResourceHelper;
+import com.oracle.pic.vpn.api.resources.util.PromdiffUtils.ImpactedCustomersPrometheus;
+import com.oracle.pic.vpn.api.resources.util.PromdiffUtils.ImpactedCustomersT2;
+import com.oracle.pic.vpn.api.resources.util.WorkflowVersionHelper;
+import com.oracle.pic.vpn.api.service.VpnApiServiceConfiguration;
+import com.oracle.pic.vpn.db.ArchiveBl;
+import com.oracle.pic.vpn.db.AzureExpressRouteBl;
+import com.oracle.pic.vpn.db.BgpBl;
+import com.oracle.pic.vpn.db.BgpSessionBl;
+import com.oracle.pic.vpn.db.CpeBl;
+import com.oracle.pic.vpn.db.CrossConnectBl;
+import com.oracle.pic.vpn.db.CrossConnectGroupBl;
+import com.oracle.pic.vpn.db.DrgBl;
+import com.oracle.pic.vpn.db.DrgStatusBl;
+import com.oracle.pic.vpn.db.EventBl;
+import com.oracle.pic.vpn.db.IPNetworkVCNConnectionBl;
+import com.oracle.pic.vpn.db.IPsecConnectionBl;
+import com.oracle.pic.vpn.db.InterfaceBl;
+import com.oracle.pic.vpn.db.LoaBl;
+import com.oracle.pic.vpn.db.LocationBl;
+import com.oracle.pic.vpn.db.OciClassicVirtualCircuitBl;
+import com.oracle.pic.vpn.db.PatchPanelBl;
+import com.oracle.pic.vpn.db.PatchPanelPortPairBl;
+import com.oracle.pic.vpn.db.PortMigrationBackupBl;
+import com.oracle.pic.vpn.db.PropertiesBl;
+import com.oracle.pic.vpn.db.ProviderServiceBl;
+import com.oracle.pic.vpn.db.RemotePeeringConnectionBl;
+import com.oracle.pic.vpn.db.SvlanPfabBl;
+import com.oracle.pic.vpn.db.TenancyMetadataBl;
+import com.oracle.pic.vpn.db.TunnelBl;
+import com.oracle.pic.vpn.db.TunnelStatusBl;
+import com.oracle.pic.vpn.db.VirtualCircuitBl;
+import com.oracle.pic.vpn.db.WorkRequestBl;
+import com.oracle.pic.vpn.db.devices.ConfigSnippetBl;
+import com.oracle.pic.vpn.db.devices.DeviceBl;
+import com.oracle.pic.vpn.db.devices.DeviceSynchronizerBl;
+import com.oracle.pic.vpn.db.devices.model.DeviceDo;
+import com.oracle.pic.vpn.db.exception.ValidationException;
+import com.oracle.pic.vpn.db.metering.NoopVpnMetering;
+import com.oracle.pic.vpn.db.metering.VpnMetering;
+import com.oracle.pic.vpn.db.model.CrossConnectDo;
+import com.oracle.pic.vpn.db.model.CrossConnectGroupDo;
+import com.oracle.pic.vpn.db.model.CrossConnectMappings;
+import com.oracle.pic.vpn.db.model.IPsecConnectionDo;
+import com.oracle.pic.vpn.db.model.InterfaceDo;
+import com.oracle.pic.vpn.db.model.RemotePeeringConnectionDo;
+import com.oracle.pic.vpn.db.model.TenancyMetadataDo;
+import com.oracle.pic.vpn.db.model.TunnelDo;
+import com.oracle.pic.vpn.db.model.VirtualCircuitDo;
+import com.oracle.pic.vpn.db.util.RegionUtil;
+import com.oracle.pic.vpn.identity.IdentityMetadataHelper;
+import com.oracle.pic.vpn.kmsSecrets.FakeKmsSecretsManager;
+import com.oracle.pic.vpn.limits.VpnLimitsHelper;
+import com.oracle.pic.vpn.model.CustomerList;
+import com.oracle.pic.vpn.model.DrgRedundancyRecord;
+import com.oracle.pic.vpn.model.InterfaceCustomer;
+import com.oracle.pic.vpn.model.TenantMetadata;
+import com.oracle.pic.vpn.model.UpdateTenantMetadataDetails;
+import com.oracle.pic.vpn.oci.DrgV2Helper;
+import com.oracle.pic.vpn.ociclassic.FakeOciClassicFastConnectClient;
+import com.oracle.pic.vpn.ociclassic.OciClassicFastConnectClient;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.Test;
+import org.junit.experimental.categories.Category;
+import org.mockito.AdditionalMatchers;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+
+import javax.ws.rs.core.Response;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+
+import static com.oracle.pic.vpn.api.resources.ManagementResourceV1FunctionalTest.INTERFACE_PREFIX;
+import static com.oracle.pic.vpn.api.resources.v20160918.CrossConnectResourceTest.TEST_TENANT_ID;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.matches;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.when;
+
+
+@Slf4j
+@Category(UnitTest.class)
+public class ManagementResourceV1MockTest {
+
+    private static final VpnRegion DEV_REGION = VpnRegion.DEV;
+    private static final String MY_DEVICE_ID = "myDeviceId";
+    private static final String MY_COMPARTMENT = "myCompartment";
+    private static final String DEVICE1_NAME = "device1";
+    private static final String DEVICE2_NAME = "device2";
+    private static final String EVENT_RESOURCE_ID = "TestResource";
+    private static final Integer EVENT_LIMIT = 4;
+
+    // Create mock for BL objects
+    private static DeviceBl deviceBl = mock(DeviceBl.class);
+    private static WorkRequestBl workRequestBl = mock(WorkRequestBl.class);
+    private static ConfigSnippetBl configSnippetBl = mock(ConfigSnippetBl.class);
+    private static DeviceSynchronizerBl deviceSynchronizerBl = mock(DeviceSynchronizerBl.class);
+    private static ProviderServiceBl providerBl = mock(ProviderServiceBl.class);
+    private static PropertiesBl propertiesBl = mock(PropertiesBl.class);
+    private static VirtualCircuitBl virtualCircuitBl = mock(VirtualCircuitBl.class);
+    private static EventBl eventBl = mock(EventBl.class);
+    private static DrgBl drgBl = mock(DrgBl.class);
+    private static DrgStatusBl drgStatusBl = mock(DrgStatusBl.class);
+    private static BgpSessionBl bgpSessionBl = mock(BgpSessionBl.class);
+    private static BgpBl bgpStateBl = mock(BgpBl.class);
+    private static InterfaceBl interfaceBl = mock(InterfaceBl.class);
+    private static CrossConnectBl crossConnectBl = mock(CrossConnectBl.class);
+    private static LocationBl locationBl = mock(LocationBl.class);
+    private static PatchPanelBl patchPanelBl = mock(PatchPanelBl.class);
+    private static PatchPanelPortPairBl patchPanelPortPairBl = mock(PatchPanelPortPairBl.class);
+    private static CrossConnectGroupBl crossConnectGroupBl = mock(CrossConnectGroupBl.class);
+    private static LoaBl loaBl = mock(LoaBl.class);
+    private static TenancyMetadataBl tenancyMetadataBl = mock(TenancyMetadataBl.class);
+    private static TunnelBl tunnelBl = mock(TunnelBl.class);
+    private static TunnelStatusBl tunnelStatusBl = mock(TunnelStatusBl.class);
+    private static RemotePeeringConnectionBl remotePeeringConnectionBl = mock(RemotePeeringConnectionBl.class);
+    private static ImpactedCustomersT2 impactedCustomersT2 = mock(ImpactedCustomersT2.class);
+
+    private static IPsecConnectionBl iPsecConnectionBl = mock(IPsecConnectionBl.class);
+    private static CpeBl cpeBl = mock(CpeBl.class);
+    private static AzureExpressRouteBl azureExpressRouteBl = mock(AzureExpressRouteBl.class);
+    private static IPNetworkVCNConnectionBl ipNetworkVCNConnectionBl = mock(IPNetworkVCNConnectionBl.class);
+    private static OciClassicVirtualCircuitBl ociClassicVirtualCircuitBl = mock(OciClassicVirtualCircuitBl.class);
+    private static PortMigrationBackupBl portMigrationBackupBl = mock(PortMigrationBackupBl.class);
+    private static ImpactedCustomersPrometheus prometheusClient = mock(ImpactedCustomersPrometheus.class);
+    private static ArchiveBl archiveBl = mock(ArchiveBl.class);
+    private static SvlanPfabBl svlanPfabBl = mock(SvlanPfabBl.class);
+    private static ManagementResourceHelper managementResourceHelper = mock(ManagementResourceHelper.class);
+
+
+    // Create mock for other objects
+    private static IdentityMetadataHelper identityHelper = mock(IdentityMetadataHelper.class);
+    private static VpnLimitsHelper limitsValidator = mock(VpnLimitsHelper.class);
+    private static WorkflowVersionHelper workflowVersionHelper = mock(WorkflowVersionHelper.class);
+    private static VpnMetering vpnMetering = new NoopVpnMetering();
+    private static OciClassicFastConnectClient ociClassicFastConnectClient = new FakeOciClassicFastConnectClient();
+    private static VpnLimitsHelper vpnLimitsHelper = mock(VpnLimitsHelper.class);
+    private static DrgV2Helper drgV2Helper = mock(DrgV2Helper.class);
+    private static RegionUtil regionUtil = mock(RegionUtil.class);
+
+    private static FakeKmsSecretsManager fakeKmsSecretsManager;
+
+
+
+    @Mock
+    private VpnRegion vpnRegion;
+
+    @Mock
+    private ManagementResourceV1 managementResourceV1;
+
+    @InjectMocks
+    private static ManagementResourceV1 managementResource;
+
+
+
+    private HashMap<String, Boolean> getwhitelistProperties() {
+        HashMap<String, Boolean> whitelistProperties = new HashMap<>();
+        whitelistProperties.put(TenancyMetadataBl.ONE_HUNDRED_GIG_CROSSCONNECT_WHITELISTING_KEY, true);
+        whitelistProperties.put(TenancyMetadataBl.FAST_CONNECT_INTERNAL_WHITELIST_KEY, false);
+        return whitelistProperties;
+    }
+
+    @BeforeClass
+    public static void setupManagementResourceAndClient() throws ValidationException, CommitConflictException, IOException {
+
+        VpnApiServiceConfiguration config = new VpnApiServiceConfiguration();
+        config.setAvailabilityDomain(AvailabilityDomain.DEV_1);
+
+        fakeKmsSecretsManager = new FakeKmsSecretsManager();
+
+        managementResourceHelper = new ManagementResourceHelper(interfaceBl, crossConnectBl, crossConnectGroupBl,
+                virtualCircuitBl, providerBl, impactedCustomersT2);
+        managementResource = new ManagementResourceV1(
+                deviceBl,
+                workRequestBl,
+                providerBl,
+                propertiesBl,
+                virtualCircuitBl,
+                eventBl,
+                bgpStateBl,
+                bgpSessionBl,
+                drgBl,
+                drgStatusBl,
+                interfaceBl,
+                locationBl,
+                crossConnectBl,
+                crossConnectGroupBl,
+                patchPanelPortPairBl,
+                limitsValidator,
+                loaBl,
+                patchPanelBl,
+                identityHelper,
+                tenancyMetadataBl,
+                tunnelBl,
+                tunnelStatusBl,
+                configSnippetBl,
+                vpnMetering,
+                remotePeeringConnectionBl,
+                iPsecConnectionBl,
+                azureExpressRouteBl,
+                ipNetworkVCNConnectionBl,
+                ociClassicVirtualCircuitBl,
+                portMigrationBackupBl,
+                archiveBl,
+                ociClassicFastConnectClient,
+                workflowVersionHelper,
+                null,
+                regionUtil,
+                vpnLimitsHelper,
+                drgV2Helper,
+                prometheusClient,
+                fakeKmsSecretsManager,
+                svlanPfabBl,
+                managementResourceHelper,
+                DEV_REGION,
+                null, null,
+                null,
+                null,
+                null,
+                null, null);
+
+        try {
+            when(identityHelper.getTenantName(any(String.class))).thenReturn(TEST_TENANT_ID);
+            when(identityHelper.getTenantId(any(String.class))).thenReturn(TEST_TENANT_ID);
+        }
+        catch(AuthServerUnavailableException e)
+        {
+            log.error("AuthServerUnavailableException with message {}", e.getMessage());
+        }
+        when(workflowVersionHelper.getCurrentWorkflowDefinition(any(), any())).thenAnswer(i -> i.getArguments()[0]);
+    }
+
+    @Before
+    public void resetManagementResource(){
+        reset(deviceBl);
+        reset(workRequestBl);
+        reset(configSnippetBl);
+        reset(deviceSynchronizerBl);
+        reset(providerBl);
+        reset(propertiesBl);
+        reset(virtualCircuitBl);
+        reset(eventBl);
+        reset(drgBl);
+        reset(bgpStateBl);
+        reset(bgpSessionBl);
+        reset(interfaceBl);
+        reset(crossConnectBl);
+        reset(locationBl);
+        reset(patchPanelBl);
+        reset(patchPanelPortPairBl);
+        reset(crossConnectGroupBl);
+        reset(loaBl);
+        reset(tenancyMetadataBl);
+        reset(tunnelBl);
+        reset(tunnelStatusBl);
+        reset(remotePeeringConnectionBl);
+        reset(iPsecConnectionBl);
+        reset(cpeBl);
+        reset(azureExpressRouteBl);
+        reset(ipNetworkVCNConnectionBl);
+        reset(portMigrationBackupBl);
+        reset(drgBl);
+        reset(drgV2Helper);
+    }
+
+    @Test
+    public void GIVEN_exportTenancyData_WHEN_objectsBelongToTenancy_THEN_includedInJson() throws Exception {
+        String tenancyId = "ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+        // Create sample DOs: one with tenantId set, one with compartmentId that
+        // resolves to tenancyId, and one that doesn't belong
+        CrossConnectDo ccBelongs = CrossConnectDo.builder()
+                .id(UUID.randomUUID().toString())
+                .compartmentId("comp1")
+                .tenantId(tenancyId)
+                .build();
+
+        CrossConnectDo ccNotBelong = CrossConnectDo.builder()
+                .id(UUID.randomUUID().toString())
+                .compartmentId("comp_not")
+                .tenantId("otherTenant")
+                .build();
+
+        VirtualCircuitDo vcBelongsByComp = VirtualCircuitDo.builder()
+                .id(UUID.randomUUID().toString())
+                .compartmentId("comp2")
+                .build();
+
+        IPsecConnectionDo ipsecNot = IPsecConnectionDo.builder()
+                .id(UUID.randomUUID().toString())
+                .compartmentId("comp_x")
+                .build();
+
+        // Devices should always be included
+        DeviceDo device1 = DeviceDo.builder()
+                .id("dev1")
+                .name("dev1")
+                .build();
+
+        // Mock BL list methods - return List objects (as expected by the
+        // implementation)
+
+        when(crossConnectBl.stream()).thenReturn(Arrays.asList(ccBelongs, ccNotBelong).stream());
+        when(crossConnectGroupBl.stream()).thenReturn((new ArrayList<CrossConnectGroupDo>()).stream());
+        when(virtualCircuitBl.stream()).thenReturn(Arrays.asList(vcBelongsByComp).stream());
+        when(iPsecConnectionBl.stream()).thenReturn(Arrays.asList(ipsecNot).stream());
+        //when(remotePeeringConnectionBl.stream()).thenReturn(java.util.Collections.<RemotePeeringConnectionDo>emptyList().stream());
+        when(tunnelBl.stream()).thenReturn(java.util.Collections.<TunnelDo>emptyList().stream());
+        when(deviceBl.stream()).thenReturn(Arrays.asList(device1).stream());
+        // identityHelper resolves compartments comp2 -> tenancyId, comp1 already has
+        // tenantId
+        when(identityHelper.getTenantId(eq("comp2"))).thenReturn(tenancyId);
+        when(identityHelper.getTenantId(eq("comp1"))).thenReturn(tenancyId); // THIS IS THE KEY FIX!
+        when(identityHelper.getTenantId(matches("comp_not|comp_x"))).thenReturn("otherTenant");
+
+
+        try {
+            java.lang.reflect.Method getTenantIdMethod = ccBelongs.getClass().getMethod("getTenantId");
+            Object tenantIdValue = getTenantIdMethod.invoke(ccBelongs);
+
+        } catch (Exception e) {
+            log.error("DEBUG TEST: ccBelongs.getTenantId() method not found or failed: " + e.getMessage());
+        }
+
+        try {
+            java.lang.reflect.Method getCompartmentIdMethod = ccBelongs.getClass().getMethod("getCompartmentId");
+            Object compartmentIdValue = getCompartmentIdMethod.invoke(ccBelongs);
+
+        } catch (Exception e) {
+            log.error("DEBUG TEST: ccBelongs.getCompartmentId() method not found or failed: "
+                    + e.getMessage());
+        }
+
+        // tenancy metadata
+        TenancyMetadataDo tmd = TenancyMetadataDo.builder().id(tenancyId).build();
+        when(tenancyMetadataBl.get(eq(tenancyId))).thenReturn(Optional.of(tmd));
+
+        // Debug: Test Jackson serialization
+        try {
+            ObjectMapper testMapper = new ObjectMapper();
+            String ccBelongsJson = testMapper.writeValueAsString(ccBelongs);
+        } catch (Exception e) {
+            log.error("DEBUG TEST: Jackson serialization failed: " + e.getMessage());
+        }
+
+        // Call API and capture StreamingOutput
+        Response resp = managementResource.exportTenancyData(tenancyId);
+        assertEquals(200, resp.getStatus());
+
+        javax.ws.rs.core.StreamingOutput stream = (javax.ws.rs.core.StreamingOutput) resp.getEntity();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        // Debug: Check if stream is null
+
+        try {
+            stream.write(baos);
+        } catch (Exception e) {
+            log.error("DEBUG TEST: Stream write failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        // Debug: Check what's in the stream
+        byte[] streamBytes = baos.toByteArray();
+        String streamContent = new String(streamBytes);
+
+        // Parse JSON
+        ObjectMapper om = new ObjectMapper();
+        JsonNode root = om.readTree(baos.toByteArray());
+
+        // Debug: Print crossConnects array specifically
+        JsonNode ccArray = root.get("crossConnects");
+        // crossConnects should include only ccBelongs
+        assertEquals(1, ccArray.size());
+        assertEquals(ccBelongs.getId(), ccArray.get(0).get("id").asText());
+
+        // virtualCircuits should include vcBelongsByComp
+        JsonNode vcArray = root.get("virtualCircuits");
+        assertEquals(1, vcArray.size());
+        assertEquals(vcBelongsByComp.getId(), vcArray.get(0).get("id").asText());
+
+        // ipsecConnections should be empty (comp_x resolves to otherTenant)
+        JsonNode ipsecArray = root.get("ipsecConnections");
+        assertEquals(0, ipsecArray.size());
+
+        // devices should include device1 regardless of tenancy
+        JsonNode devArray = root.get("devices");
+        assertEquals(1, devArray.size());
+        assertEquals("dev1", devArray.get(0).get("id").asText());
+
+        // tenancyMetadata present
+        JsonNode tMeta = root.get("tenancyMetadata");
+        assertEquals(tenancyId, tMeta.get("id").asText());
+    }
+
+    @Test
+    public void GIVEN_exportTenancyData_WHEN_noMatchingResources_THEN_arraysAreEmptyButDevicesIncluded() throws Exception {
+        String tenancyId = "ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+        when(crossConnectBl.stream()).thenReturn(java.util.Collections.<CrossConnectDo>emptyList().stream());
+        when(crossConnectGroupBl.stream()).thenReturn(java.util.Collections.<CrossConnectGroupDo>emptyList().stream());
+        when(virtualCircuitBl.stream()).thenReturn(java.util.Collections.<VirtualCircuitDo>emptyList().stream());
+        when(iPsecConnectionBl.stream()).thenReturn(java.util.Collections.<IPsecConnectionDo>emptyList().stream());
+        when(remotePeeringConnectionBl.stream())
+                .thenReturn(java.util.Collections.<RemotePeeringConnectionDo>emptyList().stream());
+        when(tunnelBl.stream()).thenReturn(java.util.Collections.<TunnelDo>emptyList().stream());
+
+        DeviceDo device1 = DeviceDo.builder().id("devA").name("devA").build();
+        when(deviceBl.stream()).thenReturn(Arrays.asList(device1).stream());
+
+        when(tenancyMetadataBl.get(eq(tenancyId))).thenReturn(Optional.empty());
+
+        Response resp = managementResource.exportTenancyData(tenancyId);
+        javax.ws.rs.core.StreamingOutput stream = (javax.ws.rs.core.StreamingOutput) resp.getEntity();
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        stream.write(baos);
+
+        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.JsonNode root = om.readTree(baos.toByteArray());
+
+        assertEquals(0, root.get("crossConnects").size());
+        assertEquals(0, root.get("virtualCircuits").size());
+        assertEquals(1, root.get("devices").size());
+        assertTrue(root.get("tenancyMetadata").isNull());
+    }
+
+
+
+
+    /**
+     * Tests the deletion of events for resources that exceed the configured limit of events.
+     *
+     * @throws Exception if there is an error during the deletion process
+     */
+    @Test
+    public void GIVEN_Events_Over_ThresHold_WHEN_deleted_IsSuccessful() throws Exception {
+        when(propertiesBl.getEventLimit()).thenReturn(EVENT_LIMIT);
+        RuntimeException runtimeException = assertThrows(RuntimeException.class, () -> managementResource.deleteOldEvents(null));
+        assertEquals("Please enable ENABLE_EVENT_LIMIT Property to use this API.", runtimeException.getMessage());
+        when(propertiesBl.isEventLimitEnabled()).thenReturn(Boolean.TRUE);
+        Response response = managementResource.deleteOldEvents("Test");
+        assertEquals(response.getStatus(), 202);
+    }
+
+    @Test
+    public void GIVEN_getDeviceCustomerObjects_WHEN_Initialized_THEN_OperationsSuccessful() throws Exception {
+        String CC_DISPLAY_NAME_NO_GROUP = "cc_no_group";
+        String CC_DISPLAY_NAME_WITH_GROUP = "cc_with_group";
+        String CCG_DISPLAY_NAME = "ccg_valid_device_id";
+
+        String CC_ID1 = UUID.randomUUID().toString();
+        String CC_ID2 = UUID.randomUUID().toString();
+        String CCG_ID = UUID.randomUUID().toString();
+
+        String TUNNEL_ID1 = UUID.randomUUID().toString();
+        String TUNNEL_ID2 = UUID.randomUUID().toString();
+        String IPSEC_ID = UUID.randomUUID().toString();
+        String IPSEC_DISPLAY_NAME = "ipsec_name";
+
+        String VC_ID1 = UUID.randomUUID().toString();
+        String VC_ID2 = UUID.randomUUID().toString();
+        String VC_ID3 = UUID.randomUUID().toString();
+
+        String interfaceId = UUID.randomUUID().toString();
+
+        String VIRTUAL_CIRCUIT_MATCH_CC = "virtual_circuit_match_cc";
+        String VIRTUAL_CIRCUIT_MATCH_CCG = "virtual_circuit_match_ccg";
+        String VIRTUAL_CIRCUIT_MATCH_NONE = "virtual_circuit_match_none";
+
+        // Build all required DO objects
+        CrossConnectDo crossConnectDo1 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId)
+                .id(CC_ID1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectDo crossConnectDo2 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_WITH_GROUP)
+                .crossConnectGroupId(CCG_ID)
+                .interfaceId("00000000-0000-0000-0000-0000000000")
+                .id(CC_ID2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectGroupDo crossConnectGroupDo = CrossConnectGroupDo.builder()
+                .displayName(CCG_DISPLAY_NAME)
+                .id(CCG_ID)
+                .crossConnectIds(new String[]{CC_ID1, CC_ID2})
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        TunnelDo tunnelDo1 = TunnelDo.builder()
+                .ipsecId(IPSEC_ID)
+                .id(TUNNEL_ID1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        TunnelDo tunnelDo2 = TunnelDo.builder()
+                .ipsecId(UUID.randomUUID().toString())
+                .id(TUNNEL_ID2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        IPsecConnectionDo ipsecConnectionDo = IPsecConnectionDo.builder()
+                .id(IPSEC_ID)
+                .displayName(IPSEC_DISPLAY_NAME)
+                .build();
+
+        VirtualCircuitDo virtualCircuitDo1 = VirtualCircuitDo.builder()
+                .associatedCcs(new HashSet<>(Arrays.asList(CC_ID1)))
+                .displayName(VIRTUAL_CIRCUIT_MATCH_CC)
+                .id(VC_ID1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        VirtualCircuitDo virtualCircuitDo2 = VirtualCircuitDo.builder()
+                .associatedCcs(new HashSet<>(Arrays.asList(CC_ID2)))
+                .displayName(VIRTUAL_CIRCUIT_MATCH_NONE)
+                .id(VC_ID2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        VirtualCircuitDo virtualCircuitDo3 = VirtualCircuitDo.builder()
+                .associatedCcgs(new HashSet<>(Arrays.asList(CCG_ID)))
+                .displayName(VIRTUAL_CIRCUIT_MATCH_CCG)
+                .id(VC_ID3)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        InterfaceDo interfaceDo = InterfaceDo.builder().id(interfaceId).state(InterfaceDo.State.Assigned).build();
+
+        // Setup mocks
+        when(interfaceBl.stream()).thenReturn(Arrays.asList(interfaceDo).stream());
+        when(crossConnectBl.getImpactedCrossConnectsByDeviceId(any(String.class))).thenReturn(Arrays.asList(crossConnectDo1, crossConnectDo2));
+        when(crossConnectGroupBl.getImpactedCrossConnectGroupsByDeviceId(any(String.class), any())).thenReturn(Arrays.asList(crossConnectGroupDo));
+        when(tunnelBl.getTunnelByDeviceId(any(String.class))).thenReturn(Arrays.asList(tunnelDo1, tunnelDo2));
+        when(iPsecConnectionBl.get(eq(IPSEC_ID))).thenReturn(Optional.of(ipsecConnectionDo));
+        when(iPsecConnectionBl.get(AdditionalMatchers.not(eq(IPSEC_ID)))).thenReturn(Optional.empty());
+        when(virtualCircuitBl.stream()).thenReturn
+                (Arrays.asList(virtualCircuitDo1, virtualCircuitDo2, virtualCircuitDo3).stream());
+        Mockito.when(impactedCustomersT2.getVcRedundancyStatus(eq(ManagementResourceHelper.NO_BGP_SESSION_VC_QUERY), any(), any(), any(), any(), any()))
+                .thenReturn(new HashSet<>(Arrays.asList(virtualCircuitDo1.getId())));
+        Mockito.when(impactedCustomersT2.getVcRedundancyStatus(eq(ManagementResourceHelper.PENDING_BGP_SESSION_VC_QUERY), any(), any(), any(), any(), any()))
+                .thenReturn(new HashSet<>());
+
+        // Run test and validate the result
+        CustomerList customerList = managementResource.getDeviceCustomerObjects(MY_DEVICE_ID);
+
+        assertTrue(customerList.getProviders().size() == 0);
+
+        assertTrue(customerList.getFastConnectCustomers().size() == 4);
+        List<String> expectedObjectId = new ArrayList<>(Arrays.asList(CC_ID1, CCG_ID, VC_ID1, VC_ID3));
+
+        customerList.getFastConnectCustomers().forEach(fastConnectCustomer -> {
+            String objectId = fastConnectCustomer.getObjectId();
+            assertTrue(expectedObjectId.contains(objectId));
+            expectedObjectId.remove(objectId);
+
+            if (objectId.equals(virtualCircuitDo1.getId())) {
+                assertFalse(fastConnectCustomer.getCustomerBgpSessionUp());
+            } else if (fastConnectCustomer.getCustomerBgpSessionUp()!= null){
+                assertTrue(fastConnectCustomer.getCustomerBgpSessionUp());
+            }
+        });
+        assertTrue(expectedObjectId.isEmpty());
+    }
+
+    @Test
+    public void testGetTenancyName_TenancyMetadataNotPresent() {
+        // Arrange
+        TenancyMetadataBl tenancyMetadataBl = mock(TenancyMetadataBl.class);
+        String tenancyId = "test-tenancy-id";
+        when(tenancyMetadataBl.get(tenancyId)).thenReturn(Optional.empty());
+        when(managementResource.getTenancyName(tenancyId)).thenReturn(null);
+
+        // Act
+        String result = managementResource.getTenancyName(tenancyId);
+
+        // Assert
+        assertNull(result);
+        Mockito.verify(tenancyMetadataBl).get(tenancyId);
+
+    }
+
+    @Test
+    public void testGetTenancyName_TenancyMetadataPresent_LegalEntityNameNull() {
+        // Arrange
+        String tenancyId = "test-tenancy-id";
+        TenancyMetadataBl tenancyMetadataBl = mock(TenancyMetadataBl.class);
+        TenancyMetadataDo tenancyMetadataDo = TenancyMetadataDo.builder()
+                .id(tenancyId)
+                .legalEntityName(null)
+                .build();
+        when(tenancyMetadataBl.get(tenancyId)).thenReturn(Optional.of(tenancyMetadataDo));
+
+        // Act
+        String result = managementResource.getTenancyName(tenancyId);
+
+        // Assert
+        assertEquals(tenancyId, result);
+        Mockito.verify(tenancyMetadataBl).get(tenancyId);
+    }
+
+    @Test
+    public void testGetTenancyName_TenancyMetadataPresent_LegalEntityNameNotNull() {
+        // Arrange
+        String tenancyId = "test-tenancy-id";
+        String legalEntityName = "test-legal-entity-name";
+        TenancyMetadataDo tenancyMetadataDo = TenancyMetadataDo.builder()
+                .id(tenancyId)
+                .legalEntityName(legalEntityName)
+                .build();
+        when(tenancyMetadataBl.get(tenancyId)).thenReturn(Optional.of(tenancyMetadataDo));
+
+        // Act
+        String result = managementResource.getTenancyName(tenancyId);
+
+        // Assert
+        assertEquals(legalEntityName, result);
+
+    }
+
+    @Test
+    public void testGetHomeRegion_TenancyMetadataPresent_VpnRegionNameNotNull() {
+
+        String tenancyId = "test-tenancy-id";
+        // Arrange
+        TenancyMetadataDo tenancyMetadataDo = mock(TenancyMetadataDo.class);
+        TenancyMetadataBl tenancyMetadataBl = mock(TenancyMetadataBl.class);
+        when(tenancyMetadataBl.get(tenancyId)).thenReturn(Optional.of(tenancyMetadataDo));
+        when(vpnRegion.getName()).thenReturn("test-region");
+
+        // Act
+        String homeRegion = managementResource.getHomeRegion(tenancyId);
+
+        // Assert
+        assertEquals("test-region", homeRegion);
+
+    }
+
+    @Test
+    public void testGetHomeRegion_TenancyMetadataPresent_VpnRegionNameNull() {
+        // Arrange
+        TenancyMetadataDo tenancyMetadataDo = mock(TenancyMetadataDo.class);
+        TenancyMetadataBl tenancyMetadataBl = mock(TenancyMetadataBl.class);
+        String tenancyId = "test-tenancy-id";
+        when(tenancyMetadataBl.get(tenancyId)).thenReturn(Optional.of(tenancyMetadataDo));
+        when(vpnRegion.getName()).thenReturn(null);
+
+        // Act
+        String homeRegion = managementResource.getHomeRegion(tenancyId);
+
+        // Assert
+        assertNull(homeRegion);
+        Mockito.verify(tenancyMetadataBl).get(tenancyId);
+        Mockito.verify(vpnRegion).getName();
+    }
+
+
+    @Test
+    public void GIVEN_getDeviceInterfaceCustomerObjects_WHEN_CrossConnectOnInterface_THEN_return() throws Exception {
+        String ccId = UUID.randomUUID().toString();
+        String interfaceId = UUID.randomUUID().toString();
+
+        CrossConnectDo crossConnectDo = CrossConnectDo.builder()
+                .crossConnectGroupId(null)
+                .id(ccId)
+                .interfaceId(interfaceId)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+        InterfaceDo interfaceDo = InterfaceDo.builder().id(interfaceId).state(InterfaceDo.State.Assigned).build();
+
+        when(interfaceBl.stream()).thenReturn(Arrays.asList(interfaceDo).stream());
+        when(crossConnectBl.getImpactedCrossConnectsByDeviceId(any(String.class))).thenReturn(Arrays.asList(crossConnectDo));
+        when(crossConnectGroupBl.getImpactedCrossConnectGroupsByDeviceId(any(String.class), any())).thenReturn(new ArrayList<>());
+        when(tunnelBl.getTunnelByDeviceId(any(String.class))).thenReturn(new ArrayList<>());
+        when(virtualCircuitBl.stream()).thenReturn(new ArrayList<VirtualCircuitDo>().stream());
+
+        // Run test and validate the result
+        CustomerList customerList = managementResource.getDeviceInterfaceCustomerObjects(MY_DEVICE_ID, interfaceId);
+        assertEquals(customerList.getFastConnectCustomers().size(), 1);
+        assertTrue(customerList.getFastConnectCustomers().get(0).getObjectId().equals(ccId));
+    }
+
+    @Test
+    public void GIVEN_getDeviceInterfaceCustomerObjects_WHEN_CrossConnectNotOnInterface_THEN_notReturn() throws Exception {
+        String ccId = UUID.randomUUID().toString();
+        String interfaceId = UUID.randomUUID().toString();
+
+        CrossConnectDo crossConnectDo = CrossConnectDo.builder()
+                .crossConnectGroupId(null)
+                .id(ccId)
+                .interfaceId("00000000-0000-0000-0000-0000000000")
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+        InterfaceDo interfaceDo = InterfaceDo.builder().id(interfaceId).state(InterfaceDo.State.Assigned).build();
+
+        when(interfaceBl.stream()).thenReturn(Arrays.asList(interfaceDo).stream());
+        when(crossConnectBl.getImpactedCrossConnectsByDeviceId(any(String.class))).thenReturn(Arrays.asList(crossConnectDo));
+        when(crossConnectGroupBl.getImpactedCrossConnectGroupsByDeviceId(any(String.class), any())).thenReturn(new ArrayList<>());
+        when(tunnelBl.getTunnelByDeviceId(any(String.class))).thenReturn(new ArrayList<>());
+        when(virtualCircuitBl.stream()).thenReturn(new ArrayList<VirtualCircuitDo>().stream());
+
+        // Run test and validate the result
+        CustomerList customerList = managementResource.getDeviceInterfaceCustomerObjects(MY_DEVICE_ID, interfaceId);
+        assertEquals(customerList.getFastConnectCustomers().size(), 0);
+    }
+
+    @Test
+    public void GIVEN_tenantMetadataCrud_WHEN_withWhiteListProperties_THEN_OperationsSuccessful() throws Exception {
+
+        List<String> verifiedPrefixes = Arrays.asList("12.0.0.0/24","12.0.1.0/24");
+        List<Integer> verifiedAsns = Arrays.asList(12345,23456);
+        List<Integer> whitelistedSetIds = Arrays.asList(1,2);
+        List<String> whitelistedVpnTeSetIds = Arrays.asList("teSetId1", "teSetId2");
+        List<String> whitelistedLocations = Arrays.asList("l1","l2");
+        HashMap<String, Boolean> whiteListedProperties = getwhitelistProperties();//set properties:("fastConnection",false)
+        HashMap<String, Boolean> propertiesRequest1;
+        HashMap<String, Boolean> propertiesRequest3 = new HashMap<>();
+        UpdateTenantMetadataDetails request1 = UpdateTenantMetadataDetails.builder()
+                .legalEntityName("TestOracle")
+                .isFastConnectWhitelisted(true)
+                .whitelistedIpSecSetIds(whitelistedSetIds)
+                .whitelistedVpnTeSetIds(whitelistedVpnTeSetIds)
+                .whitelistedLocations(whitelistedLocations)
+                .whitelistedProperties(whiteListedProperties)//set properties:("fastConnection",false),need to follow.isFastConnectWhitelisted(TRUE)
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .verifiedPublicAsns(verifiedAsns)
+                .build();
+        propertiesRequest1 = getwhitelistProperties();
+        propertiesRequest1.put(TenancyMetadataBl.FAST_CONNECT_INTERNAL_WHITELIST_KEY,request1.getIsFastConnectWhitelisted());
+        TenancyMetadataDo tenancyMetadataDoResult1 = TenancyMetadataDo.builder()
+                .id("TestOracle")
+                .lastUpdated(new Date())
+                .whitelistedIpSecSetIds(whitelistedSetIds)
+                .whitelistedVpnTeSetIds(whitelistedVpnTeSetIds)
+                .whitelistedLocations(whitelistedLocations)
+                .whiteListProperties(propertiesRequest1)
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .verifiedPublicAsns(verifiedAsns)
+                .build();
+        Transaction tMock = mock(Transaction.class);
+        when(tenancyMetadataBl.beginTransaction(any())).thenReturn(tMock);
+        when(tenancyMetadataBl.update(any(),any())).thenReturn(tenancyMetadataDoResult1);
+        when(tenancyMetadataBl.getFastConnectInternalWhitelist("TestOracle")).thenReturn(true);
+
+        TenantMetadata tm1 = managementResource.updateTenantMetadata("TENANT1",request1);
+        assertEquals(tm1.getIsFastConnectWhitelisted(), request1.getIsFastConnectWhitelisted());
+        assertEquals(tm1.getWhitelistedIpSecSetIds(), request1.getWhitelistedIpSecSetIds());
+        assertEquals(tm1.getWhitelistedVpnTeSetIds(), request1.getWhitelistedVpnTeSetIds());
+        assertEquals(tm1.getWhitelistedLocations(), request1.getWhitelistedLocations());
+        assertEquals(tm1.getWhitelistedProperties(), propertiesRequest1);
+        assertEquals(tm1.getVerifiedPublicPrefixes(), verifiedPrefixes);
+        assertEquals(tm1.getVerifiedPublicAsns(), verifiedAsns);
+
+        UpdateTenantMetadataDetails request2 = UpdateTenantMetadataDetails.builder()
+                .legalEntityName("TestOracle")
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .build();
+        TenancyMetadataDo tenancyMetadataDoResult2 = TenancyMetadataDo.builder()
+                .id("TestOracle")
+                .lastUpdated(new Date())
+                .whiteListProperties(new HashMap<>())
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .build();
+        when(tenancyMetadataBl.update(any(),any())).thenReturn(tenancyMetadataDoResult2);
+        when(tenancyMetadataBl.getFastConnectInternalWhitelist("TestOracle")).thenReturn(false);
+
+        TenantMetadata tm2 = managementResource.updateTenantMetadata("TENANT2",request2);
+        assertEquals(tm2.getIsFastConnectWhitelisted(), false);
+        assertEquals(tm2.getVerifiedPublicPrefixes(), verifiedPrefixes);
+        assertNull(tm2.getVerifiedPublicAsns());
+        assertNull(tm2.getWhitelistedIpSecSetIds());
+        assertNull(tm2.getWhitelistedLocations());
+        assertEquals(tm2.getWhitelistedProperties(),new HashMap<>());
+
+        UpdateTenantMetadataDetails request3 = UpdateTenantMetadataDetails.builder()
+                .legalEntityName("TestOracle")
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .isFastConnectWhitelisted(true)//then properties should be synchronized
+                .build();
+        propertiesRequest3.put(TenancyMetadataBl.FAST_CONNECT_INTERNAL_WHITELIST_KEY,true);
+        TenancyMetadataDo tenancyMetadataDoResult3 = TenancyMetadataDo.builder()
+                .id("TestOracle")
+                .lastUpdated(new Date())
+                .whitelistedIpSecSetIds(null)
+                .whitelistedLocations(null)
+                .whiteListProperties(propertiesRequest3)//properties will have fastConnect value
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .verifiedPublicAsns(null)
+                .build();
+        when(tenancyMetadataBl.update(any(),any())).thenReturn(tenancyMetadataDoResult3);
+        when(tenancyMetadataBl.getFastConnectInternalWhitelist("TestOracle")).thenReturn(false);
+
+        TenantMetadata tm3 = managementResource.updateTenantMetadata("TENANT3",request3);
+        assertEquals(tm3.getIsFastConnectWhitelisted(), false);
+        assertEquals(tm3.getVerifiedPublicPrefixes(), verifiedPrefixes);
+        assertNull(tm3.getVerifiedPublicAsns());
+        assertNull(tm3.getWhitelistedIpSecSetIds());
+        assertNull(tm3.getWhitelistedLocations());
+        assertEquals(tm3.getWhitelistedProperties(),propertiesRequest3);
+
+        UpdateTenantMetadataDetails request4 = UpdateTenantMetadataDetails.builder()
+                .legalEntityName("TestOracle")
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .whitelistedProperties(new HashMap<>())//update all properties as empty
+                .build();
+        TenancyMetadataDo tenancyMetadataDoResult4 = TenancyMetadataDo.builder()
+                .id("TestOracle")
+                .lastUpdated(new Date())
+                .whiteListProperties(new HashMap<>())
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .build();
+        when(tenancyMetadataBl.update(any(),any())).thenReturn(tenancyMetadataDoResult4);
+        when(tenancyMetadataBl.getFastConnectInternalWhitelist("TestOracle")).thenReturn(false);
+
+        TenantMetadata tm4 = managementResource.updateTenantMetadata("TENANT4",request4);
+        assertEquals(tm4.getIsFastConnectWhitelisted(), false);
+        assertEquals(tm4.getVerifiedPublicPrefixes(), verifiedPrefixes);
+        assertNull(tm4.getVerifiedPublicAsns());
+        assertNull(tm4.getWhitelistedIpSecSetIds());
+        assertNull(tm4.getWhitelistedLocations());
+        assertEquals(tm4.getWhitelistedProperties(),new HashMap<>());
+    }
+
+    @Test
+    public void GIVEN_updateTenantMetadata_WHEN_withWhiteListPropertiesUpdated_THEN_OperationsSuccessful() throws Exception {
+
+        List<String> verifiedPrefixes = Arrays.asList("12.0.0.0/24","12.0.1.0/24");
+        List<Integer> verifiedAsns = Arrays.asList(12345,23456);
+        List<Integer> whitelistedSetIds = Arrays.asList(1,2);
+        List<String> whitelistedLocations = Arrays.asList("l1","l2");
+
+        HashMap<String, Boolean> whiteListedProperties = getwhitelistProperties();
+        whiteListedProperties.put(TenancyMetadataBl.PUBLIC_PREFIX_AUTOREJECT_KEY, true);
+        UpdateTenantMetadataDetails request = UpdateTenantMetadataDetails.builder()
+                .legalEntityName("TestOracle")
+                .isFastConnectWhitelisted(true)
+                .whitelistedIpSecSetIds(whitelistedSetIds)
+                .whitelistedLocations(whitelistedLocations)
+                .whitelistedProperties(whiteListedProperties)
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .verifiedPublicAsns(verifiedAsns)
+                .build();
+
+        HashMap<String, Boolean> propertiesRequest = getwhitelistProperties();
+        propertiesRequest.put(TenancyMetadataBl.PUBLIC_PREFIX_AUTOREJECT_KEY, true);
+        TenancyMetadataDo tenancyMetadataDoResult = TenancyMetadataDo.builder()
+                .id("TestOracle")
+                .lastUpdated(new Date())
+                .whitelistedIpSecSetIds(whitelistedSetIds)
+                .whitelistedLocations(whitelistedLocations)
+                .whiteListProperties(propertiesRequest)
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .verifiedPublicAsns(verifiedAsns)
+                .build();
+
+        Transaction tMock = mock(Transaction.class);
+        when(tenancyMetadataBl.beginTransaction(any())).thenReturn(tMock);
+        when(tenancyMetadataBl.update(any(),any())).thenReturn(tenancyMetadataDoResult);
+
+        TenantMetadata tm1 = managementResource.updateTenantMetadata("TestOracle",request);
+        assertEquals(tm1.getWhitelistedIpSecSetIds(), request.getWhitelistedIpSecSetIds());
+        assertEquals(tm1.getWhitelistedLocations(), request.getWhitelistedLocations());
+        assertEquals(tm1.getWhitelistedProperties(), request.getWhitelistedProperties());
+        assertEquals(tm1.getVerifiedPublicPrefixes(), request.getVerifiedPublicPrefixes());
+        assertEquals(tm1.getVerifiedPublicAsns(), request.getVerifiedPublicAsns());
+    }
+
+    @Test
+    public void GIVEN_updateTenantMetadata_WHEN_emptyPrefixes_THEN_OperationsSuccessful() throws Exception {
+
+
+        HashMap<String, Boolean> whiteListedProperties = getwhitelistProperties();
+        whiteListedProperties.put(TenancyMetadataBl.PUBLIC_PREFIX_AUTOREJECT_KEY, true);
+        UpdateTenantMetadataDetails request = UpdateTenantMetadataDetails.builder()
+            .legalEntityName("TestOracle")
+            .isFastConnectWhitelisted(true)
+            .whitelistedProperties(whiteListedProperties)
+            .build();
+
+        HashMap<String, Boolean> propertiesRequest = getwhitelistProperties();
+        propertiesRequest.put(TenancyMetadataBl.PUBLIC_PREFIX_AUTOREJECT_KEY, true);
+        TenancyMetadataDo tenancyMetadataDoResult = TenancyMetadataDo.builder()
+            .id("TestOracle")
+            .lastUpdated(new Date())
+            .whiteListProperties(propertiesRequest)
+            .build();
+
+        Transaction tMock = mock(Transaction.class);
+        when(tenancyMetadataBl.beginTransaction(any())).thenReturn(tMock);
+        when(tenancyMetadataBl.update(any(),any())).thenReturn(tenancyMetadataDoResult);
+
+        TenantMetadata tm1 = managementResource.updateTenantMetadata("TestOracle",request);
+        assertEquals(tm1.getWhitelistedProperties(), request.getWhitelistedProperties());
+    }
+
+    @Test
+    public void GIVEN_updateTenantMetadata_WHEN_virtualCircuitIdsUpdated_THEN_OperationsSuccessful() throws Exception {
+
+        List<String> verifiedPrefixes = Arrays.asList("12.0.0.0/24","12.0.1.0/24");
+        List<Integer> verifiedAsns = Arrays.asList(12345,23456);
+        List<Integer> whitelistedSetIds = Arrays.asList(1,2);
+        List<String> whitelistedLocations = Arrays.asList("l1","l2");
+        List<String> virtualCircuitIds = Arrays.asList("test1", "test2");
+
+        HashMap<String, Boolean> whiteListedProperties = getwhitelistProperties();
+        whiteListedProperties.put(TenancyMetadataBl.PUBLIC_PREFIX_AUTOREJECT_KEY, true);
+        UpdateTenantMetadataDetails request = UpdateTenantMetadataDetails.builder()
+                .legalEntityName("TestOracle")
+                .isFastConnectWhitelisted(true)
+                .whitelistedIpSecSetIds(whitelistedSetIds)
+                .whitelistedLocations(whitelistedLocations)
+                .whitelistedProperties(whiteListedProperties)
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .verifiedPublicAsns(verifiedAsns)
+                .virtualCircuitIdList(virtualCircuitIds)
+                .build();
+
+        HashMap<String, Boolean> propertiesRequest = getwhitelistProperties();
+        propertiesRequest.put(TenancyMetadataBl.PUBLIC_PREFIX_AUTOREJECT_KEY, true);
+        TenancyMetadataDo tenancyMetadataDoResult = TenancyMetadataDo.builder()
+                .id("TestOracle")
+                .lastUpdated(new Date())
+                .whitelistedIpSecSetIds(whitelistedSetIds)
+                .whitelistedLocations(whitelistedLocations)
+                .whiteListProperties(propertiesRequest)
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .verifiedPublicAsns(verifiedAsns)
+                .vcIdList(virtualCircuitIds)
+                .build();
+
+        Transaction tMock = mock(Transaction.class);
+        when(tenancyMetadataBl.beginTransaction(any())).thenReturn(tMock);
+        when(tenancyMetadataBl.update(any(),any())).thenReturn(tenancyMetadataDoResult);
+
+        TenantMetadata tm1 = managementResource.updateTenantMetadata("TestOracle",request);
+        assertEquals(tm1.getWhitelistedIpSecSetIds(), request.getWhitelistedIpSecSetIds());
+        assertEquals(tm1.getWhitelistedLocations(), request.getWhitelistedLocations());
+        assertEquals(tm1.getWhitelistedProperties(), request.getWhitelistedProperties());
+        assertEquals(tm1.getVerifiedPublicPrefixes(), request.getVerifiedPublicPrefixes());
+        assertEquals(tm1.getVerifiedPublicAsns(), request.getVerifiedPublicAsns());
+        assertEquals(tm1.getVirtualCircuitIdList(), request.getVirtualCircuitIdList());
+    }
+
+    @Test(expected = ValidationException.class)
+    public void GIVEN_updateTenantMetadata_WHEN_withInvalidPublicPrefixes_THEN_Exception() throws Exception {
+
+        List<String> verifiedPrefixes = Arrays.asList("11.0.0.0/24\n11.0.1.0/24");
+        List<Integer> verifiedAsns = Arrays.asList(12345,23456);
+        List<Integer> whitelistedSetIds = Arrays.asList(1,2);
+        List<String> whitelistedLocations = Arrays.asList("l1","l2");
+
+        HashMap<String, Boolean> whiteListedProperties = getwhitelistProperties();
+        whiteListedProperties.put(TenancyMetadataBl.PUBLIC_PREFIX_AUTOREJECT_KEY, true);
+        UpdateTenantMetadataDetails request = UpdateTenantMetadataDetails.builder()
+                .legalEntityName("TestOracle")
+                .isFastConnectWhitelisted(true)
+                .whitelistedIpSecSetIds(whitelistedSetIds)
+                .whitelistedLocations(whitelistedLocations)
+                .whitelistedProperties(whiteListedProperties)
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .verifiedPublicAsns(verifiedAsns)
+                .build();
+
+        HashMap<String, Boolean> propertiesRequest = getwhitelistProperties();
+        propertiesRequest.put(TenancyMetadataBl.PUBLIC_PREFIX_AUTOREJECT_KEY, true);
+        TenancyMetadataDo tenancyMetadataDoResult = TenancyMetadataDo.builder()
+                .id("TestOracle")
+                .lastUpdated(new Date())
+                .whitelistedIpSecSetIds(whitelistedSetIds)
+                .whitelistedLocations(whitelistedLocations)
+                .whiteListProperties(propertiesRequest)
+                .verifiedPublicPrefixes(verifiedPrefixes)
+                .verifiedPublicAsns(verifiedAsns)
+                .build();
+
+        Transaction tMock = mock(Transaction.class);
+        when(tenancyMetadataBl.beginTransaction(any())).thenReturn(tMock);
+        when(tenancyMetadataBl.update(any(),any())).thenReturn(tenancyMetadataDoResult);
+
+        TenantMetadata tm1 = managementResource.updateTenantMetadata("TestOracle",request);
+    }
+
+    @Test
+    public void GIVEN_listInterfacesImpactedCustomers_w_CCs_down_THEN_impacted() throws Exception {
+        String CC_DISPLAY_NAME_NO_GROUP = "cc_no_group";
+
+        String CC_ID1_1 = UUID.randomUUID().toString();
+        String CC_ID1_2 = UUID.randomUUID().toString();
+        String CC_ID2_1 = UUID.randomUUID().toString();
+        String CC_ID2_2 = UUID.randomUUID().toString();
+
+        String VC_ID1 = UUID.randomUUID().toString();
+        String VC_ID2 = UUID.randomUUID().toString();
+
+        String interfaceId1_1 = UUID.randomUUID().toString();
+        String interfaceId1_2 = UUID.randomUUID().toString();
+        String interfaceId2_1 = UUID.randomUUID().toString();
+        String interfaceId2_2 = UUID.randomUUID().toString();
+
+        // Build all required DO objects
+        CrossConnectDo crossConnectDo1_1 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId1_1)
+                .id(CC_ID1_1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectDo crossConnectDo1_2 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId1_2)
+                .id(CC_ID1_2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+
+        CrossConnectDo crossConnectDo2_1 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId2_1)
+                .id(CC_ID2_1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectDo crossConnectDo2_2 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId2_2)
+                .id(CC_ID2_2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+
+        CrossConnectMappings.Mapping mapping1_1 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo1_1.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping1_2 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo1_2.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping2_1 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo2_1.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping2_2 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo2_2.getId())
+                .build();
+
+
+        VirtualCircuitDo virtualCircuitDo1 = VirtualCircuitDo.builder()
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping1_1, mapping1_2}).build())
+                .id(VC_ID1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        VirtualCircuitDo virtualCircuitDo2 = VirtualCircuitDo.builder()
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping2_1, mapping2_2}).build())
+                .id(VC_ID2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        // Setup mocks
+        when(crossConnectBl.stream()).thenReturn(
+                Arrays.asList(crossConnectDo1_1, crossConnectDo1_2, crossConnectDo2_1, crossConnectDo2_2)
+                        .stream());
+        when(crossConnectGroupBl.stream()).thenReturn((new ArrayList<CrossConnectGroupDo>()).stream());
+        when(virtualCircuitBl.stream()).thenReturn
+                (Arrays.asList(virtualCircuitDo1, virtualCircuitDo2).stream());
+
+        // All down, 2 vcs impacted
+        Response response = managementResource.listInterfacesImpactedCustomers(
+                interfaceId1_1 + "," + interfaceId1_2 + "," +
+                interfaceId2_1 + "," + interfaceId2_2);
+
+        List<InterfaceCustomer> results = (List<InterfaceCustomer>) response.getEntity();
+
+        assertEquals(2, results.size());
+        Set<String> vcs = new HashSet<>();
+        for (InterfaceCustomer c : results) {
+            vcs.add(c.getResourceId());
+            assertTrue(c.getCustomerBgpSessionUp());
+        }
+
+        assertTrue(vcs.contains(VC_ID1));
+        assertTrue(vcs.contains(VC_ID2));
+    }
+
+    @Test
+    public void GIVEN_listInterfacesImpactedCustomers_w_VC_redundancy_THEN_not_impacted() throws Exception {
+        String CC_DISPLAY_NAME_NO_GROUP = "cc_no_group";
+
+        String CC_ID1_1 = UUID.randomUUID().toString();
+        String CC_ID1_2 = UUID.randomUUID().toString();
+        String CC_ID2_1 = UUID.randomUUID().toString();
+        String CC_ID2_2 = UUID.randomUUID().toString();
+
+        String VC_ID1 = UUID.randomUUID().toString();
+        String VC_ID2 = UUID.randomUUID().toString();
+
+        String interfaceId1_1 = UUID.randomUUID().toString();
+        String interfaceId1_2 = UUID.randomUUID().toString();
+        String interfaceId2_1 = UUID.randomUUID().toString();
+        String interfaceId2_2 = UUID.randomUUID().toString();
+
+        // Build all required DO objects
+        CrossConnectDo crossConnectDo1_1 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId1_1)
+                .id(CC_ID1_1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectDo crossConnectDo1_2 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId1_2)
+                .id(CC_ID1_2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+
+        CrossConnectDo crossConnectDo2_1 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId2_1)
+                .id(CC_ID2_1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectDo crossConnectDo2_2 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId2_2)
+                .id(CC_ID2_2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+
+        CrossConnectMappings.Mapping mapping1_1 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo1_1.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping1_2 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo1_2.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping2_1 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo2_1.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping2_2 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo2_2.getId())
+                .build();
+
+
+        VirtualCircuitDo virtualCircuitDo1 = VirtualCircuitDo.builder()
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping1_1, mapping1_2}).build())
+                .id(VC_ID1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        VirtualCircuitDo virtualCircuitDo2 = VirtualCircuitDo.builder()
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping2_1, mapping2_2}).build())
+                .id(VC_ID2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        // Setup mocks
+        when(crossConnectBl.stream()).thenReturn(
+                Arrays.asList(crossConnectDo1_1, crossConnectDo1_2, crossConnectDo2_1, crossConnectDo2_2)
+                        .stream());
+        when(crossConnectGroupBl.stream()).thenReturn((new ArrayList<CrossConnectGroupDo>()).stream());
+        when(virtualCircuitBl.stream()).thenReturn
+                (Arrays.asList(virtualCircuitDo1, virtualCircuitDo2).stream());
+
+        // 1 vc down, 0 vcs impacted
+        Response response = managementResource.listInterfacesImpactedCustomers(
+                interfaceId1_1 + "," + interfaceId1_2);
+
+        List<InterfaceCustomer> results = (List<InterfaceCustomer>) response.getEntity();
+
+        assertEquals(0, results.size());
+    }
+
+    @Test
+    public void GIVEN_listInterfacesImpactedCustomers_w_CC_redundancy_THEN_not_impacted() throws Exception {
+        String CC_DISPLAY_NAME_NO_GROUP = "cc_no_group";
+
+        String CC_ID1_1 = UUID.randomUUID().toString();
+        String CC_ID1_2 = UUID.randomUUID().toString();
+        String CC_ID2_1 = UUID.randomUUID().toString();
+        String CC_ID2_2 = UUID.randomUUID().toString();
+
+        String VC_ID1 = UUID.randomUUID().toString();
+        String VC_ID2 = UUID.randomUUID().toString();
+
+        String interfaceId1_1 = UUID.randomUUID().toString();
+        String interfaceId1_2 = UUID.randomUUID().toString();
+        String interfaceId2_1 = UUID.randomUUID().toString();
+        String interfaceId2_2 = UUID.randomUUID().toString();
+
+        // Build all required DO objects
+        CrossConnectDo crossConnectDo1_1 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId1_1)
+                .id(CC_ID1_1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectDo crossConnectDo1_2 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId1_2)
+                .id(CC_ID1_2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+
+        CrossConnectDo crossConnectDo2_1 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId2_1)
+                .id(CC_ID2_1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectDo crossConnectDo2_2 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId2_2)
+                .id(CC_ID2_2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+
+        CrossConnectMappings.Mapping mapping1_1 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo1_1.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping1_2 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo1_2.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping2_1 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo2_1.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping2_2 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo2_2.getId())
+                .build();
+
+
+        VirtualCircuitDo virtualCircuitDo1 = VirtualCircuitDo.builder()
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping1_1, mapping1_2}).build())
+                .id(VC_ID1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        VirtualCircuitDo virtualCircuitDo2 = VirtualCircuitDo.builder()
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping2_1, mapping2_2}).build())
+                .id(VC_ID2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        // Setup mocks
+        when(crossConnectBl.stream()).thenReturn(
+                Arrays.asList(crossConnectDo1_1, crossConnectDo1_2, crossConnectDo2_1, crossConnectDo2_2)
+                        .stream());
+        when(crossConnectGroupBl.stream()).thenReturn((new ArrayList<CrossConnectGroupDo>()).stream());
+        when(virtualCircuitBl.stream()).thenReturn
+                (Arrays.asList(virtualCircuitDo1, virtualCircuitDo2).stream());
+
+        // 1 vc down, othe other VC only has 1 CC up, 0 vcs impacted
+        Response response = managementResource.listInterfacesImpactedCustomers(
+                interfaceId1_1 + "," + interfaceId1_2 + "," +
+                        interfaceId2_1);
+
+        List<InterfaceCustomer> results = (List<InterfaceCustomer>) response.getEntity();
+
+        assertEquals(0, results.size());
+    }
+
+    @Test
+    public void GIVEN_listInterfacesImpactedCustomers_w_CCG_fully_down_THEN_impacted() throws Exception {
+        String CC_DISPLAY_NAME_NO_GROUP = "cc_no_group";
+
+        String CC_ID1 = UUID.randomUUID().toString();
+        String CC_ID2 = UUID.randomUUID().toString();
+
+        String CCG_ID1 = UUID.randomUUID().toString();
+
+        String VC_ID1 = UUID.randomUUID().toString();
+
+        String interfaceId1 = UUID.randomUUID().toString();
+        String interfaceId2 = UUID.randomUUID().toString();
+
+        // Build all required DO objects
+        CrossConnectDo crossConnectDo1 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(CCG_ID1)
+                .interfaceId(interfaceId1)
+                .id(CC_ID1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectDo crossConnectDo2 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(CCG_ID1)
+                .interfaceId(interfaceId2)
+                .id(CC_ID2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectGroupDo crossConnectGroupDo1 = CrossConnectGroupDo.builder()
+                .id(CCG_ID1)
+                .crossConnectIds(new String[]{CC_ID1, CC_ID2})
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectMappings.Mapping mapping1 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo1.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping2_1 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo2.getId())
+                .build();
+
+        VirtualCircuitDo virtualCircuitDo1 = VirtualCircuitDo.builder()
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping1, mapping1}).build())
+                .id(VC_ID1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        // mock T2 returning VC Id as impacted.
+        Mockito.when(impactedCustomersT2.getVcRedundancyStatus(any(), any(), any(), any(), any(), any()))
+                .thenReturn(new HashSet<>(Arrays.asList(virtualCircuitDo1.getId())));
+
+        // Setup mocks
+        when(crossConnectBl.stream()).thenReturn(
+                Arrays.asList(crossConnectDo1, crossConnectDo1)
+                        .stream());
+        when(crossConnectGroupBl.stream()).thenReturn(Arrays.asList(crossConnectGroupDo1).stream());
+        when(virtualCircuitBl.stream()).thenReturn
+                (Arrays.asList(virtualCircuitDo1).stream());
+
+        // All CCs in CCG down
+        Response response = managementResource.listInterfacesImpactedCustomers(
+                interfaceId1 + "," + interfaceId2);
+
+        List<InterfaceCustomer> results = (List<InterfaceCustomer>) response.getEntity();
+
+        assertEquals(1, results.size());
+        assertEquals(VC_ID1, results.get(0).getResourceId());
+        assertFalse(results.get(0).getCustomerBgpSessionUp());
+    }
+
+    @Test
+    public void GIVEN_listInterfacesImpactedCustomers_w_CCG_partially_down_THEN_not_impacted() throws Exception {
+        String CC_DISPLAY_NAME_NO_GROUP = "cc_no_group";
+
+        String CC_ID1 = UUID.randomUUID().toString();
+        String CC_ID2 = UUID.randomUUID().toString();
+
+        String CCG_ID1 = UUID.randomUUID().toString();
+
+        String VC_ID1 = UUID.randomUUID().toString();
+
+        String interfaceId1 = UUID.randomUUID().toString();
+        String interfaceId2 = UUID.randomUUID().toString();
+
+        // Build all required DO objects
+        CrossConnectDo crossConnectDo1 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(CCG_ID1)
+                .interfaceId(interfaceId1)
+                .id(CC_ID1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectDo crossConnectDo2 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(CCG_ID1)
+                .interfaceId(interfaceId2)
+                .id(CC_ID2)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectGroupDo crossConnectGroupDo1 = CrossConnectGroupDo.builder()
+                .id(CCG_ID1)
+                .crossConnectIds(new String[]{CC_ID1, CC_ID2})
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectMappings.Mapping mapping1 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectGroupDo1.getId())
+                .build();
+
+        VirtualCircuitDo virtualCircuitDo1 = VirtualCircuitDo.builder()
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping1, mapping1}).build())
+                .id(VC_ID1)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+
+        // Setup mocks
+        when(crossConnectBl.stream()).thenReturn(
+                Arrays.asList(crossConnectDo1, crossConnectDo1)
+                        .stream());
+        when(crossConnectGroupBl.stream()).thenReturn(Arrays.asList(crossConnectGroupDo1).stream());
+        when(virtualCircuitBl.stream()).thenReturn
+                (Arrays.asList(virtualCircuitDo1).stream());
+
+        // 1 CC in CCG down, the other still up
+        Response response = managementResource.listInterfacesImpactedCustomers(
+                interfaceId1);
+
+        List<InterfaceCustomer> results = (List<InterfaceCustomer>) response.getEntity();
+
+        assertEquals(0, results.size());
+    }
+
+    @Test
+    public void GIVEN_getDrgRedundancyMap_THEN_Succeed() throws Exception {
+        String CC_DISPLAY_NAME_NO_GROUP = "cc_no_group";
+
+        String CC_ID1 = UUID.randomUUID().toString();
+        String CC_ID2 = UUID.randomUUID().toString();
+
+        String CCG_ID1 = UUID.randomUUID().toString();
+
+        String VC_ID1 = UUID.randomUUID().toString();
+        String VC_ID2 = UUID.randomUUID().toString();
+
+        String interfaceId1 = UUID.randomUUID().toString();
+        String interfaceId2 = UUID.randomUUID().toString();
+
+        String DRG_ID1 = UUID.randomUUID().toString();
+        String DRG_ID2 = UUID.randomUUID().toString();
+
+        // Build all required DO objects
+
+        DeviceDo device1 = DeviceDo.builder()
+                .name(DEVICE1_NAME)
+                .id(UUID.randomUUID().toString())
+                .build();
+
+        DeviceDo device2 = DeviceDo.builder()
+                .name(DEVICE2_NAME)
+                .id(UUID.randomUUID().toString())
+                .build();
+
+        CrossConnectDo crossConnectDo1 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(CCG_ID1)
+                .interfaceId(interfaceId1)
+                .id(CC_ID1)
+                .compartmentId(MY_COMPARTMENT)
+                .deviceId(device1.getId())
+                .build();
+
+        CrossConnectDo crossConnectDo2 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(CCG_ID1)
+                .interfaceId(interfaceId2)
+                .id(CC_ID2)
+                .compartmentId(MY_COMPARTMENT)
+                .deviceId(device2.getId())
+                .build();
+
+        CrossConnectGroupDo crossConnectGroupDo1 = CrossConnectGroupDo.builder()
+                .id(CCG_ID1)
+                .crossConnectIds(new String[]{CC_ID1})
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectMappings.Mapping mapping1 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectGroupDo1.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping2 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo2.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping3 = CrossConnectMappings.Mapping.builder().build();
+
+        VirtualCircuitDo virtualCircuitDo1 = VirtualCircuitDo.builder()
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping1, mapping2}).build())
+                .id(VC_ID1)
+                .compartmentId(MY_COMPARTMENT)
+                .gatewayId(DRG_ID1)
+                .state(VirtualCircuitDo.State.PROVISIONED)
+                .gatewayType(VirtualCircuitDo.GatewayType.DRG)
+                .build();
+
+        VirtualCircuitDo virtualCircuitDo2 = VirtualCircuitDo.builder()
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping3}).build())
+                .id(VC_ID2)
+                .compartmentId(MY_COMPARTMENT)
+                .gatewayId(DRG_ID1)
+                .state(VirtualCircuitDo.State.PROVISIONED)
+                .gatewayType(VirtualCircuitDo.GatewayType.DRG_V2)
+                .build();
+
+        IPsecConnectionDo ipsec = IPsecConnectionDo.builder()
+                .id(UUID.randomUUID().toString())
+                .state(IPsecConnectionDo.State.Provisioned)
+                .drgId(DRG_ID2)
+                .build();
+
+        TunnelDo tunnel1 = TunnelDo.builder()
+                .id(UUID.randomUUID().toString())
+                .deviceId(device1.getId())
+                .ipsecId(ipsec.getId())
+                .build();
+
+        TunnelDo tunnel2 = TunnelDo.builder()
+                .id(UUID.randomUUID().toString())
+                .deviceId(device2.getId())
+                .ipsecId(ipsec.getId())
+                .build();
+
+        // Setup mocks
+        when(deviceBl.stream()).thenReturn(
+                Arrays.asList(device1, device2)
+                        .stream());
+        when(crossConnectBl.stream()).thenReturn(
+                Arrays.asList(crossConnectDo1, crossConnectDo2)
+                        .stream());
+        when(crossConnectGroupBl.stream()).thenReturn(Arrays.asList(crossConnectGroupDo1).stream());
+        when(virtualCircuitBl.stream()).thenReturn
+                (Arrays.asList(virtualCircuitDo1, virtualCircuitDo2).stream());
+        when(iPsecConnectionBl.stream()).thenReturn(Arrays.asList(ipsec).stream());
+        when(tunnelBl.stream()).thenReturn(Arrays.asList(tunnel1, tunnel2).stream());
+
+        Response response = managementResource.getDrgRedundancyMap();
+
+        List<DrgRedundancyRecord> results = (List<DrgRedundancyRecord>) response.getEntity();
+
+        Map<String, Set<String>> drg2Device = new HashMap<>();
+        for(DrgRedundancyRecord r : results) {
+            if (!drg2Device.containsKey(r.getDrgid())) {
+                drg2Device.put(r.getDrgid(), new HashSet<>());
+            }
+
+            drg2Device.get(r.getDrgid()).add(r.getDeviceName());
+        }
+
+        assertTrue(drg2Device.get(DRG_ID1).contains(DEVICE1_NAME));
+        assertTrue(drg2Device.get(DRG_ID1).contains(DEVICE2_NAME));
+        assertTrue(drg2Device.get(DRG_ID2).contains(DEVICE1_NAME));
+        assertTrue(drg2Device.get(DRG_ID2).contains(DEVICE2_NAME));
+    }
+
+    @Test
+    public void GIVEN_T2NonRedundantVcList_AND_T2PendingVcList_THEN_correctRedundanyStatus() throws Exception {
+
+        // Prepare DOs and variables
+        String CC_DISPLAY_NAME_NO_GROUP = "cc_no_group";
+        String CC_DISPLAY_NAME_WITH_GROUP = "cc_with_group";
+        String CCG_DISPLAY_NAME = "ccg_valid_device_id";
+
+        String CC_ID1 = UUID.randomUUID().toString();
+        String CC_ID2 = UUID.randomUUID().toString();
+        String CCG_ID = UUID.randomUUID().toString();
+
+        String VC_ID1 = UUID.randomUUID().toString();
+        String VC_ID2 = UUID.randomUUID().toString();
+        String VC_ID3 = UUID.randomUUID().toString();
+        String VC_ID4 = UUID.randomUUID().toString();
+
+
+        String interfaceId = UUID.randomUUID().toString();
+
+        String NO_BGPSESSION_VC = "no_bgp_session_vc";
+        String NO_BGPSESSION_VC_2 = "no_bgp_session_vc_2";
+        String PENDING_VGP_SESSION_VC = "pending_bgp_session_vc";
+        String REDUNDANT_BGP_SESSION_VC = "redundant_bgp_session_vc";
+
+
+        HashMap<String, Set<Integer>> vcsToVlans = new HashMap<>();
+        vcsToVlans.put(VC_ID1, new HashSet<>());
+        vcsToVlans.put(VC_ID2, new HashSet<>());
+        vcsToVlans.put(VC_ID3, new HashSet<>());
+        vcsToVlans.put(VC_ID4, new HashSet<>());
+
+
+
+        DeviceDo device1 = DeviceDo.builder()
+                .name(DEVICE1_NAME)
+                .id(UUID.randomUUID().toString())
+                .build();
+
+        DeviceDo device2 = DeviceDo.builder()
+                .name(DEVICE2_NAME)
+                .id(UUID.randomUUID().toString())
+                .build();
+
+        // Build all required DO objects
+        CrossConnectDo crossConnectDo1 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_NO_GROUP)
+                .crossConnectGroupId(null)
+                .interfaceId(interfaceId)
+                .id(CC_ID1)
+                .vcsToVlans(vcsToVlans)
+                .compartmentId(MY_COMPARTMENT)
+                .state(CrossConnectDo.State.PROVISIONED)
+                .build();
+
+        CrossConnectDo crossConnectDo2 = CrossConnectDo.builder()
+                .displayName(CC_DISPLAY_NAME_WITH_GROUP)
+                .crossConnectGroupId(CCG_ID)
+                .interfaceId("00000000-0000-0000-0000-0000000000")
+                .id(CC_ID2)
+                .vcsToVlans(vcsToVlans)
+                .compartmentId(MY_COMPARTMENT)
+                .state(CrossConnectDo.State.PROVISIONED)
+                .build();
+
+        CrossConnectGroupDo crossConnectGroupDo = CrossConnectGroupDo.builder()
+                .displayName(CCG_DISPLAY_NAME)
+                .id(CCG_ID)
+                .interfaceId(interfaceId)
+                .crossConnectIds(new String[]{CC_ID1, CC_ID2})
+                .vcsToVlans(vcsToVlans)
+                .compartmentId(MY_COMPARTMENT)
+                .build();
+
+        CrossConnectMappings.Mapping mapping1 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo1.getId())
+                .build();
+
+        CrossConnectMappings.Mapping mapping2 = CrossConnectMappings.Mapping.builder()
+                .crossConnectId(crossConnectDo2.getId())
+                .build();
+
+
+
+        VirtualCircuitDo virtualCircuitDo1 = VirtualCircuitDo.builder()
+                .associatedCcs(new HashSet<>(Arrays.asList(CC_ID1)))
+                .displayName(NO_BGPSESSION_VC)
+                .id(VC_ID1)
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping1, mapping2}).build())
+                .compartmentId(MY_COMPARTMENT)
+                .gatewayId("drg1")
+                .ipAddressType(VirtualCircuitDo.IpAddressType.PRIVATE)
+                .build();
+
+        VirtualCircuitDo virtualCircuitDo2 = VirtualCircuitDo.builder()
+                .associatedCcs(new HashSet<>(Arrays.asList(CC_ID2)))
+                .displayName(PENDING_VGP_SESSION_VC)
+                .id(VC_ID2)
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping1, mapping2}).build())
+                .compartmentId(MY_COMPARTMENT)
+                .gatewayId("drg2")
+                .ipAddressType(VirtualCircuitDo.IpAddressType.PRIVATE)
+                .build();
+
+        VirtualCircuitDo virtualCircuitDo3 = VirtualCircuitDo.builder()
+                .associatedCcgs(new HashSet<>(Arrays.asList(CCG_ID)))
+                .displayName(NO_BGPSESSION_VC_2)
+                .id(VC_ID3)
+                .compartmentId(MY_COMPARTMENT)
+                .ipAddressType(VirtualCircuitDo.IpAddressType.PUBLIC)
+                .build();
+
+        VirtualCircuitDo virtualCircuitDo4 = VirtualCircuitDo.builder()
+                .associatedCcgs(new HashSet<>(Arrays.asList(CCG_ID)))
+                .displayName(REDUNDANT_BGP_SESSION_VC)
+                .id(VC_ID4)
+                .gatewayId("drg3")
+                .crossConnectMapping(CrossConnectMappings.builder()
+                        .mappings(new CrossConnectMappings.Mapping[]{mapping1, mapping2}).build())
+                .compartmentId(MY_COMPARTMENT)
+                .ipAddressType(VirtualCircuitDo.IpAddressType.PRIVATE)
+                .build();
+
+        // Setup mocks
+        when(deviceBl.stream()).thenReturn(
+                Arrays.asList(device1, device2)
+                        .stream());
+        when(deviceBl.getDeviceDoByDeviceName(any(), any())).thenReturn(
+                device1);
+        when(deviceBl.getOrThrow(any())).thenReturn(
+                device1);
+        InterfaceDo interfaceDo = InterfaceDo.builder().id(interfaceId).name(INTERFACE_PREFIX).state(InterfaceDo.State.Assigned).build();
+
+        // Setup mocks
+        when(interfaceBl.stream()).thenReturn(Arrays.asList(interfaceDo).stream());
+        when(interfaceBl.getInterfaceByName(any(), any(), any())).thenReturn(Optional.of(interfaceDo));
+        when(interfaceBl.getOrThrow(any())).thenReturn(
+                interfaceDo);
+        when(crossConnectBl.stream()).thenReturn(
+                Arrays.asList(crossConnectDo1, crossConnectDo2)
+                        .stream());
+        when(crossConnectBl.getOrThrow(crossConnectDo1.getId())).thenReturn(crossConnectDo1);
+        when(crossConnectBl.getOrThrow(crossConnectDo2.getId())).thenReturn(crossConnectDo2);
+        when(crossConnectBl.get(crossConnectDo1.getId())).thenReturn(Optional.of(crossConnectDo1));
+        when(crossConnectBl.get(crossConnectDo2.getId())).thenReturn(Optional.of(crossConnectDo2));
+
+        when(crossConnectGroupBl.stream()).thenReturn(Arrays.asList(crossConnectGroupDo).stream());
+        when(virtualCircuitBl.stream()).thenReturn
+                (Arrays.asList(virtualCircuitDo1, virtualCircuitDo2, virtualCircuitDo3, virtualCircuitDo4).stream());
+
+        when(virtualCircuitBl.get(virtualCircuitDo1.getId())).thenReturn(Optional.of(virtualCircuitDo1));
+        when(virtualCircuitBl.get(virtualCircuitDo2.getId())).thenReturn(Optional.of(virtualCircuitDo2));
+        when(virtualCircuitBl.get(virtualCircuitDo3.getId())).thenReturn(Optional.of(virtualCircuitDo3));
+        when(virtualCircuitBl.get(virtualCircuitDo4.getId())).thenReturn(Optional.of(virtualCircuitDo4));
+
+
+
+        // mock T2 returning drg Id as impacted.
+        Mockito.when(impactedCustomersT2.getVcRedundancyStatus(eq(ManagementResourceHelper.NO_BGP_SESSION_VC_QUERY), any(), any(),any(), any(), any()))
+                .thenReturn(new HashSet<>(Arrays.asList(virtualCircuitDo1.getGatewayId(), virtualCircuitDo3.getId())));
+        Mockito.when(impactedCustomersT2.getVcRedundancyStatus(eq(ManagementResourceHelper.PENDING_BGP_SESSION_VC_QUERY), any(), any(),any(), any(), any()))
+                .thenReturn(new HashSet<>(Arrays.asList(virtualCircuitDo2.getGatewayId())));
+
+
+        // Call API
+        Response response = managementResource.listInterfacesImpactedCustomersV2(DEVICE1_NAME, INTERFACE_PREFIX, "now", 15);
+
+        List<InterfaceCustomer> reslist = (List<InterfaceCustomer>) response.getEntity();
+
+        // Validate Results
+        reslist.forEach((ic) -> {
+            if (ic.getResourceId().equals(virtualCircuitDo1.getId()) || ic.getResourceId().equals(virtualCircuitDo3.getId())) {
+                assertFalse(ic.getCustomerBgpSessionUp());
+            } else if (ic.getResourceId().equals(virtualCircuitDo4.getId())){
+                assertTrue(ic.getCustomerBgpSessionUp());
+            } else {
+                assertNull(ic.getCustomerBgpSessionUp());
+            }
+        });
+
+
+    }
+
+}
 
