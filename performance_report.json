@@ -1,9 +1,174 @@
-if "HIGH" in indicator:
-                                high_indicator = indicator.replace('HIGH', f"{COLORS['RED']}HIGH{COLORS['RESET']}")
-                                summary += f"  {high_indicator}\n"
-                            elif "LOW" in indicator:
-                                low_indicator = indicator.replace('LOW', f"{COLORS['RED']}LOW{COLORS['RESET']}")
-                                summary += f"  {low_indicator}\n"
-                            else:
-                                bad_indicator = indicator.replace('BAD', f"{COLORS['RED']}BAD{COLORS['RESET']}")
-                                summary += f"  {bad_indicator}\n"
+============================================================
+PROCESSING OCID: demo-ocid-456
+============================================================
+
+    Welcome to the ncpcli interactive mode!
+
+    Use help to get details on all available commands.
+
+    Use "help command" for details on a single command.
+
+    TAB is available for auto-completion of commands.
+    
++-----------------------+---------------+
+| Commands              | Pipe Commands |
++-----------------------+---------------+
+| acs                   | count         |
+| admin                 | grep          |
+| arw                   | head          |
+| c3                    | jparse        |
+| cat                   | jq            |
+| cd                    | match         |
+| clear-device-list     | page          |
+| configs               | post-jira     |
+| current-devices       | tail          |
+| current-log           | tee           |
+| deploy                |               |
+| devices               |               |
+| docs                  |               |
+| download-artifact     |               |
+| dump-config           |               |
+| exit                  |               |
+| fanout-operations     |               |
+| healthcheck           |               |
+| help                  |               |
+| history               |               |
+| log-level             |               |
+| ls                    |               |
+| lvv                   |               |
+| model                 |               |
+| multiregion           |               |
+| ncp-job               |               |
+| network-operations    |               |
+| plan                  |               |
+| plan-ipam             |               |
+| plan-model            |               |
+| plan-query            |               |
+| prm                   |               |
+| prometheus            |               |
+| pwd                   |               |
+| query                 |               |
+| r                     |               |
+| read                  |               |
+| refresh               |               |
+| reload                |               |
+| reset                 |               |
+| restart               |               |
+| restore               |               |
+| rollback              |               |
+| run                   |               |
+| save                  |               |
+| search                |               |
+| set                   |               |
+| show                  |               |
+| start                 |               |
+| status                |               |
+| stop                  |               |
+| switch                |               |
+| sync                  |               |
+| test                  |               |
+| update                |               |
+| validate              |               |
+| version               |               |
+| wait                  |               |
+| watch                 |               |
+| write                 |               |
++-----------------------+---------------+
+
+ncpcli> show interfaces
+Physical interface: et-0/1/1, Enabled, Physical link is Down
+Physical interface: et-0/1/2, Disabled, Physical link is Up
+Physical interface: et-0/1/3, Enabled, Physical link is Up
+
+ncpcli> show bgp sessions
+BGP IPv4 Session: bgpSessionState': 'DOWN'
+BGP IPv6 Session: bgpIpv6SessionState': 'DOWN'
+BGP Redundancy: ipv4bgpSessionRedundancyStatus': 'NOT_MET_SLA'
+
+ncpcli> show fec errors
+FEC Corrected Errors 1250000
+FEC Uncorrected Errors 2500
+
+ncpcli> show fabric stats
+Fabric drops: 150
+
+ncpcli> show alarms
+alarms currently active with count 3
+High temperature alarm on et-0/1/1
+Low power alarm on et-0/1/2
+
+ncpcli> show optical
+Laser output power: 7.5 dBm (HIGH - threshold: 5.0 dBm)
+Laser receiver power: -15.2 dBm (LOW)
+Laser bias current: 85.3 mA (HIGH)
+
+ncpcli> show interfaces diagnostics optics et-0/1/0
+Physical interface: et-0/1/0
+  Laser output power: 1.62 mW / 2.1 dBm
+  Laser receiver power: 0.15 mW / -8.3 dBm
+  Laser bias current: 45.2 mA
+  Laser output power high alarm threshold: 3.16 mW / 5.0 dBm
+  Laser output power low alarm threshold: 0.63 mW / -2.0 dBm
+  Temperature: 31°C
+  Voltage: 3.3093V
+  Lanes: 1
+
+ncpcli> show interfaces diagnostics optics et-0/1/1
+Physical interface: et-0/1/1
+  Laser output power: 6.03 mW / 7.8 dBm
+  Laser receiver power: 0.014 mW / -18.5 dBm
+  Laser bias current: 92.1 mA
+  Laser output power high alarm threshold: 3.16 mW / 5.0 dBm
+  Laser output power low alarm threshold: 0.63 mW / -2.0 dBm
+  Laser output power high alarm: On
+  Laser receiver power low alarm: On
+  Laser bias current high alarm: On
+  Temperature: 45°C
+  Voltage: 3.4567V
+  Lanes: 1
+
+ncpcli> show interfaces diagnostics optics et-0/1/2
+Physical interface: et-0/1/2
+  Laser output power: 1.32 mW / 1.2 dBm
+  Laser receiver power: 0.062 mW / -12.1 dBm
+  Laser bias current: 38.7 mA
+  Laser output power high alarm threshold: 3.16 mW / 5.0 dBm
+  Laser output power low alarm threshold: 0.63 mW / -2.0 dBm
+  Laser output power low alarm: On
+  Laser bias current low alarm: On
+  Temperature: 28°C
+  Voltage: 3.1234V
+  Lanes: 1
+
+ncpcli> show interfaces diagnostics optics et-0/1/3
+Physical interface: et-0/1/3
+  Laser output power: 2.19 mW / 3.4 dBm
+  Laser receiver power: 0.105 mW / -9.8 dBm
+  Laser bias current: 52.3 mA
+  Laser output power high alarm threshold: 3.16 mW / 5.0 dBm
+  Laser output power low alarm threshold: 0.63 mW / -2.0 dBm
+  Temperature: 33°C
+  Voltage: 3.2987V
+  Lanes: 1
+
+ncpcli> show device status
+error: device et-0/1/4.null not found
+
+ncpcli> show lacp
+RpcError: invalid interface type for LACP
+
+ncpcli> show bit errors
+Bit errors: 15 on et-0/1/1
+Errored blocks: 8 on et-0/1/2
+
+ncpcli> show encryption
+Encryption Status: DOWN
+
+SetUp Step 3 :Clean the Tunnel
+SetUp Step 4 :Create tunnel to vpn-api
+SetUp Step 5 : Create Yubikey Signer
+SetUp Completed 
+
+{'crossConnectGroup': {'id': 'ocid1.crossconnectgroup.region1.sea.aaaaaaaa7asc7fc7tghcm5bm3vqb467ydzmbzjsmtkgzwjhaapj644vp5bsa', 'compartmentId': 'ocid1.compartment.region1..aaaaaaaaov74ggsdyzytr7m2nlofs7mehrnt75dsx5u5e67wsofv33wpnlzq', 'lifecycleState': 'PROVISIONED', 'lifecycleStateInternal': None, 'displayName': 'Mock_CCG_TEST', 'timeCreated': '2024-06-27T19:41:25.151Z', 'crossConnectIdList': ['ocid.0456'], 'macsecProperties': None, 'globalPopCcgMetadata': None, 'ociPhysicalDeviceName': 'sea1-f1-t1-r2', 'ociLogicalDeviceName': 'sea1-f1-t1-r2', 'vcsToVlans': '{}'}}
+
+ncpcli> exit
