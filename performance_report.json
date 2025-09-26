@@ -1,1 +1,91 @@
 
+ @Test
+    public void testGetTenancyName_TenancyMetadataNotPresent() {
+        // Arrange
+        TenancyMetadataBl tenancyMetadataBl = mock(TenancyMetadataBl.class);
+        String tenancyId = "test-tenancy-id";
+        when(tenancyMetadataBl.get(tenancyId)).thenReturn(Optional.empty());
+        when(managementResource.getTenancyName(tenancyId)).thenReturn(null);
+
+        // Act
+        String result = managementResource.getTenancyName(tenancyId);
+
+        // Assert
+        assertNull(result);
+        Mockito.verify(tenancyMetadataBl).get(tenancyId);
+
+    }
+
+    @Test
+    public void testGetTenancyName_TenancyMetadataPresent_LegalEntityNameNull() {
+        // Arrange
+        String tenancyId = "test-tenancy-id";
+        TenancyMetadataBl tenancyMetadataBl = mock(TenancyMetadataBl.class);
+        TenancyMetadataDo tenancyMetadataDo = TenancyMetadataDo.builder()
+                .id(tenancyId)
+                .legalEntityName(null)
+                .build();
+        when(tenancyMetadataBl.get(tenancyId)).thenReturn(Optional.of(tenancyMetadataDo));
+
+        // Act
+        String result = managementResource.getTenancyName(tenancyId);
+
+        // Assert
+        assertEquals(tenancyId, result);
+        Mockito.verify(tenancyMetadataBl).get(tenancyId);
+    }
+
+    @Test
+    public void testGetTenancyName_TenancyMetadataPresent_LegalEntityNameNotNull() {
+        // Arrange
+        String tenancyId = "test-tenancy-id";
+        String legalEntityName = "test-legal-entity-name";
+        TenancyMetadataDo tenancyMetadataDo = TenancyMetadataDo.builder()
+                .id(tenancyId)
+                .legalEntityName(legalEntityName)
+                .build();
+        when(tenancyMetadataBl.get(tenancyId)).thenReturn(Optional.of(tenancyMetadataDo));
+
+        // Act
+        String result = managementResource.getTenancyName(tenancyId);
+
+        // Assert
+        assertEquals(legalEntityName, result);
+
+    }
+
+    @Test
+    public void testGetHomeRegion_TenancyMetadataPresent_VpnRegionNameNotNull() {
+
+        String tenancyId = "test-tenancy-id";
+        // Arrange
+        TenancyMetadataDo tenancyMetadataDo = mock(TenancyMetadataDo.class);
+        TenancyMetadataBl tenancyMetadataBl = mock(TenancyMetadataBl.class);
+        when(tenancyMetadataBl.get(tenancyId)).thenReturn(Optional.of(tenancyMetadataDo));
+        when(vpnRegion.getName()).thenReturn("test-region");
+
+        // Act
+        String homeRegion = managementResource.getHomeRegion(tenancyId);
+
+        // Assert
+        assertEquals("test-region", homeRegion);
+
+    }
+
+    @Test
+    public void testGetHomeRegion_TenancyMetadataPresent_VpnRegionNameNull() {
+        // Arrange
+        TenancyMetadataDo tenancyMetadataDo = mock(TenancyMetadataDo.class);
+        TenancyMetadataBl tenancyMetadataBl = mock(TenancyMetadataBl.class);
+        String tenancyId = "test-tenancy-id";
+        when(tenancyMetadataBl.get(tenancyId)).thenReturn(Optional.of(tenancyMetadataDo));
+        when(vpnRegion.getName()).thenReturn(null);
+
+        // Act
+        String homeRegion = managementResource.getHomeRegion(tenancyId);
+
+        // Assert
+        assertNull(homeRegion);
+        Mockito.verify(tenancyMetadataBl).get(tenancyId);
+        Mockito.verify(vpnRegion).getName();
+    }
