@@ -1,1 +1,21 @@
+public String getHomeRegion(String tenancyId) {
+        try {
+            java.util.Optional<TenancyMetadataDo> tenancyMetadata = tenancyMetadataBl.get(tenancyId);
+            if (tenancyMetadata.isPresent()){
+                TenancyMetadataDo metadata = tenancyMetadata.get();
 
+                try {
+                    String homeRegion = this.vpnRegion.getName();
+                    return homeRegion != null ? homeRegion.toString() : null;
+
+                } catch (Exception e) {
+                    log.warn("Failed to get the name of the tenancy: {}",   tenancyId, e);
+                }
+            }
+
+        }
+        catch (Exception e) {
+            log.warn("Failed to get tenancy metadata for name lookup: {}",  tenancyId, e);
+        }
+        return null;
+    }
