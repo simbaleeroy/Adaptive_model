@@ -1,1 +1,126 @@
 
+============================================================
+PROCESSING OCID: demo-ocid-456
+============================================================
+
+    Welcome to the ncpcli interactive mode!
+
+    Use help to get details on all available commands.
+
+    Use "help command" for details on a single command.
+
+    TAB is available for auto-completion of commands.
+    
++-----------------------+---------------+
+| Commands              | Pipe Commands |
++-----------------------+---------------+
+| acs                   | count         |
+| admin                 | grep          |
+| arw                   | head          |
+| c3                    | jparse        |
+| cat                   | jq            |
+| cd                    | match         |
+| clear-device-list     | page          |
+| configs               | post-jira     |
+| current-devices       | tail          |
+| current-log           | tee           |
+| deploy                |               |
+| devices               |               |
+| docs                  |               |
+| download-artifact     |               |
+| dump-config           |               |
+| exit                  |               |
+| fanout-operations     |               |
+| healthcheck           |               |
+| help                  |               |
+| history               |               |
+| log-level             |               |
+| ls                    |               |
+| lvv                   |               |
+| model                 |               |
+| multiregion           |               |
+| ncp-job               |               |
+| network-operations    |               |
+| plan                  |               |
+| plan-ipam             |               |
+| plan-model            |               |
+| plan-query            |               |
+| prm                   |               |
+| prometheus            |               |
+| pwd                   |               |
+| query                 |               |
+| r                     |               |
+| read                  |               |
+| refresh               |               |
+| reload                |               |
+| reset                 |               |
+| restart               |               |
+| restore               |               |
+| rollback              |               |
+| run                   |               |
+| save                  |               |
+| search                |               |
+| set                   |               |
+| show                  |               |
+| start                 |               |
+| status                |               |
+| stop                  |               |
+| switch                |               |
+| sync                  |               |
+| test                  |               |
+| update                |               |
+| validate              |               |
+| version               |               |
+| wait                  |               |
+| watch                 |               |
+| write                 |               |
++-----------------------+---------------+
+
+ncpcli> show interfaces
+Physical interface: et-0/1/1, Enabled, Physical link is Down
+Physical interface: et-0/1/2, Disabled, Physical link is Up
+Physical interface: et-0/1/3, Enabled, Physical link is Up
+
+ncpcli> show bgp sessions
+BGP IPv4 Session: bgpSessionState': 'DOWN'
+BGP IPv6 Session: bgpIpv6SessionState': 'DOWN'
+BGP Redundancy: ipv4bgpSessionRedundancyStatus': 'NOT_MET_SLA'
+
+ncpcli> show fec errors
+FEC Corrected Errors 1250000
+FEC Uncorrected Errors 2500
+
+ncpcli> show fabric stats
+Fabric drops: 150
+
+ncpcli> show alarms
+alarms currently active with count 3
+High temperature alarm on et-0/1/1
+Low power alarm on et-0/1/2
+
+ncpcli> show optical
+Laser output power: 7.5 dBm (HIGH - threshold: 5.0 dBm)
+Laser receiver power: -15.2 dBm (LOW)
+Laser bias current: 85.3 mA (HIGH)
+
+ncpcli> show device status
+error: device et-0/1/4.null not found
+
+ncpcli> show lacp
+RpcError: invalid interface type for LACP
+
+ncpcli> show bit errors
+Bit errors: 15 on et-0/1/1
+Errored blocks: 8 on et-0/1/2
+
+ncpcli> show encryption
+Encryption Status: DOWN
+
+SetUp Step 3 :Clean the Tunnel
+SetUp Step 4 :Create tunnel to vpn-api
+SetUp Step 5 : Create Yubikey Signer
+SetUp Completed 
+
+{'crossConnectGroup': {'id': 'ocid1.crossconnectgroup.region1.sea.aaaaaaaa7asc7fc7tghcm5bm3vqb467ydzmbzjsmtkgzwjhaapj644vp5bsa', 'compartmentId': 'ocid1.compartment.region1..aaaaaaaaov74ggsdyzytr7m2nlofs7mehrnt75dsx5u5e67wsofv33wpnlzq', 'lifecycleState': 'PROVISIONED', 'lifecycleStateInternal': None, 'displayName': 'Mock_CCG_TEST', 'timeCreated': '2024-06-27T19:41:25.151Z', 'crossConnectIdList': ['ocid.0456'], 'macsecProperties': None, 'globalPopCcgMetadata': None, 'ociPhysicalDeviceName': 'sea1-f1-t1-r2', 'ociLogicalDeviceName': 'sea1-f1-t1-r2', 'vcsToVlans': '{}'}}
+
+ncpcli> exit
