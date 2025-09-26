@@ -1,2 +1,9 @@
-down_interfaces_str = ', '.join(down_interfaces).replace('DOWN', f"{COLORS['RED']}DOWN{COLORS['RESET']}")
-                        summary += f"{COLORS['BLUE']}Interface States:{COLORS['RESET']} {down_interfaces_str}\n"
+if "HIGH" in indicator:
+                                high_indicator = indicator.replace('HIGH', f"{COLORS['RED']}HIGH{COLORS['RESET']}")
+                                summary += f"  {high_indicator}\n"
+                            elif "LOW" in indicator:
+                                low_indicator = indicator.replace('LOW', f"{COLORS['RED']}LOW{COLORS['RESET']}")
+                                summary += f"  {low_indicator}\n"
+                            else:
+                                bad_indicator = indicator.replace('BAD', f"{COLORS['RED']}BAD{COLORS['RESET']}")
+                                summary += f"  {bad_indicator}\n"
