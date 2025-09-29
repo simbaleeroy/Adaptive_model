@@ -1,4 +1,10 @@
-// Debug: Check existing DRG V2 attachments
-                                List<DrgV2AttachmentDo> existingAttachments = drgV2AttachmentBl
-                                                .listByAttachedResourceId(t, virtualCircuitDo.getId());
-                                System.out.println("Existing DRG V2 attachments count: " + existingAttachments.size());
+Method createOrUpdateMethod = VirtualCircuitWorkflowBase.class.getDeclaredMethod(
+                                                "createOrUpdateDrgV2Attachment",
+                                                Transaction.class,
+                                                VirtualCircuitDo.class,
+                                                VpnRegion.class);
+                                createOrUpdateMethod.setAccessible(true);
+
+                                // Call the method directly
+                                createOrUpdateMethod.invoke(createVcDrgV2AttachmentWorkflow, t, virtualCircuitDo,
+                                                (VpnRegion) null);
