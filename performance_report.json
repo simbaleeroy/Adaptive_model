@@ -1,1 +1,524 @@
 
+package com.oracle.pic.vpn.workflows.workflows;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.reflect.TypeToken;
+import com.google.inject.Inject;
+import com.oracle.bmc.core.model.DrgAttachment;
+import com.oracle.bmc.core.model.VirtualCircuitDrgAttachmentNetworkDetails;
+import com.oracle.bmc.model.BmcException;
+import com.oracle.oci.tos.health.HealthStatusClient;
+import com.oracle.pic.commons.exceptions.server.ErrorCode;
+import com.oracle.pic.commons.metrics.MetricsScope;
+import com.oracle.pic.identity.authentication.error.AuthServerUnavailableException;
+import com.oracle.pic.kiev.Transaction;
+import com.oracle.pic.kiev.mapping.MappedDataStore;
+import com.oracle.pic.revisionsensitiveworkflow.RowRevisionSensitiveWorkflowArgs;
+import com.oracle.pic.vpn.VpnRegion;
+import com.oracle.pic.vpn.common.MetricConstants;
+import com.oracle.pic.vpn.db.CrossConnectBl;
+import com.oracle.pic.vpn.db.CrossConnectGroupBl;
+import com.oracle.pic.vpn.db.DrgV2AttachmentBl;
+import com.oracle.pic.vpn.db.EventBl;
+import com.oracle.pic.vpn.db.GlobalConnectivityGatewayAttachmentBl;
+import com.oracle.pic.vpn.db.VirtualCircuitBl;
+import com.oracle.pic.vpn.db.devices.DeviceSynchronizerBl;
+import com.oracle.pic.vpn.db.devices.model.ConfigSnippetDo;
+import com.oracle.pic.vpn.db.devices.model.DeviceDo;
+import com.oracle.pic.vpn.db.exception.ValidationException;
+import com.oracle.pic.vpn.db.model.Component;
+import com.oracle.pic.vpn.db.model.DrgV2AttachmentDo;
+import com.oracle.pic.vpn.db.model.VirtualCircuitDo;
+import com.oracle.pic.vpn.db.model.VirtualCircuitDo.State;
+import com.oracle.pic.vpn.db.util.MetricsUtil;
+import com.oracle.pic.vpn.db.util.VirtualCircuitHelper;
+import com.oracle.pic.vpn.db.workflow.args.VirtualCircuitWorkflowArgs;
+import com.oracle.pic.vpn.featurecontrol.FeatureController;
+import com.oracle.pic.vpn.identity.IdentityMetadataHelper;
+import com.oracle.pic.vpn.limits.VpnLimitsClient;
+import com.oracle.pic.vpn.oci.DrgV2Helper;
+import com.oracle.pic.vpn.workflows.casemetric.PerformanceMetricHelper;
+import com.oracle.pic.vpn.workflows.config.VpnWorkerConfiguration;
+import com.oracle.pic.vpn.workflows.util.VpnLogAndMetricsDecoratorFactory;
+import com.oracle.pic.vpn.workflows.util.WorkflowEventUtil;
+import com.oracle.pic.vpn.workflows.workflows.MetricNames.CreationWaitFailures;
+import com.oracle.pic.vpn.workflows.workflows.MetricNames.WorkflowResult;
+import com.oracle.pic.vpn.workflows.workflows.MetricNames.WorkflowTelemetry;
+import com.oracle.pic.vpn.workflows.workflows.helpers.ServiceLogHelper;
+import com.oracle.pic.workflow.worker.WorkerManagerV3;
+import com.oracle.pic.workflow.worker.WorkflowClient;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.jetbrains.annotations.NotNull;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+
+@Slf4j
+public class VirtualCircuitWorkflowBase {
+
+    private static final int NUM_WORKER_THREADS = 10;
+
+    // How long to wait between polls
+    public static final int WAIT_SLEEP_TIME = 10_000;
+    private final String WORKFLOW_NAME = this.getClass().getSimpleName();
+
+    public final DeviceSynchronizerBl deviceSynchronizerBl;
+    public final VirtualCircuitBl virtualCircuitBl;
+    public final SleepOp sleepOp;
+    public final EventBl eventBl;
+    public final GlobalConnectivityGatewayAttachmentBl gcgAttachBl;
+    public final VirtualCircuitWorkflowHelper vcWorkflowHelper;
+    public final IdentityMetadataHelper identityMetadataHelper;
+    public final FeatureController featureController;
+    protected PerformanceMetricHelper perfMetric;
+    protected CrossConnectGroupBl crossConnectGroupBl;
+    protected CrossConnectBl crossConnectBl;
+    protected DrgV2AttachmentBl drgV2AttachmentBl;
+    protected DrgV2Helper drgV2Helper;
+
+    @Inject
+    public VirtualCircuitWorkflowBase(
+            SleepOp sleepOp,
+            EventBl eventBl,
+            MappedDataStore dataStore,
+            VirtualCircuitBl virtualCircuitBl,
+            DeviceSynchronizerBl deviceSynchronizerBl,
+            GlobalConnectivityGatewayAttachmentBl gcgAttachBl,
+            IdentityMetadataHelper identityMetadataHelper,
+            FeatureController featureController,
+            DrgV2AttachmentBl drgV2AttachmentBl,
+            DrgV2Helper drgV2Helper,
+            HealthStatusClient sentinelClient,
+            VpnWorkerConfiguration config,
+            CrossConnectGroupBl crossConnectGroupBl,
+            CrossConnectBl crossConnectBl) {
+
+        this.deviceSynchronizerBl = deviceSynchronizerBl;
+        this.eventBl = eventBl;
+        this.sleepOp = sleepOp;
+        this.gcgAttachBl = gcgAttachBl;
+        this.virtualCircuitBl = virtualCircuitBl;
+        this.vcWorkflowHelper = createVirtualCircuitWorkflowHelper(dataStore, virtualCircuitBl, sentinelClient, config);
+        this.identityMetadataHelper = identityMetadataHelper;
+        this.featureController = featureController;
+        this.perfMetric = new PerformanceMetricHelper();
+        this.drgV2AttachmentBl = drgV2AttachmentBl;
+        this.drgV2Helper = drgV2Helper;
+        this.crossConnectBl = crossConnectBl;
+        this.crossConnectGroupBl = crossConnectGroupBl;
+    }
+
+    @NotNull
+    protected VirtualCircuitWorkflowHelper createVirtualCircuitWorkflowHelper(MappedDataStore dataStore, VirtualCircuitBl virtualCircuitBl, HealthStatusClient sentinelClient, VpnWorkerConfiguration config) {
+        return new VirtualCircuitWorkflowHelper(dataStore, virtualCircuitBl, sentinelClient, config);
+    }
+
+    public VirtualCircuitDo deprovisionCrossConnects(
+            MetricsScope scope,
+            Transaction t,
+            VirtualCircuitWorkflowArgs args,
+            VirtualCircuitDo virtualCircuitDo,
+            MetricsScope wfStepScope,
+            ServiceLogHelper serviceLogHelper) {
+
+        try {
+
+            Set<ConfigSnippetDo> snippetsToDelete = getSnippetsToDeprovision(t, virtualCircuitDo);
+            if (snippetsToDelete.size() == 0) {
+                log.info("Didn't find any snippets to de-provision.");
+                serviceLogHelper.emitServiceLog(scope.getPrefix(), args.getInitialTimeEpochMs(), args.getOpcRequestId(), virtualCircuitDo.getCompartmentId(),WORKFLOW_NAME, true);
+                return virtualCircuitDo;
+
+            } else {
+
+                for (ConfigSnippetDo snippet : snippetsToDelete) {
+                    checkCanDeleteSnippet(scope, snippet);
+                    log.info("Marking snippet {} for deletion.", snippet.getId());
+                    deviceSynchronizerBl.markAsDeleting(t, snippet.getId());
+                }
+
+                eventBl.create(t, virtualCircuitDo.getId(), Component.WORKER,
+                        "Set these snippets to delete: " + snippetsToDelete);
+
+                MetricsUtil.emitNegative(scope, WorkflowResult.values());
+                emitSuccessfulStepDurationMetric(scope, virtualCircuitDo);
+                perfMetric.emitTillNowTimeInMs(wfStepScope, MetricConstants.waitCompleteTime(CreateVirtualCircuitWorkflowV5.Steps.DEPROVISION_CROSS_CONNECTS), args.getInitialTimeEpochMs());
+                serviceLogHelper.emitServiceLog(scope.getPrefix(), args.getInitialTimeEpochMs(), args.getOpcRequestId(), virtualCircuitDo.getCompartmentId(), WORKFLOW_NAME, true);
+
+                return virtualCircuitDo;
+            }
+        } catch (ValidationException e) {
+            serviceLogHelper.emitServiceLog(scope.getPrefix(), args.getInitialTimeEpochMs(), args.getOpcRequestId(), virtualCircuitDo.getCompartmentId(), WORKFLOW_NAME, false);
+            // Exit workflow, dont commit anything intermediate.
+            DrgV2AttachmentDo drgV2AttachmentDo = VirtualCircuitHelper.getDrgV2AttachmentDo(virtualCircuitDo.getId(), drgV2AttachmentBl);
+            String portSpeed = VirtualCircuitHelper.getVcPortSpeed(virtualCircuitDo,crossConnectBl, crossConnectGroupBl);
+            throw vcWorkflowHelper.terminateRRWorkflow("Failed to delete snippets for deprovisioning",
+                    e, MetricNames.CreateVirtualCircuitFailures.ValidationFailure, virtualCircuitDo, portSpeed,  drgV2AttachmentDo);
+        }
+    }
+
+    @VisibleForTesting
+    Set<ConfigSnippetDo> getSnippetsToDeprovision
+            (Transaction t, VirtualCircuitDo virtualCircuitDo) throws ValidationException {
+
+        Set<String> deviceIds = virtualCircuitBl.getDeviceIdsToRemoveSnippetsFrom(t, virtualCircuitDo);
+
+        // NOTE: This logic DEPENDS on only having one CC in a virtual Circuit on a device!
+        Set<ConfigSnippetDo> snippetsToDelete = deviceSynchronizerBl.listSnippetsForDomainObject(t,
+                virtualCircuitDo.getId())
+                .stream()
+                .filter(snippet -> deviceIds.contains(snippet.getDeviceId()))
+                .collect(Collectors.toSet());
+
+        log.info("Found these config snippets to remove {}", snippetsToDelete);
+        return snippetsToDelete;
+    }
+
+    @VisibleForTesting
+    void checkCanDeleteSnippet(MetricsScope scope, ConfigSnippetDo snippet) throws ValidationException {
+        if (snippet.hasManualOverride() || !snippet.getIsActive()) {
+            MetricsUtil.emitOnePositive(scope, MetricNames.DeleteFailures.InvalidSnippetAttributesFailure );
+            MetricsUtil.emitOnePositive(scope, WorkflowResult.WorkflowFailure);
+            throw new ValidationException(ErrorCode.IncorrectState,
+                    String.format("Invalid snippet state: %s",
+                            snippet.getState()),
+                    MetricNames.CreateVirtualCircuitFailures.InvalidSnippetAttributesFailure);
+        }
+    }
+
+    public VirtualCircuitDo waitForProvision(
+            MetricsScope oldScope,
+            MetricsScope scope,
+            String stepName,
+            int assignmentNumber,
+            Transaction t,
+            VirtualCircuitWorkflowArgs args,
+            VirtualCircuitDo virtualCircuitDo,
+            ServiceLogHelper serviceLogHelper) {
+
+        Set<ConfigSnippetDo> snippetsToCheck;
+        try (Transaction readTransaction = deviceSynchronizerBl.beginTransaction("readOnlyConfigSnippets")) {
+            snippetsToCheck = new HashSet<>(deviceSynchronizerBl.listSnippetsForDomainObject(
+                    readTransaction, virtualCircuitDo.getId()));
+            readTransaction.abort();
+        }
+
+        Set<ConfigSnippetDo> applied = new HashSet<>();
+        Set<ConfigSnippetDo> pending = new HashSet<>();
+        for (ConfigSnippetDo snippet : snippetsToCheck) {
+            switch (snippet.getState()) {
+                case PendingUpdate:
+                case PendingDelete:
+                case PendingAdd:
+                    pending.add(snippet);
+                    break;
+                case Applied:
+                    applied.add(snippet);
+                    break;
+                default:
+                    String msg = String.format("Snippet %s is in an invalid state. " +
+                            "Launching terminate workflow", snippet);
+                    serviceLogHelper.emitServiceLog(oldScope.getPrefix(), args.getInitialTimeEpochMs(), args.getOpcRequestId(), virtualCircuitDo.getCompartmentId(), WORKFLOW_NAME, false);
+                    String portSpeed = VirtualCircuitHelper.getVcPortSpeed(virtualCircuitDo,crossConnectBl, crossConnectGroupBl);
+                    DrgV2AttachmentDo drgV2AttachmentDo = VirtualCircuitHelper.getDrgV2AttachmentDo(virtualCircuitDo.getId(), drgV2AttachmentBl);
+                    Map<String, String> dimensions =  VirtualCircuitWorkflowHelper.getDimensions(virtualCircuitDo, portSpeed, drgV2AttachmentDo);
+                    throw vcWorkflowHelper.terminateRRWorkflow(msg, CreationWaitFailures.InvalidSnippetStateFailure, dimensions);
+            }
+        }
+        log.info("These snippets are applied: {}", applied);
+        log.info("These snippets are pending: {}", pending);
+
+        if (applied.containsAll(snippetsToCheck)) {
+            // All applied, good to go.
+            MetricsUtil.emitOnePositive(oldScope, WorkflowResult.WorkflowSuccess);
+            emitSuccessfulStepDurationMetric(oldScope, virtualCircuitDo);
+            perfMetric.emitTillNowTimeInMs(scope, MetricConstants.waitCompleteTime(stepName), args.getInitialTimeEpochMs());
+            String msg = "All snippets applied. Setting state to Provisioned.";
+            log.info(msg);
+            eventBl.create(t, virtualCircuitDo.getId(), Component.WORKER, msg);
+            serviceLogHelper.emitServiceLog(oldScope.getPrefix(), args.getInitialTimeEpochMs(), args.getOpcRequestId(), virtualCircuitDo.getCompartmentId(), WORKFLOW_NAME, true);
+
+            return virtualCircuitDo.toBuilder()
+                    .state(State.PROVISIONED)
+                    .lastStateChanged(new Date())
+                    .build();
+
+        } else {
+            // All of them are pending
+            log.info(String.format("Snippets pending %s. Sleeping.", pending));
+            try {
+                sleepOp.sleep(WAIT_SLEEP_TIME);
+            } catch (InterruptedException e) {
+                serviceLogHelper.emitServiceLog(oldScope.getPrefix(), args.getInitialTimeEpochMs(), args.getOpcRequestId(), virtualCircuitDo.getCompartmentId(), WORKFLOW_NAME, false);
+                throw new RuntimeException(e);
+            }
+
+            // Make sure that this is always the last event emitted, otherwise we might
+            // emit many duplicate events
+            WorkflowEventUtil.emitSnippetStatusEvent(assignmentNumber, eventBl, t, snippetsToCheck,
+                    virtualCircuitDo, "Waiting for device sync");
+
+            serviceLogHelper.emitServiceLog(oldScope.getPrefix(), args.getInitialTimeEpochMs(), args.getOpcRequestId(), virtualCircuitDo.getCompartmentId(), WORKFLOW_NAME, true);
+
+            return virtualCircuitDo;
+        }
+    }
+
+    public void emitSuccessfulStepDurationMetric(MetricsScope scope, VirtualCircuitDo modelObject) {
+        Duration successSinceCreation = Duration.between(modelObject.getLastStateChanged().toInstant(), Instant.now());
+        scope.emit(WorkflowTelemetry.DurationFromWorkflowStartToSuccessMs, (double) successSinceCreation.toMillis());
+    }
+
+    public void emitMetricsForQoSSet(VirtualCircuitDo virtualCircuitDo, MetricsScope wfStepScope) {
+        wfStepScope.withDimension("virtualCircuitWithQoS", virtualCircuitDo.getId());
+        wfStepScope.emit("virtualCircuitWithQoS.Count", 1);
+    }
+
+    public void emitMetricsForSuccessfulDynamicQosApply(VirtualCircuitDo virtualCircuitDo, MetricsScope wfStepScope) {
+        wfStepScope.withDimension("virtualCircuitId", virtualCircuitDo.getId());
+        wfStepScope.withDimension("qosBandwidthReservationTemplate", virtualCircuitDo.getDynamicQosTemplateName());
+        wfStepScope.emit("virtualCircuitWithDynamicQoS.Count", 1);
+    }
+
+    public WorkerManagerV3<RowRevisionSensitiveWorkflowArgs<VirtualCircuitWorkflowArgs>, BasicWorkflowState>
+    createWorkerManager(WorkflowClient client) {
+
+        return WorkerManagerV3.<RowRevisionSensitiveWorkflowArgs<VirtualCircuitWorkflowArgs>, BasicWorkflowState>builder()
+                .fromAnnotations(this,
+                        new TypeToken<RowRevisionSensitiveWorkflowArgs<VirtualCircuitWorkflowArgs>>() {},
+                        new TypeToken<BasicWorkflowState>() {}
+                )
+                .workflowClient(client)
+                .numWorkerThreads(NUM_WORKER_THREADS)
+                .workerProject(WorkflowConstants.WORKER_T2_PROJECT)
+                .workerFleet(WorkflowConstants.WORKER_T2_FLEET)
+                .logAndMetricsDecoratorFactory(new VpnLogAndMetricsDecoratorFactory<>(VirtualCircuitWorkflowArgs.class))
+                .build();
+    }
+
+    public boolean useEqualCostMultiPath(VirtualCircuitDo modelObject) throws AuthServerUnavailableException, ValidationException {
+        int attempted = 0;
+        String tenancyId = null;
+
+        while(true) {
+            try {
+                tenancyId = identityMetadataHelper.getTenantId(modelObject.getCompartmentId());
+                break;
+            } catch (AuthServerUnavailableException e) {
+                if (attempted < 2) {
+                    log.warn("Failed to get tenancyId from compartment: {}, error: {}, will retry...",
+                            modelObject.getCompartmentId(),
+                            e.toString());
+                    attempted++;
+                    try {
+                        TimeUnit.SECONDS.sleep(5);
+                    } catch (InterruptedException ignored) { }
+                    continue;
+                } else {
+                    log.error("Failed to get tenancyId from compartment: {}, error: {}, aborting...",
+                            modelObject.getCompartmentId(),
+                            e.toString());
+
+                    throw e;
+                }
+            } catch (ValidationException e) {
+                log.error("Could not find the Tenancy details from given compartment : {}, error: {}, aborting...",
+                        modelObject.getCompartmentId(),
+                        e.toString());
+                throw e;
+            }
+        }
+
+        return featureController.isTenancyWhitelisted(VpnLimitsClient.VpnProperty.FEATURE_EQUAL_COST_MULTI_PATH, tenancyId);
+    }
+
+    public VirtualCircuitDo setOrGetRouteDistinguisher(Transaction t, String anyCastSetIp, int anyCastSetId, VirtualCircuitDo modelObject)
+            throws ValidationException {
+        String routeDistinguisher = modelObject.getRouteDistinguisher();
+        if (routeDistinguisher == null) {
+
+            modelObject = virtualCircuitBl.setRouteDistinguisherIfNeeded(t,
+                    anyCastSetIp,
+                    Integer.toString(anyCastSetId),
+                    modelObject);
+            routeDistinguisher = modelObject.getRouteDistinguisher();
+
+            log.info("Created routeDistinguisher {} for VC {}",
+                    routeDistinguisher,
+                    modelObject.getId());
+        } else {
+            log.info("Got routeDistinguisher {} for VC {}",
+                    routeDistinguisher,
+                    modelObject.getId());
+        }
+
+        return modelObject;
+    }
+
+    protected VirtualCircuitDo createOrUpdateDrgV2Attachment(Transaction t, VirtualCircuitDo virtualCircuitDo) throws ValidationException, AuthServerUnavailableException {
+        return createOrUpdateDrgV2Attachment(t, virtualCircuitDo, null);
+    }
+
+    /**
+     * Finds or creates DRG V2 attachment for virtual circuit.
+     * Also needs to check if the DRG for the virtual circuit has changed. In that case delete the old attachment and create
+     * a new one.
+     */
+    protected VirtualCircuitDo createOrUpdateDrgV2Attachment(Transaction t, VirtualCircuitDo virtualCircuitDo, VpnRegion edgePop)
+            throws ValidationException, AuthServerUnavailableException {
+
+        log.info("Start Creating DRG V2 attachments for VC {}.", virtualCircuitDo.getId());
+        List<DrgV2AttachmentDo> drgV2AttachmentDos = drgV2AttachmentBl.listByAttachedResourceId(t, virtualCircuitDo.getId());
+
+        boolean isEdgePop = edgePop != null && edgePop.isEdgePop();
+
+        log.info("EdgePOP VC: {}", isEdgePop ? edgePop.toString(): false );
+
+        boolean ipsecOverFcEnabled = featureController.isTenancyWhitelisted(VpnLimitsClient.VpnProperty.FEATURE_IPSEC_OVER_FC, identityMetadataHelper.getTenantId(virtualCircuitDo.getCompartmentId()));
+
+        boolean isTransportMode = virtualCircuitDo.getEnforceEncryptedTraffic() != null ? virtualCircuitDo.getEnforceEncryptedTraffic() : false;
+
+        if (drgV2AttachmentDos.size() > 1) {
+            log.error("Found more than 1 DRG V2 attachments {} for VC {}. Terminating workflow.", drgV2AttachmentDos, virtualCircuitDo);
+            // Exit workflow, dont commit anything intermediate.
+            String portSpeed = VirtualCircuitHelper.getVcPortSpeed(virtualCircuitDo,crossConnectBl, crossConnectGroupBl);
+            Map<String, String> dimensions = VirtualCircuitWorkflowHelper.getDimensions(virtualCircuitDo, portSpeed, drgV2AttachmentDos.get(0));
+            throw vcWorkflowHelper.terminateRRWorkflow("Found multiple Drg V2 attachments.", MetricNames.CreateVirtualCircuitFailures.MultipleDrgV2Attachments, dimensions);
+
+        } else if (drgV2AttachmentDos.size() == 1) {
+
+            // In case this is an update workflow, DRG attachment might already be created.
+            // Find existing attachment and check if DRG id in VC matches with attachment DRG id.
+            log.info("Found single DRG V2 attachment {} for VC {}", drgV2AttachmentDos.get(0), virtualCircuitDo);
+
+            // Check if DRG id in DRG V2 attachment matches the virtual circuit gateway id.
+            if (StringUtils.equals(virtualCircuitDo.getGatewayId(), drgV2AttachmentDos.get(0).getDrgId())) {
+                log.info("DRG V2 attachment {} already exists for VC {}", drgV2AttachmentDos.get(0), virtualCircuitDo.getId());
+
+                DrgAttachment drgAttachment = drgV2Helper.getOrThrowDrgV2Attachment(drgV2AttachmentDos.get(0).getId());
+                VirtualCircuitDrgAttachmentNetworkDetails virtualCircuitDrgAttachmentNetworkDetails = (VirtualCircuitDrgAttachmentNetworkDetails) drgAttachment.getNetworkDetails();
+
+                // Region change case
+                if (isEdgePop) {
+                    // Update the DrgAttachment if the mappings have changed from homeRegion to edgePOP
+                    // or from one edgePOP to another
+                    if (!virtualCircuitDrgAttachmentNetworkDetails.getRegionName().equals(edgePop.getName())) {
+                        DrgV2AttachmentDo drgV2AttachmentDo = drgV2Helper.updateDrgV2AttachmentAndDo(t, drgAttachment, virtualCircuitDo, edgePop, ipsecOverFcEnabled && isTransportMode);
+                        String msg = String.format("DrgV2Attachment updated for EdgePop VirtualCircuit: %s, drgV2Attachment: %s", virtualCircuitDo.getId(), drgV2AttachmentDos.get(0).toString());
+                        log.info(msg);
+                        eventBl.create(t, drgV2AttachmentDo.getAttachedResourceId(), Component.WORKER, msg);
+                    }
+
+                } else {
+                    //Case when VC was first created in edge pop location and then got updated to home region.
+                    if(virtualCircuitDrgAttachmentNetworkDetails.getIsEdgePop()) {
+                        // Update the DrgAttachment if the mappings have changed from EdgePOP to homeRegion
+                        DrgV2AttachmentDo drgV2AttachmentDo = drgV2Helper.updateDrgV2AttachmentAndDo(t, drgAttachment, virtualCircuitDo, null, ipsecOverFcEnabled && isTransportMode);
+                        String msg = String.format("DrgV2Attachment updated for VirtualCircuit: %s, drgV2Attachment: %s", virtualCircuitDo.getId(), drgV2AttachmentDos.get(0).toString());
+                        log.info(msg);
+                        eventBl.create(t, drgV2AttachmentDo.getAttachedResourceId(), Component.WORKER, msg);
+                    } else {
+                        // update drgV2AttachmentDo for normal vcs with network details of drgAttachment
+                        DrgV2AttachmentDo drgV2AttachmentDo = drgV2Helper.updateDrgV2AttachmentDo(t, drgV2AttachmentDos.get(0), drgAttachment);
+                    }
+                }
+
+                // Compartment change case
+                if (!virtualCircuitDo.getCompartmentId().equals(drgAttachment.getCompartmentId())) {
+                    log.info("Updating compartmentId of DrgV2Attachment for VirtualCircuit: {}", virtualCircuitDo.getId());
+                    drgV2Helper.changeCompartment(drgAttachment.getId(), virtualCircuitDo.getCompartmentId());
+                }
+
+            } else {
+                // DRG id has changed. Delete the old DRG V2 attachment and create a new one.
+                log.info("Existing DRG V2 attachment {} has DRG id {} different from VC {} gateway id {}",
+                        drgV2AttachmentDos.get(0).getId(), drgV2AttachmentDos.get(0).getDrgId(), virtualCircuitDo.getId(), virtualCircuitDo.getGatewayId());
+
+                DrgV2AttachmentDo drgV2AttachmentDo = deleteAndCreateDrgV2Attachment(t, drgV2AttachmentDos.get(0), virtualCircuitDo, edgePop, ipsecOverFcEnabled && isTransportMode);
+                String msg = String.format("DrgV2Attachment recreated for VirtualCircuit: %s, drgV2Attachment: %s", virtualCircuitDo.getId(), drgV2AttachmentDos.get(0).toString());
+                eventBl.create(t, drgV2AttachmentDo.getAttachedResourceId(), Component.WORKER, msg);
+            }
+        } else {
+            // New workflow for the virtual circuit, Create new DRG V2 attachment
+            log.info("Create DRG V2 attachment for VC {}", virtualCircuitDo);
+            try {
+                DrgV2AttachmentDo drgV2AttachmentDo = edgePop == null ?
+                        drgV2Helper.createDrgV2AttachmentAndDo(t, virtualCircuitDo, ipsecOverFcEnabled && isTransportMode) :
+                        drgV2Helper.createDrgV2AttachmentAndDo(t, virtualCircuitDo, edgePop, ipsecOverFcEnabled && isTransportMode);
+                String msg = String.format("DrgV2Attachment created for VirtualCircuit: %s, drgV2Attachment: %s", virtualCircuitDo.getId(), drgV2AttachmentDo);
+                eventBl.create(t, drgV2AttachmentDo.getAttachedResourceId(), Component.WORKER, msg);
+            } catch (BmcException e) {
+                log.error("Error creating or updating DRG V2 attachment for VC {}", virtualCircuitDo.getId(), e);
+                virtualCircuitDo = virtualCircuitBl.update(t, virtualCircuitDo.toBuilder()
+                        .state(VirtualCircuitDo.State.FAILED)
+                        .build());
+                throw drgV2Helper.handleCreateDrgV2AttachmentBmcExceptionWorkflow(e);
+            }
+        }
+
+        return virtualCircuitDo.toBuilder().lastUpdated(new Date()).build();
+    }
+
+    protected void deleteDrgV2Attachment(Transaction t, VirtualCircuitDo virtualCircuitDo) {
+        List<DrgV2AttachmentDo> drgV2AttachmentDos = drgV2AttachmentBl.listByAttachedResourceId(t, virtualCircuitDo.getId());
+        if (drgV2AttachmentDos != null && drgV2AttachmentDos.size() > 0) {
+            deleteDrgV2Attachment(t, virtualCircuitDo, drgV2AttachmentDos.get(0));
+        }
+    }
+
+    protected void deleteDrgV2Attachment(Transaction t, VirtualCircuitDo virtualCircuitDo, DrgV2AttachmentDo drgV2AttachmentDo) {
+        try {
+            log.info("Deleting DRG V2 attachment {}.", drgV2AttachmentDo.getId());
+            drgV2Helper.deleteDrgV2AttachmentAndDo(t, drgV2AttachmentDo);
+            String msg = String.format("DrgV2 update detected for VirtualCircuit: %s. Deleted drgV2Attachment: %s",
+                    virtualCircuitDo.getId(), drgV2AttachmentDo.getId());
+            eventBl.create(t, virtualCircuitDo.getId(), Component.WORKER, msg);
+        } catch (BmcException e) {
+            log.error("Error deleting DRG V2 attachment for VC {}", virtualCircuitDo.getId(), e);
+            throw drgV2Helper.handleCreateDrgV2AttachmentBmcExceptionWorkflow(e);
+        }
+    }
+
+    protected DrgV2AttachmentDo deleteAndCreateDrgV2Attachment(Transaction t, DrgV2AttachmentDo existingDrgV2AttachmentDo, VirtualCircuitDo virtualCircuitDo, boolean isTransportOnlyMode)
+            throws ValidationException {
+        return deleteAndCreateDrgV2Attachment(t, existingDrgV2AttachmentDo, virtualCircuitDo, null, isTransportOnlyMode);
+    }
+
+    protected DrgV2AttachmentDo deleteAndCreateDrgV2Attachment(Transaction t, DrgV2AttachmentDo existingDrgV2AttachmentDo, VirtualCircuitDo virtualCircuitDo, VpnRegion edgePop, boolean isTransportOnlyMode)
+            throws ValidationException{
+        try { // Delete the old DrgV2Attachment by calling PNP and deleting from our DO as well.
+            log.info("Deleting DRG V2 attachment {}.", existingDrgV2AttachmentDo.getId());
+            drgV2Helper.deleteDrgV2AttachmentAndDo(t, existingDrgV2AttachmentDo);
+            String msg = String.format("DrgV2 update detected for VirtualCircuit: %s. Deleted drgV2Attachment: %s",
+                    virtualCircuitDo.getId(), existingDrgV2AttachmentDo.getId());
+            eventBl.create(t, virtualCircuitDo.getId(), Component.WORKER, msg);
+
+            // Create new DrgV2Attachment by calling PNP and add it to our DO as well.
+            log.info("Create DRG V2 attachment for VC {}", virtualCircuitDo);
+
+                DrgV2AttachmentDo drgV2AttachmentDo = edgePop == null ?
+                        drgV2Helper.createDrgV2AttachmentAndDo(t, virtualCircuitDo, isTransportOnlyMode) :
+                        drgV2Helper.createDrgV2AttachmentAndDo(t, virtualCircuitDo, edgePop, isTransportOnlyMode);
+                msg = String.format("New DrgV2Attachment created for VirtualCircuit: %s, drgV2Attachment: %s", virtualCircuitDo.getId(), drgV2AttachmentDo.toString());
+                eventBl.create(t, drgV2AttachmentDo.getAttachedResourceId(), Component.WORKER, msg);
+
+            return drgV2AttachmentDo;
+        } catch (BmcException e) {
+            log.error("Error deleting and creating DRG V2 attachment for VC {}", virtualCircuitDo.getId(), e);
+            virtualCircuitDo = virtualCircuitBl.update(t, virtualCircuitDo.toBuilder()
+                    .state(VirtualCircuitDo.State.FAILED)
+                    .build());
+            throw drgV2Helper.handleCreateDrgV2AttachmentBmcExceptionWorkflow(e);
+        }
+    }
+
+}
