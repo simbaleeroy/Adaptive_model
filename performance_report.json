@@ -1,13 +1,19 @@
-org.mockito.exceptions.misusing.MissingMethodInvocationException: 
-when() requires an argument which has to be 'a method call on a mock'.
-For example:
-    when(mock.getArticles()).thenReturn(articles);
+// Debug: Check if drgV2Helper is a mock
+                                System.out.println("drgV2Helper class: " + drgV2Helper.getClass().getName());
+                                System.out.println("Is drgV2Helper a mock? "
+                                                + Mockito.mockingDetails(drgV2Helper).isMock());
 
-Also, this error might show up because:
-1. you stub either of: final/private/equals()/hashCode() methods.
-   Those methods *cannot* be stubbed/verified.
-   Mocking methods declared on non-public parent classes is not supported.
-2. inside when() you don't call method on mock but on some other object.
-
-
-	at com.oracle.pic.vpn.workflows.workflows.CreateVcDrgV2AttachmentWorkflowTest.GIVEN_createOrUpdateDrgV2Attachment_WHEN_BmcExceptionDuringCreate_THEN_VcStateSetToFailed
+                                createVcDrgV2AttachmentWorkflow.createDrgV2Attachment(null, t, null, virtualCircuitDo);
+                                System.out.println("Method call completed without exception");
+                                fail("Expected BmcException to be thrown");
+                        } catch (BmcException e) {
+                                // Expected exception - this is what we want
+                                System.out.println("Caught expected BmcException: " + e.getMessage());
+                                assertThat(e.getMessage()).contains("Internal Server Error");
+                        } catch (Exception e) {
+                                // Catch any other exception to see what's happening
+                                System.out.println("Caught unexpected exception: " + e.getClass().getName() + " - "
+                                                + e.getMessage());
+                                e.printStackTrace();
+                                fail("Unexpected exception: " + e.getMessage());
+                        }
