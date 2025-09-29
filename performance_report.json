@@ -1,9 +1,12 @@
-.thenAnswer(invocation -> {
-                                                System.out.println("*** MOCK TRIGGERED! ***");
-                                                System.out.println("Transaction: " + invocation.getArgument(0));
-                                                System.out.println("VC: " + invocation.getArgument(1));
-                                                System.out.println("Boolean: " + invocation.getArgument(2));
-                                                throw new BmcException(500, "test service code",
-                                                                "Internal Server Error",
-                                                                "testOpcRequestId");
-                                        });
+try {
+                                // Debug: Print the VC ID before calling the method
+                                System.out.println("Before method call - VC ID: " + virtualCircuitDo.getId());
+                                System.out.println("About to call createDrgV2Attachment...");
+                                createVcDrgV2AttachmentWorkflow.createDrgV2Attachment(null, t, null, virtualCircuitDo);
+                                System.out.println("Method call completed without exception");
+                                fail("Expected BmcException to be thrown");
+                        } catch (BmcException e) {
+                                // Expected exception - this is what we want
+                                System.out.println("Caught expected BmcException: " + e.getMessage());
+                                assertThat(e.getMessage()).contains("Internal Server Error");
+                        }
