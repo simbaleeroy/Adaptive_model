@@ -1,7 +1,9 @@
- DrgAttachment mockDrgAttachment = DrgAttachment.builder()
-                                        .id("test-drg-attachment-id")
-                                        .drgId(TEST_DRG_ID)
-                                        .compartmentId("test-compartment-id")
-                                        .displayName("Test DRG Attachment")
-                                        .lifecycleState(DrgAttachment.LifecycleState.Available)
-                                        .build();
+.thenAnswer(invocation -> {
+                                                System.out.println("*** MOCK TRIGGERED! ***");
+                                                System.out.println("Transaction: " + invocation.getArgument(0));
+                                                System.out.println("VC: " + invocation.getArgument(1));
+                                                System.out.println("Boolean: " + invocation.getArgument(2));
+                                                throw new BmcException(500, "test service code",
+                                                                "Internal Server Error",
+                                                                "testOpcRequestId");
+                                        });
