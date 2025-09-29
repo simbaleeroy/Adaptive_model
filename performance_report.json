@@ -1,7 +1,1 @@
-try (Transaction t = virtualCircuitBl.beginTransaction("update-vc")) {
-                        virtualCircuitDo = virtualCircuitBl.update(t,
-                                        virtualCircuitBl.getOrThrow(t, virtualCircuitDo.getId()).toBuilder()
-                                                        .gatewayId(TEST_DRG_ID)
-                                                        .build());
-                        t.commit();
-                }
+java.lang.IllegalArgumentException: Required value for non-nullable column (importeproutetarget) when none was supplied ({Column: anycastIp, Value: STRING:null; Column: attachedResourceId, Value: STRING:ocid1.virtualcircuit.dev.dev.aaaaaaaaxuz46kmibb54kxjiztewpf5g22ykcky66jkq5kmt43mczuz5ee3q; Column: commonExportRT, Value: STRING:null; Column: commonImportRT, Value: STRING:null; Column: dateCreated, Value: TIMESTAMP:2025-09-29 15:52:18.215; Column: drgId, Value: STRING:testDrgId; Column: exportEPRouteTarget, Value: STRING:null; Column: frontEndAttachmentId, Value: CLOB:null; Column: groupId, Value: STRING:5c05c5d5-eef6-46fe-b97d-1a863fa1a42e; Column: importEPRouteTarget, Value: STRING:null; Column: ingressVip, Value: STRING:null; Column: isIngressDisintermediation, Value: STRING:null; Column: isRouteUnificationEnabled, Value: STRING:null; Column: lastKievTxTimestamp, Value: INT8:0; Column: lastStateChanged, Value: TIMESTAMP:2025-09-29 15:52:18.215; Column: lastUpdated, Value: TIMESTAMP:2025-09-29 15:52:18.215; Column: mplsLabel, Value: STRING:100000; Column: stateComment, Value: CLOB:null; Column: transportAttachmentId, Value: STRING:null; Column: type, Value: STRING:VirtualCircuit})
