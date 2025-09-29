@@ -16,13 +16,17 @@
                                 .thenThrow(new BmcException(500, "test service code", "Internal Server Error",
                                                 "testOpcRequestId"));
 
+                // Mock no existing DRG V2 attachments (so it goes to create path)
+                when(drgV2AttachmentBl.listByAttachedResourceId(any(Transaction.class), any(String.class)))
+                                .thenReturn(Collections.emptyList());
+
                 try (Transaction t = drgV2AttachmentBl.beginTransaction("test")) {
                         try {
-                                createVcDrgV2AttachmentWorkflow.createOrUpdateDrgV2Attachment(t, virtualCircuitDo,
-                                                null);
+                                createVcDrgV2AttachmentWorkflow.createDrgV2Attachment(null, t, null, virtualCircuitDo);
                                 fail("Expected BmcException to be thrown");
                         } catch (BmcException e) {
-                                // Expected exception
+                                // Expected exception - this is what we want
+                                assertThat(e.getMessage()).contains("Internal Server Error");
                         }
                         t.commit();
                 }
