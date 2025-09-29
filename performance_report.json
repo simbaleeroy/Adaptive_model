@@ -1,1 +1,7 @@
- Cannot invoke "com.oracle.bmc.core.model.DrgAttachment.toString()" because the return value of "com.oracle.bmc.core.responses.CreateC3DrgAttachmentResponse.getDrgAttachment()" is null
+ DrgAttachment mockDrgAttachment = DrgAttachment.builder()
+                                        .id("test-drg-attachment-id")
+                                        .drgId(TEST_DRG_ID)
+                                        .compartmentId("test-compartment-id")
+                                        .displayName("Test DRG Attachment")
+                                        .lifecycleState(DrgAttachment.LifecycleState.Available)
+                                        .build();
