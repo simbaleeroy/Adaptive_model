@@ -1,1 +1,6 @@
-Cannot invoke "com.oracle.bmc.core.model.VirtualCircuitDrgAttachmentNetworkDetails.getMplsLabel()" because "networkDetails" is null
+VirtualCircuitDrgAttachmentNetworkDetails networkDetails = VirtualCircuitDrgAttachmentNetworkDetails
+                                        .builder()
+                                        .mplsLabel("100000")
+                                        .regionName("us-phoenix-1")
+                                        .isEdgePop(false)
+                                        .build();
