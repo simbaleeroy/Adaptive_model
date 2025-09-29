@@ -1,1 +1,1 @@
-Cannot invoke "com.oracle.bmc.core.responses.CreateC3DrgAttachmentResponse.getOpcRequestId()" because "response" is null
+ Cannot invoke "com.oracle.bmc.core.model.DrgAttachment.toString()" because the return value of "com.oracle.bmc.core.responses.CreateC3DrgAttachmentResponse.getDrgAttachment()" is null
