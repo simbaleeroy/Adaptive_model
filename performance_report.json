@@ -1,12 +1,6 @@
-VirtualCircuitWorkflowBase workflowBase = new VirtualCircuitWorkflowBase(
-                                                mappedDataStore,
-                                                remotePeeringConnectionBl,
-                                                virtualCircuitBl,
-                                                eventBl,
-                                                drgV2AttachmentBl,
-                                                mockDrgV2Helper, // Use our mock
-                                                identityMetadataHelper,
-                                                tenancyMetadataBl,
-                                                featureController,
-                                                sentinelClient,
-                                                vpnWorkerConfiguration);
+// Use reflection to call the protected method directly
+                                Method createOrUpdateMethod = VirtualCircuitWorkflowBase.class.getDeclaredMethod(
+                                                "createOrUpdateDrgV2Attachment",
+                                                Transaction.class,
+                                                VirtualCircuitDo.class,
+                                                VpnRegion.class);
