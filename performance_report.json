@@ -1,52 +1,63 @@
-@Test
-    public void GIVEN_createOrUpdateDrgV2Attachment_WHEN_BmcExceptionDuringCreate_THEN_VcStateSetToFailed()
-            throws Exception {
+ @Test
+        public void GIVEN_createOrUpdateDrgV2Attachment_WHEN_BmcExceptionDuringCreate_THEN_VcStateSetToFailed()
+                        throws Exception {
 
-        // Arrange: Create a mock VirtualCircuitDo with required fields
-        VirtualCircuitDo testVc = VirtualCircuitDo.builder()
-                .id("test-vc-id-123")
-                .gatewayId("test-drg-id")
-                .state(VirtualCircuitDo.State.PROVISIONING)
-                .displayName("Test VC")
-                .compartmentId("test-compartment-id")
-                .ipAddressType(VirtualCircuitDo.IpAddressType.PUBLIC)
-                .build();
+                // ===== ARRANGE =====
+                
+                // Create a test VirtualCircuitDo with required fields
+                VirtualCircuitDo testVc = VirtualCircuitDo.builder()
+                                .id("test-vc-id-123")
+                                .gatewayId(TEST_DRG_ID)
+                                .state(VirtualCircuitDo.State.PROVISIONING)
+                                .displayName("Test VC")
+                                .compartmentId("test-compartment-id")
+                                .ipAddressType(VirtualCircuitDo.IpAddressType.PUBLIC)
+                                .build();
 
-        // Arrange: Create a mock DrgV2Helper that throws BmcException
-        DrgV2Helper mockHelper = mock(DrgV2Helper.class);
-        when(mockHelper.createDrgV2AttachmentAndDo(
-                any(Transaction.class),
-                any(VirtualCircuitDo.class),
-                any(Boolean.class)))
-                .thenThrow(new BmcException(500, "test-service-code", "Internal Server Error", "test-opc-request-id"));
+                // Create a mock DrgV2Helper that throws BmcException when createDrgV2AttachmentAndDo is called
+                DrgV2Helper mockHelper = mock(DrgV2Helper.class);
+                when(mockHelper.createDrgV2AttachmentAndDo(
+                                any(Transaction.class),
+                                any(VirtualCircuitDo.class),
+                                any(Boolean.class)))
+                                .thenThrow(new BmcException(500, "test-service-code", "Internal Server Error", "test-opc-request-id"));
 
-        // Arrange: Create a test workflow object (simplified for this example)
-        TestWorkflow workflow = new TestWorkflow();
+                // ===== ACT & ASSERT =====
+                
+                try {
+                        // Use reflection to replace the drgV2Helper field with our mock
+                        Field drgV2HelperField = VirtualCircuitWorkflowBase.class.getDeclaredField("drgV2Helper");
+                        drgV2HelperField.setAccessible(true);
+                        drgV2HelperField.set(createVcDrgV2AttachmentWorkflow, mockHelper);
+                        System.out.println("✅ Successfully replaced drgV2Helper field with mock");
 
-        // Act & Assert: Use reflection to test the protected method
-        try {
-            // Use reflection to replace the drgV2Helper field
-            Field drgV2HelperField = TestWorkflow.class.getDeclaredField("drgV2Helper");
-            drgV2HelperField.setAccessible(true);
-            drgV2HelperField.set(workflow, mockHelper);
+                        // Use reflection to call the protected createOrUpdateDrgV2Attachment method
+                        Method createOrUpdateMethod = VirtualCircuitWorkflowBase.class.getDeclaredMethod(
+                                        "createOrUpdateDrgV2Attachment",
+                                        Transaction.class,
+                                        VirtualCircuitDo.class,
+                                        VpnRegion.class);
+                        createOrUpdateMethod.setAccessible(true);
+                        System.out.println("✅ Successfully obtained createOrUpdateDrgV2Attachment method");
 
-            // Use reflection to call the protected method
-            Method createOrUpdateMethod = TestWorkflow.class.getDeclaredMethod(
-                    "createOrUpdateDrgV2Attachment",
-                    Transaction.class,
-                    VirtualCircuitDo.class,
-                    VpnRegion.class);
-            createOrUpdateMethod.setAccessible(true);
-
-            // Call the method - this should throw BmcException
-            createOrUpdateMethod.invoke(workflow, mockTransaction, testVc, (VpnRegion) null);
-
-            // If we get here, the method didn't throw an exception as expected
-            fail("Expected BmcException to be thrown");
-
-        } catch (BmcException e) {
-            // Expected exception - verify the message
-            assertThat(e.getMessage()).contains("Internal Server Error");
-            System.out.println("✅ Successfully caught expected BmcException: " + e.getMessage());
+                        // Call the method - this should throw BmcException due to our mock
+                        System.out.println("🔄 Calling createOrUpdateDrgV2Attachment method...");
+                        createOrUpdateMethod.invoke(createVcDrgV2AttachmentWorkflow, mock(Transaction.class), testVc, (VpnRegion) null);
+                        
+                        // If we get here, the method didn't throw an exception as expected
+                        fail("❌ Expected BmcException to be thrown, but method completed successfully");
+                        
+                } catch (BmcException e) {
+                        // ✅ Expected exception - verify the error details
+                        System.out.println("✅ Successfully caught expected BmcException: " + e.getMessage());
+                        assertThat(e.getMessage()).contains("Internal Server Error");
+                        assertThat(e.getStatusCode()).isEqualTo(500);
+                        System.out.println("✅ BmcException has correct error message and status code");
+                        
+                } catch (Exception e) {
+                        // Handle reflection or other unexpected exceptions
+                        System.out.println("❌ Unexpected exception: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+                        e.printStackTrace();
+                        fail("Unexpected exception: " + e.getMessage());
+                }
         }
-    }
