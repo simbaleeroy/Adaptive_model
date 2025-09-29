@@ -1,6 +1,11 @@
-// Use reflection to call the protected method directly
-                                Method createOrUpdateMethod = VirtualCircuitWorkflowBase.class.getDeclaredMethod(
-                                                "createOrUpdateDrgV2Attachment",
-                                                Transaction.class,
-                                                VirtualCircuitDo.class,
-                                                VpnRegion.class);
+System.out.println("virtualNetworkClient class: "
+                                                + virtualNetworkClient.getClass().getName());
+                                System.out.println("Is virtualNetworkClient a mock? "
+                                                + Mockito.mockingDetails(virtualNetworkClient).isMock());
+
+                                // Create a real mock of drgV2Helper to throw BmcException
+                                DrgV2Helper mockDrgV2Helper = mock(DrgV2Helper.class);
+                                when(mockDrgV2Helper.createDrgV2AttachmentAndDo(any(Transaction.class),
+                                                any(VirtualCircuitDo.class), any(Boolean.class)))
+                                                .thenThrow(new BmcException(500, "test service code",
+                                                                "Internal Server Error", "testOpcRequestId"));
