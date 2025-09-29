@@ -1,11 +1,15 @@
-System.out.println("virtualNetworkClient class: "
-                                                + virtualNetworkClient.getClass().getName());
-                                System.out.println("Is virtualNetworkClient a mock? "
-                                                + Mockito.mockingDetails(virtualNetworkClient).isMock());
-
-                                // Create a real mock of drgV2Helper to throw BmcException
-                                DrgV2Helper mockDrgV2Helper = mock(DrgV2Helper.class);
-                                when(mockDrgV2Helper.createDrgV2AttachmentAndDo(any(Transaction.class),
-                                                any(VirtualCircuitDo.class), any(Boolean.class)))
-                                                .thenThrow(new BmcException(500, "test service code",
-                                                                "Internal Server Error", "testOpcRequestId"));
+VirtualCircuitWorkflowBase workflowBase = new VirtualCircuitWorkflowBase(
+                                                sleepOp, // 1. SleepOp
+                                                eventBl, // 2. EventBl
+                                                mappedDataStore, // 3. MappedDataStore
+                                                virtualCircuitBl, // 4. VirtualCircuitBl
+                                                deviceSynchronizerBl, // 5. DeviceSynchronizerBl
+                                                gcgAttachBl, // 6. GlobalConnectivityGatewayAttachmentBl
+                                                identityMetadataHelper, // 7. IdentityMetadataHelper
+                                                featureController, // 8. FeatureController
+                                                drgV2AttachmentBl, // 9. DrgV2AttachmentBl
+                                                mockDrgV2Helper, // 10. DrgV2Helper (our mock)
+                                                sentinelClient, // 11. HealthStatusClient
+                                                vpnWorkerConfiguration, // 12. VpnWorkerConfiguration
+                                                crossConnectGroupBl, // 13. CrossConnectGroupBl
+                                                crossConnectBl); // 14. CrossConnectBl
