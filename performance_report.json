@@ -1,71 +1,22 @@
-Existing DRG V2 attachments count: 0
-16:27:03.500 [main] DEBUG com.oracle.pic.commons.metrics.MetricsScope -- Emitting Fault = 0.0 2025-09-29T23:27:03.500964Z
-Caught unexpected exception: java.lang.NoSuchMethodException - com.oracle.pic.vpn.workflows.workflows.CreateVcDrgV2AttachmentWorkflow.createOrUpdateDrgV2Attachment(com.oracle.pic.kiev.Transaction,com.oracle.pic.vpn.db.model.VirtualCircuitDo,com.oracle.pic.vpn.VpnRegion)
-java.lang.NoSuchMethodException: com.oracle.pic.vpn.workflows.workflows.CreateVcDrgV2AttachmentWorkflow.createOrUpdateDrgV2Attachment(com.oracle.pic.kiev.Transaction,com.oracle.pic.vpn.db.model.VirtualCircuitDo,com.oracle.pic.vpn.VpnRegion)
-	at java.base/java.lang.Class.getDeclaredMethod(Class.java:2675)
-	at com.oracle.pic.vpn.workflows.workflows.CreateVcDrgV2AttachmentWorkflowTest.GIVEN_createOrUpdateDrgV2Attachment_WHEN_BmcExceptionDuringCreate_THEN_VcStateSetToFailed(CreateVcDrgV2AttachmentWorkflowTest.java:288)
-	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
-	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:568)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at com.oracle.pic.vpn.db.DaoTestInjector$1.evaluate(DaoTestInjector.java:74)
-	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
-	at org.junit.runners.BlockJUnit4ClassRunner$1.evaluate(BlockJUnit4ClassRunner.java:100)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:366)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:103)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:63)
-	at org.junit.runners.ParentRunner$4.run(ParentRunner.java:331)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:79)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:329)
-	at org.junit.runners.ParentRunner.access$100(ParentRunner.java:66)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:293)
-	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:413)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:231)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-16:27:03.504 [main] DEBUG com.oracle.pic.commons.metrics.MetricsScope -- Emitting Fault = 0.0 2025-09-29T23:27:03.503999Z
+ Method createOrUpdateMethod = null;
+                                Class<?> currentClass = createVcDrgV2AttachmentWorkflow.getClass();
 
-org.opentest4j.AssertionFailedError: Unexpected exception: com.oracle.pic.vpn.workflows.workflows.CreateVcDrgV2AttachmentWorkflow.createOrUpdateDrgV2Attachment(com.oracle.pic.kiev.Transaction,com.oracle.pic.vpn.db.model.VirtualCircuitDo,com.oracle.pic.vpn.VpnRegion)
+                                while (currentClass != null && createOrUpdateMethod == null) {
+                                        try {
+                                                createOrUpdateMethod = currentClass.getDeclaredMethod(
+                                                                "createOrUpdateDrgV2Attachment",
+                                                                Transaction.class,
+                                                                VirtualCircuitDo.class,
+                                                                VpnRegion.class);
+                                                System.out.println("Found method in class: " + currentClass.getName());
+                                        } catch (NoSuchMethodException e) {
+                                                System.out.println(
+                                                                "Method not found in class: " + currentClass.getName());
+                                                currentClass = currentClass.getSuperclass();
+                                        }
+                                }
 
-	at org.junit.jupiter.api.AssertionUtils.fail(AssertionUtils.java:38)
-	at org.junit.jupiter.api.Assertions.fail(Assertions.java:138)
-	at com.oracle.pic.vpn.workflows.workflows.CreateVcDrgV2AttachmentWorkflowTest.GIVEN_createOrUpdateDrgV2Attachment_WHEN_BmcExceptionDuringCreate_THEN_VcStateSetToFailed(CreateVcDrgV2AttachmentWorkflowTest.java:309)
-	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
-	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:568)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at com.oracle.pic.vpn.db.DaoTestInjector$1.evaluate(DaoTestInjector.java:74)
-	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
-	at org.junit.runners.BlockJUnit4ClassRunner$1.evaluate(BlockJUnit4ClassRunner.java:100)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:366)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:103)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:63)
-	at org.junit.runners.ParentRunner$4.run(ParentRunner.java:331)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:79)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:329)
-	at org.junit.runners.ParentRunner.access$100(ParentRunner.java:66)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:293)
-	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:413)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:231)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
+                                if (createOrUpdateMethod == null) {
+                                        throw new RuntimeException(
+                                                        "Method createOrUpdateDrgV2Attachment not found in class hierarchy");
+                                }
