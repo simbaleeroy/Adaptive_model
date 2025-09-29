@@ -1,24 +1,12 @@
-// Try the 2-parameter version first
-                                                createOrUpdateMethod = currentClass.getDeclaredMethod(
-                                                                "createOrUpdateDrgV2Attachment",
-                                                                Transaction.class,
-                                                                VirtualCircuitDo.class);
-                                                System.out.println("Found 2-parameter method in class: "
-                                                                + currentClass.getName());
-                                        } catch (NoSuchMethodException e) {
-                                                try {
-                                                        // Try the 3-parameter version
-                                                        createOrUpdateMethod = currentClass.getDeclaredMethod(
-                                                                        "createOrUpdateDrgV2Attachment",
-                                                                        Transaction.class,
-                                                                        VirtualCircuitDo.class,
-                                                                        VpnRegion.class);
-                                                        System.out.println("Found 3-parameter method in class: "
-                                                                        + currentClass.getName());
-                                                } catch (NoSuchMethodException e2) {
-                                                        System.out.println("Method not found in class: "
-                                                                        + currentClass.getName());
-                                                        currentClass = currentClass.getSuperclass();
-                                                }
-                                        }
-                                }
+VirtualCircuitWorkflowBase workflowBase = new VirtualCircuitWorkflowBase(
+                                                mappedDataStore,
+                                                remotePeeringConnectionBl,
+                                                virtualCircuitBl,
+                                                eventBl,
+                                                drgV2AttachmentBl,
+                                                mockDrgV2Helper, // Use our mock
+                                                identityMetadataHelper,
+                                                tenancyMetadataBl,
+                                                featureController,
+                                                sentinelClient,
+                                                vpnWorkerConfiguration);
