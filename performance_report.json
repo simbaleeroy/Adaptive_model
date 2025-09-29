@@ -1,10 +1,13 @@
-VirtualCircuitDrgAttachmentNetworkDetails networkDetails = VirtualCircuitDrgAttachmentNetworkDetails
-                                        .builder()
-                                        .mplsLabel("100000")
-                                        .regionName("us-phoenix-1")
-                                        .isEdgePop(false)
-                                        .importRouteTarget("65000:100000")
-                                        .exportRouteTarget("65000:100000")
-                                        .commonImportRT("65000:100000")
-                                        .commonExportRT("65000:100000")
-                                        .build();
+org.mockito.exceptions.misusing.MissingMethodInvocationException: 
+when() requires an argument which has to be 'a method call on a mock'.
+For example:
+    when(mock.getArticles()).thenReturn(articles);
+
+Also, this error might show up because:
+1. you stub either of: final/private/equals()/hashCode() methods.
+   Those methods *cannot* be stubbed/verified.
+   Mocking methods declared on non-public parent classes is not supported.
+2. inside when() you don't call method on mock but on some other object.
+
+
+	at com.oracle.pic.vpn.workflows.workflows.CreateVcDrgV2AttachmentWorkflowTest.GIVEN_createOrUpdateDrgV2Attachment_WHEN_BmcExceptionDuringCreate_THEN_VcStateSetToFailed
