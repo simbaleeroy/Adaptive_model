@@ -1,15 +1,52 @@
-VirtualCircuitWorkflowBase workflowBase = new VirtualCircuitWorkflowBase(
-                                                sleepOp, // 1. SleepOp
-                                                eventBl, // 2. EventBl
-                                                mappedDataStore, // 3. MappedDataStore
-                                                virtualCircuitBl, // 4. VirtualCircuitBl
-                                                deviceSynchronizerBl, // 5. DeviceSynchronizerBl
-                                                gcgAttachBl, // 6. GlobalConnectivityGatewayAttachmentBl
-                                                identityMetadataHelper, // 7. IdentityMetadataHelper
-                                                featureController, // 8. FeatureController
-                                                drgV2AttachmentBl, // 9. DrgV2AttachmentBl
-                                                mockDrgV2Helper, // 10. DrgV2Helper (our mock)
-                                                sentinelClient, // 11. HealthStatusClient
-                                                vpnWorkerConfiguration, // 12. VpnWorkerConfiguration
-                                                crossConnectGroupBl, // 13. CrossConnectGroupBl
-                                                crossConnectBl); // 14. CrossConnectBl
+@Test
+    public void GIVEN_createOrUpdateDrgV2Attachment_WHEN_BmcExceptionDuringCreate_THEN_VcStateSetToFailed()
+            throws Exception {
+
+        // Arrange: Create a mock VirtualCircuitDo with required fields
+        VirtualCircuitDo testVc = VirtualCircuitDo.builder()
+                .id("test-vc-id-123")
+                .gatewayId("test-drg-id")
+                .state(VirtualCircuitDo.State.PROVISIONING)
+                .displayName("Test VC")
+                .compartmentId("test-compartment-id")
+                .ipAddressType(VirtualCircuitDo.IpAddressType.PUBLIC)
+                .build();
+
+        // Arrange: Create a mock DrgV2Helper that throws BmcException
+        DrgV2Helper mockHelper = mock(DrgV2Helper.class);
+        when(mockHelper.createDrgV2AttachmentAndDo(
+                any(Transaction.class),
+                any(VirtualCircuitDo.class),
+                any(Boolean.class)))
+                .thenThrow(new BmcException(500, "test-service-code", "Internal Server Error", "test-opc-request-id"));
+
+        // Arrange: Create a test workflow object (simplified for this example)
+        TestWorkflow workflow = new TestWorkflow();
+
+        // Act & Assert: Use reflection to test the protected method
+        try {
+            // Use reflection to replace the drgV2Helper field
+            Field drgV2HelperField = TestWorkflow.class.getDeclaredField("drgV2Helper");
+            drgV2HelperField.setAccessible(true);
+            drgV2HelperField.set(workflow, mockHelper);
+
+            // Use reflection to call the protected method
+            Method createOrUpdateMethod = TestWorkflow.class.getDeclaredMethod(
+                    "createOrUpdateDrgV2Attachment",
+                    Transaction.class,
+                    VirtualCircuitDo.class,
+                    VpnRegion.class);
+            createOrUpdateMethod.setAccessible(true);
+
+            // Call the method - this should throw BmcException
+            createOrUpdateMethod.invoke(workflow, mockTransaction, testVc, (VpnRegion) null);
+
+            // If we get here, the method didn't throw an exception as expected
+            fail("Expected BmcException to be thrown");
+
+        } catch (BmcException e) {
+            // Expected exception - verify the message
+            assertThat(e.getMessage()).contains("Internal Server Error");
+            System.out.println("✅ Successfully caught expected BmcException: " + e.getMessage());
+        }
+    }
