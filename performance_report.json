@@ -1,22 +1,24 @@
- Method createOrUpdateMethod = null;
-                                Class<?> currentClass = createVcDrgV2AttachmentWorkflow.getClass();
-
-                                while (currentClass != null && createOrUpdateMethod == null) {
-                                        try {
+// Try the 2-parameter version first
                                                 createOrUpdateMethod = currentClass.getDeclaredMethod(
                                                                 "createOrUpdateDrgV2Attachment",
                                                                 Transaction.class,
-                                                                VirtualCircuitDo.class,
-                                                                VpnRegion.class);
-                                                System.out.println("Found method in class: " + currentClass.getName());
+                                                                VirtualCircuitDo.class);
+                                                System.out.println("Found 2-parameter method in class: "
+                                                                + currentClass.getName());
                                         } catch (NoSuchMethodException e) {
-                                                System.out.println(
-                                                                "Method not found in class: " + currentClass.getName());
-                                                currentClass = currentClass.getSuperclass();
+                                                try {
+                                                        // Try the 3-parameter version
+                                                        createOrUpdateMethod = currentClass.getDeclaredMethod(
+                                                                        "createOrUpdateDrgV2Attachment",
+                                                                        Transaction.class,
+                                                                        VirtualCircuitDo.class,
+                                                                        VpnRegion.class);
+                                                        System.out.println("Found 3-parameter method in class: "
+                                                                        + currentClass.getName());
+                                                } catch (NoSuchMethodException e2) {
+                                                        System.out.println("Method not found in class: "
+                                                                        + currentClass.getName());
+                                                        currentClass = currentClass.getSuperclass();
+                                                }
                                         }
-                                }
-
-                                if (createOrUpdateMethod == null) {
-                                        throw new RuntimeException(
-                                                        "Method createOrUpdateDrgV2Attachment not found in class hierarchy");
                                 }
