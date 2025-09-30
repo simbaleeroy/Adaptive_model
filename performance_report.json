@@ -1,2 +1,1 @@
-when(virtualNetworkClient.createC3DrgAttachment(any(CreateC3DrgAttachmentRequest.class)))
-                                .thenThrow(new BmcException(500, "test-service-code", "Internal Server Error", "test-opc-request-id"));
+
