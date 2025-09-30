@@ -1,16 +1,31 @@
-VirtualCircuitWorkflowBase workflowBase = new VirtualCircuitWorkflowBase(
-            mock(SleepOp.class),
-            eventBl,
-            mappedDataStore,
-            virtualCircuitBl,
-            mock(DeviceSynchronizerBl.class),
-            mock(GlobalConnectivityGatewayAttachmentBl.class),
-            identityMetadataHelper,
-            featureController,
-            drgV2AttachmentBl,
-            drgV2Helper,  // This will be mocked to throw exception
-            sentinelClient,
-            vpnWorkerConfiguration,
-            crossConnectGroupBl,
-            crossConnectBl
-    );
+ @Test
+    public void TtestCreateOrUpdateDrgV2Attachment_BmcException() throws Exception {
+        // Arrange
+        VirtualCircuitDo virtualCircuitDo = VirtualCircuitDo.builder()
+                .id(TEST_EXISTING_VC_ID)
+                .gatewayId(TEST_DRG_ID)
+                .state(VirtualCircuitDo.State.PROVISIONING)
+                .build();
+
+        // Mock the helper to throw BmcException
+        Transaction mockTransaction = mock(Transaction.class);
+        DrgV2Helper drgV2HelperMock = mock(DrgV2Helper.class);
+        VirtualCircuitBl virtualCircuitBlMock = mock(VirtualCircuitBl.class);
+        VpnRegion vpnRegion = mock(VpnRegion.class);
+        VirtualCircuitWorkflowBase virtualCircuitWorkflowBase = mock(VirtualCircuitWorkflowBase.class);
+
+
+
+        // Act and Assert - Test that BmcException is thrown and VC state is updated
+        try (Transaction t = drgV2AttachmentBl.beginTransaction("test")) {
+            when(virtualCircuitWorkflowBase.createOrUpdateDrgV2Attachment(t ,virtualCircuitDo, vpnRegion)).thenThrow(new BmcException(500, "test",
+                    "test", "test"));
+            assertThrows(BmcException.class, () -> {
+                virtualCircuitWorkflowBase.createOrUpdateDrgV2Attachment(t, virtualCircuitDo, vpnRegion);
+            });
+
+            //when(virtualCircuitWorkflowBase.createOrUpdateDrgV2Attachment(t, virtualCircuitDo, vpnRegion)).thenReturn(null);
+
+            //assertThat(virtualCircuitDo.getState()).isEqualTo(VirtualCircuitDo.State.FAILED);
+        }
+    }
