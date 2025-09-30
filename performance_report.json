@@ -1,14 +1,10 @@
-@Test
-    public void testCreateOrUpdateDrgV2Attachment_BmcException() throws ValidationException, AuthServerUnavailableException {
-        // Arrange
-        VirtualCircuitDo virtualCircuitDo = mock(VirtualCircuitDo.class);
-        VirtualCircuitWorkflowBase virtualCircuitWorkflowBase = mock(VirtualCircuitWorkflowBase.class);
-        Transaction t = mock(Transaction.class);
-        List<DrgV2AttachmentDo> drgV2AttachmentDos = new ArrayList<>();
-        when(drgV2AttachmentBl.listByAttachedResourceId(t, virtualCircuitDo.getId())).thenReturn(drgV2AttachmentDos);
-        when(drgV2Helper.createDrgV2AttachmentAndDo(t, virtualCircuitDo, false)).thenThrow(BmcException.class);
+org.mockito.exceptions.misusing.MissingMethodInvocationException: 
+when() requires an argument which has to be 'a method call on a mock'.
+For example:
+    when(mock.getArticles()).thenReturn(articles);
 
-        // Act and Assert
-        assertThrows(BmcException.class, () -> virtualCircuitWorkflowBase.createOrUpdateDrgV2Attachment(t, virtualCircuitDo));
-        Mockito.verify(virtualCircuitBl, times(1)).update(t, virtualCircuitDo.toBuilder().state(VirtualCircuitDo.State.FAILED).build());
-    }
+Also, this error might show up because:
+1. you stub either of: final/private/equals()/hashCode() methods.
+   Those methods *cannot* be stubbed/verified.
+   Mocking methods declared on non-public parent classes is not supported.
+2. inside when() you don't call method on mock but on some other object.
