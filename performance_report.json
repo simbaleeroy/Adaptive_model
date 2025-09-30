@@ -1,1 +1,2 @@
-Can not set com.oracle.pic.vpn.oci.DrgV2Helper field com.oracle.pic.vpn.workflows.workflows.VirtualCircuitWorkflowBase.drgV2Helper to com.oracle.pic.vpn.workflows.workflows.CreateVcDrgV2AttachmentWorkflow
+when(virtualNetworkClient.createC3DrgAttachment(any(CreateC3DrgAttachmentRequest.class)))
+                                .thenThrow(new BmcException(500, "test-service-code", "Internal Server Error", "test-opc-request-id"));
