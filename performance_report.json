@@ -1,1 +1,14 @@
+@Test
+    public void testCreateOrUpdateDrgV2Attachment_BmcException() throws ValidationException, AuthServerUnavailableException {
+        // Arrange
+        VirtualCircuitDo virtualCircuitDo = mock(VirtualCircuitDo.class);
+        VirtualCircuitWorkflowBase virtualCircuitWorkflowBase = mock(VirtualCircuitWorkflowBase.class);
+        Transaction t = mock(Transaction.class);
+        List<DrgV2AttachmentDo> drgV2AttachmentDos = new ArrayList<>();
+        when(drgV2AttachmentBl.listByAttachedResourceId(t, virtualCircuitDo.getId())).thenReturn(drgV2AttachmentDos);
+        when(drgV2Helper.createDrgV2AttachmentAndDo(t, virtualCircuitDo, false)).thenThrow(BmcException.class);
 
+        // Act and Assert
+        assertThrows(BmcException.class, () -> virtualCircuitWorkflowBase.createOrUpdateDrgV2Attachment(t, virtualCircuitDo));
+        Mockito.verify(virtualCircuitBl, times(1)).update(t, virtualCircuitDo.toBuilder().state(VirtualCircuitDo.State.FAILED).build());
+    }
