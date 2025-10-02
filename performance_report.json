@@ -1,14 +1,51 @@
-@Test
-public void GIVEN_backfillTenantId_WHEN_objectTenantIdIsNotNull_THEN_doesNotBackfill() throws Exception {
-    // Arrange - object with existing tenantId
-    CrossConnectGroupDo crossConnectGroupDo = generateCrossConnectGroupDo(crossConnectGroupBl);
-    String ccgID = crossConnectGroupDo.getId();
-    String originalTenantId = crossConnectGroupDo.getTenantId();
-    String newTenantId = "different-tenant-id";
+try {
+            generator = mapper.getFactory().createGenerator(output, com.fasterxml.jackson.core.JsonEncoding.UTF8);
+            generator.writeStartObject();
 
-    // Act
-    CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgID, newTenantId);
+            // predicate: checks tenantId then falls back to compartment resolution
+            java.util.function.Predicate<Object> belongsToTenancy = (obj) -> fetchTenantId(obj, tenancyId);
 
-    // Assert
-    assertEquals(originalTenantId, result.getTenantId()); // Should return original, not new
-}
+            // directly fetch and write each resource type
+            generator.writeStringField("tenancyName", getTenancyName(tenancyId));
+            generator.writeStringField("homeRegion", getHomeRegion(tenancyId));
+            generator.writeStringField("tenancyOcid", tenancyId);
+
+            // CrossConnects
+            generator.writeFieldName("crossConnects");
+            generator.writeStartArray();
+            writeListToJson(generator, mapper, crossConnectBl, belongsToTenancy, "crossConnects" );
+            try {
+                com.fasterxml.jackson.core.JsonGenerator finalGen = generator;
+                crossConnectBl.stream()
+                        .filter(item -> item != null && belongsToTenancy.test(item))
+                        .forEach(item -> {
+                            try {
+                                mapper.writeValue(finalGen, item);
+                            } catch (Exception e) {
+                                log.warn("Failed to write crossConnect item", e);
+                            }
+                        });
+            } catch (Exception e) {
+                log.warn("Failed to get crossConnects list", e);
+            }
+
+            generator.writeEndArray();
+
+            // CrossConnectGroups
+            generator.writeFieldName("crossConnectGroups");
+            generator.writeStartArray();
+            try {
+                com.fasterxml.jackson.core.JsonGenerator finalGen1 = generator;
+                crossConnectGroupBl.stream()
+                        .filter(item -> item != null && belongsToTenancy.test(item))
+                        .forEach(item -> {
+                            try {
+                                mapper.writeValue(finalGen1, item);
+                            } catch (Exception e) {
+                                log.warn("Failed to write crossConnectGroup item", e);
+                            }
+                        });
+            } catch (Exception e) {
+                log.warn("Failed to get crossConnectGroups list", e);
+            }
+            generator.writeEndArray();
