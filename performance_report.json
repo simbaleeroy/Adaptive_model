@@ -1,16 +1,1 @@
-// Inject the mock into crossConnectBl
-    try {
-        Field field = crossConnectBl.getClass().getDeclaredField("identityMetadataHelper");
-        field.setAccessible(true);
-        field.set(crossConnectBl, identityMetadataHelper);
-    } catch (Exception e) {
-        // Try other possible field names
-        Field[] fields = crossConnectBl.getClass().getDeclaredFields();
-        for (Field f : fields) {
-            if (f.getType().equals(IdentityMetadataHelper.class)) {
-                f.setAccessible(true);
-                f.set(crossConnectBl, identityMetadataHelper);
-                break;
-            }
-        }
-    }
+
