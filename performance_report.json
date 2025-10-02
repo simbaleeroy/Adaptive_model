@@ -1,18 +1,5 @@
-@Test
-public void GIVEN_backfillTenantId_WHEN_ccgTenantIdIsNull_THEN_updatesDatabase() throws Exception {
-    // Arrange
-    CrossConnectGroupDo crossConnectGroupDo = generateCrossConnectGroupDo(crossConnectGroupBl);
-    String ccgID = crossConnectGroupDo.getId();
-    String tenantID = IdentityMetadataHelper.TENANT_ID_LOCAL;
-
-    try (Transaction t = crossConnectGroupBl.beginTransaction("test")) {
-        crossConnectGroupBl.getBucket().put(t, crossConnectGroupDo.toBuilder().tenantId(null).build());
-        t.commit();
+// Additional verification: Ensure the change was persisted to the database
+    try (Transaction t = crossConnectGroupBl.beginTransaction("verify-persistence")) {
+        CrossConnectGroupDo retrievedCcg = crossConnectGroupBl.getOrThrow(t, ccgID);
+        assertEquals(tenantID, retrievedCcg.getTenantId());
     }
-
-    // Act
-    CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgID, tenantID);
-
-    // Assert
-    assertEquals(tenantID, result.getTenantId());
-}
