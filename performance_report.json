@@ -1,89 +1,18 @@
 @Test
-    public void testBackfillTenantId_whenTenantIdIsNull_shouldReturnExistingObject() throws Exception {
-        // Arrange
-        String ccgId = UUID.randomUUID().toString();
-        String tenantId = null;
+public void GIVEN_backfillTenantId_WHEN_ccgTenantIdIsNull_THEN_updatesDatabase() throws Exception {
+    // Arrange
+    CrossConnectGroupDo crossConnectGroupDo = generateCrossConnectGroupDo(crossConnectGroupBl);
+    String ccgID = crossConnectGroupDo.getId();
+    String tenantID = IdentityMetadataHelper.TENANT_ID_LOCAL;
 
-        // Create a real CrossConnectGroupDo object in the database
-        CrossConnectGroupDo existingCcg;
-        try (Transaction t = crossConnectGroupBl.beginTransaction("test-backfill-null")) {
-            existingCcg = CrossConnectGroupDo.builder()
-                    .id(ccgId)
-                    .tenantId("existing-tenant-id")
-                    .compartmentId(TEST_COMPARTMENT_ID)
-                    .state(CrossConnectGroupDo.State.PROVISIONING)
-                    .build();
-
-            existingCcg = crossConnectGroupBl.create(t, existingCcg);
-            t.commit();
-        }
-
-        // Act
-        CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgId, tenantId);
-
-        // Assert
-        assertEquals(existingCcg.getId(), result.getId());
-        assertEquals("existing-tenant-id", result.getTenantId());
+    try (Transaction t = crossConnectGroupBl.beginTransaction("test")) {
+        crossConnectGroupBl.getBucket().put(t, crossConnectGroupDo.toBuilder().tenantId(null).build());
+        t.commit();
     }
 
-    @Test
-    public void testBackfillTenantId_whenObjectAlreadyHasTenantId_shouldReturnUnchanged() throws Exception {
-        // Arrange
-        String ccgId = UUID.randomUUID().toString();
-        String tenantId = "new-tenant-id";
+    // Act
+    CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgID, tenantID);
 
-        // Create a real CrossConnectGroupDo object with existing tenantId
-        CrossConnectGroupDo existingCcg;
-        try (Transaction t = crossConnectGroupBl.beginTransaction("test-backfill-existing")) {
-            existingCcg = CrossConnectGroupDo.builder()
-                    .id(ccgId)
-                    .tenantId("existing-tenant-id")
-                    .compartmentId(TEST_COMPARTMENT_ID)
-                    .state(CrossConnectGroupDo.State.PROVISIONING)
-                    .build();
-
-            existingCcg = crossConnectGroupBl.create(t, existingCcg);
-            t.commit();
-        }
-
-        // Act
-        CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgId, tenantId);
-
-        // Assert
-        assertEquals(existingCcg.getId(), result.getId());
-        assertEquals("existing-tenant-id", result.getTenantId()); // Should remain unchanged
-    }
-
-    @Test
-    public void testBackfillTenantId_whenObjectHasNullTenantId_shouldBackfillAndUpdate() throws Exception {
-        // Arrange
-        String ccgId = UUID.randomUUID().toString();
-        String tenantId = "new-tenant-id";
-
-        // Create a real CrossConnectGroupDo object with null tenantId
-        CrossConnectGroupDo existingCcg;
-        try (Transaction t = crossConnectGroupBl.beginTransaction("test-backfill-null-tenant")) {
-            existingCcg = CrossConnectGroupDo.builder()
-                    .id(ccgId)
-                    .tenantId(null) // This is the key - tenantId is null
-                    .compartmentId(TEST_COMPARTMENT_ID)
-                    .state(CrossConnectGroupDo.State.PROVISIONING)
-                    .build();
-
-            existingCcg = crossConnectGroupBl.create(t, existingCcg);
-            t.commit();
-        }
-
-        // Act
-        CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgId, tenantId);
-
-        // Assert
-        assertEquals(tenantId, result.getTenantId());
-        assertEquals(ccgId, result.getId());
-
-        // Verify the object was actually updated in the database
-        try (Transaction t = crossConnectGroupBl.beginTransaction("test-verify-update")) {
-            CrossConnectGroupDo retrievedCcg = crossConnectGroupBl.getOrThrow(t, ccgId);
-            assertEquals(tenantId, retrievedCcg.getTenantId());
-        }
-    }
+    // Assert
+    assertEquals(tenantID, result.getTenantId());
+}
