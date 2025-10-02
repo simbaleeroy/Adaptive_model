@@ -2,6 +2,7 @@
     public void GIVEN_backfillTenantId_WHEN_tenantIdIsMissing_THEN_updatesDatabase() throws Exception {
         // Create a CrossConnect without tenantId
         IdentityMetadataHelper identityMetadataHelper = mock(IdentityMetadataHelper.class);
+        String newTenantId = "newTenantId";
 
         Transaction t = crossConnectBl.beginTransaction("create-cc-no-tenant");
         CrossConnectDo ccWithoutTenant = crossConnectBl.create(t, CrossConnectDo.builder()
@@ -28,14 +29,15 @@
         CrossConnectDo beforeBackfill = crossConnectBl.getOrThrow(ccWithoutTenant.getId());
         assertNull("TenantId should be null before backfill", beforeBackfill.getTenantId());
 
-        // make sure a value is returned during tenantId lookup
-        when(identityMetadataHelper.getTenantId(beforeBackfill.getCompartmentId())).thenReturn(anyString());
+        // mock the tenantId lookup
+        when(identityMetadataHelper.getTenantId(beforeBackfill.getCompartmentId())).thenReturn(newTenantId);
 
         // Call backfillTenantId parsing in a null tenantId parameter
         CrossConnectDo result = crossConnectBl.backfillTenantId(beforeBackfill.getId(), null, beforeBackfill);
 
         // verify tenantId is not null
         assertNotNull("TenantId should not be null", result.getTenantId());
+        assertEquals("TenantId should match", newTenantId, result.getTenantId());
 
         // Verify the returned object has the new tenantId
         assertEquals("ID should match", beforeBackfill.getId(), result.getId());
