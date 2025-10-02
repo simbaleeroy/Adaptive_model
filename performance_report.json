@@ -3,12 +3,19 @@ public void GIVEN_backfillTenantId_WHEN_ccgTenantIdIsNotNull_THEN_doesNotUpdateD
     // Arrange
     CrossConnectGroupDo crossConnectGroupDo = generateCrossConnectGroupDo(crossConnectGroupBl);
     String ccgID = crossConnectGroupDo.getId();
-    String tenantID = IdentityMetadataHelper.TENANT_ID_LOCAL;
+    String originalTenantId = crossConnectGroupDo.getTenantId(); // Store the original
+    String newTenantId = "different-tenant-id"; // Use a different tenantId
 
     // Act
-    CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgID, tenantID);
+    CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgID, newTenantId);
 
     // Assert
-    assertEquals(tenantID, result.getTenantId());
+    assertEquals(originalTenantId, result.getTenantId()); // Should return original, not new
     assertEquals(crossConnectGroupDo.getTenantId(), result.getTenantId());
+    
+    // Additional verification: Ensure database wasn't updated
+    try (Transaction t = crossConnectGroupBl.beginTransaction("verify-no-update")) {
+        CrossConnectGroupDo retrievedCcg = crossConnectGroupBl.getOrThrow(t, ccgID);
+        assertEquals(originalTenantId, retrievedCcg.getTenantId()); // Database should still have original
+    }
 }
