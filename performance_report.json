@@ -1,1 +1,211 @@
+package com.oracle.pic.vpn.db;
 
+import com.google.inject.Inject;
+import com.oracle.pic.commons.testing.UnitTest;
+import com.oracle.pic.kiev.Transaction;
+import com.oracle.pic.vpn.VpnRegion;
+import com.oracle.pic.vpn.db.NetworkTopologyDaoModule.Buckets;
+import com.oracle.pic.vpn.db.devices.DeviceBl;
+import com.oracle.pic.vpn.db.devices.DeviceBlTest;
+import com.oracle.pic.vpn.db.devices.DeviceModuleTestInjector;
+import com.oracle.pic.vpn.db.devices.model.DeviceDo;
+import com.oracle.pic.vpn.db.encryption.EncryptionManager;
+import com.oracle.pic.vpn.db.model.ArchiveDo;
+import com.oracle.pic.vpn.db.model.CrossConnectDo;
+import com.oracle.pic.vpn.db.model.CrossConnectGroupDo;
+import com.oracle.pic.vpn.db.model.GlobalPopCcgMetadata;
+import com.oracle.pic.vpn.db.model.InterfaceDo;
+import com.oracle.pic.vpn.db.model.MacsecKeyInternal;
+import com.oracle.pic.vpn.db.model.VirtualCircuitDo;
+import com.oracle.pic.vpn.db.util.TagUtils;
+import com.oracle.pic.vpn.identity.IdentityMetadataHelper;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.experimental.categories.Category;
+
+import java.util.Arrays;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+import static com.oracle.pic.vpn.db.CrossConnectBlTest.TEST_LOCATION_ID;
+import static com.oracle.pic.vpn.db.CrossConnectBlTest.TEST_LOCATION_NAME;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@Category(UnitTest.class)
+public class CrossConnectGroupBlTest {
+
+    public static final String AGENT_TARGET_CCG_ID = "AgentTargetCcgId";
+    @Rule
+    public DaoTestInjector injector = new NetworkTopologyDaoTestInjector(this)
+            .include(DeviceModuleTestInjector::new);
+
+    @Inject
+    private CrossConnectBl crossConnectBl;
+    @Inject
+    private CrossConnectGroupBl crossConnectGroupBl;
+    @Inject
+    private DeviceBl deviceBl;
+    @Inject
+    private DrgBl drgBl;
+    @Inject
+    private VirtualCircuitBl virtualCircuitBl;
+    @Inject
+    private LocationBl locationBl;
+
+    private static String TEST_COMPARTMENT_ID = "BlTestCompartment";
+    private static String CUSTOMER_REFERENCE_NAME = "CustomerReferenceName";
+    private static Integer SVLAN_NUMBER = 12345;
+    private static String PFABCLUSTER_ID = "TestPfabCluster";
+    private static Integer LAGG_NUMBER = 500;
+
+
+    public static CrossConnectDo
+    generateCrossConnectDo(CrossConnectBl crossConnectBl, Integer sVlanNumberForQfx,
+                                String pFabClusterId) throws Exception {
+
+        try (Transaction t = crossConnectBl.beginTransaction("test-ccg")) {
+            CrossConnectDo crossConnectDo = CrossConnectDo.builder()
+                    .compartmentId(TEST_COMPARTMENT_ID)
+                    .pFabClusterId(pFabClusterId)
+                    .state(CrossConnectDo.State.PROVISIONED)
+                    .sVlanNumberForQfx(sVlanNumberForQfx)
+                    .build();
+
+            t.commit();
+
+            return crossConnectDo;
+        }
+    }
+
+    public static CrossConnectGroupDo generateCrossConnectGroupDoforAristaFFAB(CrossConnectGroupBl crossConnectGroupBl, CrossConnectBl crossConnectBl,
+                                                                  InterfaceBl interfaceBl, DeviceBl deviceBl) throws Exception {
+        DeviceDo deviceDo = DeviceBlTest.generateAristaFFABDeviceDo(deviceBl, Optional.empty());
+        CrossConnectGroupDo crossConnectGroupDo;
+        try (Transaction t = crossConnectGroupBl.beginTransaction("test-ccg")) {
+             crossConnectGroupDo = CrossConnectGroupDo.builder()
+                    .compartmentId(TEST_COMPARTMENT_ID)
+                    .customerReferenceId(CUSTOMER_REFERENCE_NAME)
+                    .state(CrossConnectGroupDo.State.PROVISIONING)
+                    .sVlanNumberForQfx(SVLAN_NUMBER)
+                    .laggNumber(LAGG_NUMBER)
+                    .crossConnectIds(new String[]{})
+                    .pFabClusterId(PFABCLUSTER_ID)
+                    .build();
+
+            crossConnectGroupDo = crossConnectGroupBl.create(t, crossConnectGroupDo);
+            t.commit();
+
+        }
+        CrossConnectDo crossConnectDo = CrossConnectBlTest.generateAristaFFABT1CrossConnectDowithCCG(InterfaceDo.PortSpeed.HUNDRED_GIGS, crossConnectBl, interfaceBl,
+                deviceBl, "", null, PFABCLUSTER_ID, crossConnectGroupDo, deviceDo);
+
+        try (Transaction t = crossConnectGroupBl.beginTransaction("test-ccg")) {
+             crossConnectGroupDo = crossConnectGroupBl.get(t, crossConnectGroupDo.getId()).get();
+
+            crossConnectGroupBl.getBucket().put(t, crossConnectGroupDo.toBuilder()
+                    .crossConnectIds(new String[]{crossConnectDo.getId()})
+                    .build());
+            t.commit();
+        }
+
+        return  crossConnectGroupDo;
+
+    }
+
+    public static CrossConnectGroupDo generateCrossConnectGroupDoforMx10(CrossConnectGroupBl crossConnectGroupBl,
+                                                                         CrossConnectBl crossConnectBl,
+                                                                         InterfaceBl interfaceBl,
+                                                                         DeviceDo deviceDo,
+                                                                         String interfaceName,
+                                                                         Map<String, String> freeFormTags) throws Exception {
+
+        CrossConnectGroupDo crossConnectGroupDo;
+        try (Transaction t = crossConnectGroupBl.beginTransaction("test-create-ccg")) {
+            crossConnectGroupDo = CrossConnectGroupDo.builder()
+                .compartmentId(TEST_COMPARTMENT_ID)
+                .customerReferenceId(CUSTOMER_REFERENCE_NAME)
+                .state(CrossConnectGroupDo.State.PROVISIONING)
+                .sVlanNumberForQfx(SVLAN_NUMBER)
+                .laggNumber(LAGG_NUMBER)
+                .crossConnectIds(new String[]{})
+                .pFabClusterId(PFABCLUSTER_ID)
+                .tags(TagUtils.encodeTags(freeFormTags, null))
+                .build();
+
+            crossConnectGroupDo = crossConnectGroupBl.create(t, crossConnectGroupDo);
+            t.commit();
+
+        }
+        CrossConnectDo crossConnectDo = CrossConnectBlTest.generateMX10kCrossConnectDowithCCG(InterfaceDo.PortSpeed.HUNDRED_GIGS, crossConnectBl, interfaceBl,
+            PFABCLUSTER_ID, crossConnectGroupDo, deviceDo, interfaceName);
+
+        try (Transaction t = crossConnectGroupBl.beginTransaction("test-update-ccg")) {
+            crossConnectGroupDo = crossConnectGroupBl.get(t, crossConnectGroupDo.getId()).get();
+
+            crossConnectGroupBl.getBucket().put(t, crossConnectGroupDo.toBuilder()
+                .crossConnectIds(new String[]{crossConnectDo.getId()})
+                .build());
+            t.commit();
+        }
+
+        return  crossConnectGroupDo;
+
+    }
+
+    public static CrossConnectGroupDo
+        generateCrossConnectGroupDo(CrossConnectGroupBl crossConnectBl, String[] crossConnectIds, Integer sVlanNumberForQfx,
+        		String pFabClusterId) throws Exception {
+
+        try (Transaction t = crossConnectBl.beginTransaction("test-ccg")) {
+            CrossConnectGroupDo crossConnectGroupDo = CrossConnectGroupDo.builder()
+                    .compartmentId(TEST_COMPARTMENT_ID)
+                    .customerReferenceId(CUSTOMER_REFERENCE_NAME)
+                    .crossConnectIds(crossConnectIds)
+                    .state(CrossConnectGroupDo.State.INACTIVE)
+                    .sVlanNumberForQfx(sVlanNumberForQfx)
+                    .pFabClusterId(pFabClusterId)
+                    .build();
+            crossConnectGroupDo = crossConnectBl.create(t, crossConnectGroupDo);
+
+            t.commit();
+
+            return crossConnectGroupDo;
+        }
+    }
+
+
+    public static CrossConnectGroupDo generateCrossConnectGroupDo(
+            CrossConnectGroupBl crossConnectGroupBl) throws Exception {
+
+        try (Transaction t = crossConnectGroupBl.beginTransaction("test")) {
+
+            CrossConnectGroupDo crossConnectGroupDo = crossConnectGroupBl.create(t,
+                    CrossConnectGroupDo.builder()
+                            .compartmentId("testCompartment")
+                            .crossConnectIds(new String[]{})
+                            .displayName("test")
+                            .state(CrossConnectGroupDo.State.INACTIVE)
+                            .build());
+            t.commit();
+            return crossConnectGroupDo;
+        }
+    }
+
+    public static EncryptionManager.EncryptedRecord getRecord(String keyName) {
+        return new EncryptionManager.EncryptedRecord(new byte[]{1}, new byte[]{2},
+                keyName, EncryptionManager.EncryptionType.AES, new Date());
+    }
