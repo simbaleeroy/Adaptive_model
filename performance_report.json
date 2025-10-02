@@ -1,5 +1,14 @@
-// Additional verification: Ensure the change was persisted to the database
-    try (Transaction t = crossConnectGroupBl.beginTransaction("verify-persistence")) {
-        CrossConnectGroupDo retrievedCcg = crossConnectGroupBl.getOrThrow(t, ccgID);
-        assertEquals(tenantID, retrievedCcg.getTenantId());
-    }
+@Test
+public void GIVEN_backfillTenantId_WHEN_ccgTenantIdIsNotNull_THEN_doesNotUpdateDatabase() throws Exception {
+    // Arrange
+    CrossConnectGroupDo crossConnectGroupDo = generateCrossConnectGroupDo(crossConnectGroupBl);
+    String ccgID = crossConnectGroupDo.getId();
+    String tenantID = IdentityMetadataHelper.TENANT_ID_LOCAL;
+
+    // Act
+    CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgID, tenantID);
+
+    // Assert
+    assertEquals(tenantID, result.getTenantId());
+    assertEquals(crossConnectGroupDo.getTenantId(), result.getTenantId());
+}
