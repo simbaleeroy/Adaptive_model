@@ -1,1 +1,14 @@
+@Test
+public void GIVEN_backfillTenantId_WHEN_objectTenantIdIsNotNull_THEN_doesNotBackfill() throws Exception {
+    // Arrange - object with existing tenantId
+    CrossConnectGroupDo crossConnectGroupDo = generateCrossConnectGroupDo(crossConnectGroupBl);
+    String ccgID = crossConnectGroupDo.getId();
+    String originalTenantId = crossConnectGroupDo.getTenantId();
+    String newTenantId = "different-tenant-id";
 
+    // Act
+    CrossConnectGroupDo result = crossConnectGroupBl.backfillTenantId(ccgID, newTenantId);
+
+    // Assert
+    assertEquals(originalTenantId, result.getTenantId()); // Should return original, not new
+}
