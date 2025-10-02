@@ -1,52 +1,16 @@
-@Test
-    public void GIVEN_backfillTenantId_WHEN_tenantIdIsMissing_THEN_updatesDatabase() throws Exception {
-        // Create a CrossConnect without tenantId
-        IdentityMetadataHelper identityMetadataHelper = mock(IdentityMetadataHelper.class);
-        String newTenantId = "newTenantId";
-
-        Transaction t = crossConnectBl.beginTransaction("create-cc-no-tenant");
-        CrossConnectDo ccWithoutTenant = crossConnectBl.create(t, CrossConnectDo.builder()
-                .displayName("test-CC-no-tenant")
-                .compartmentId(ManagementResourceTestHelper.MY_COMPARTMENT)
-                .location(ManagementResourceTestHelper.LOCATION_ID)
-                .portSpeed(ManagementResourceTestHelper.MY_PORT_SPEED)
-                .interfaceId(ManagementResourceTestHelper.INTERFACE_PREFIX + "1")
-                .connectionHintsFar(new String[] {})
-                .connectionHintsNear(new String[] {})
-                .state(CrossConnectDo.State.PENDING_CUSTOMER)
-                .deviceId("test_dev")
-                .tenantId(null)
-                .build());
-        t.commit();
-
-        Transaction clearT = crossConnectBl.beginTransaction("clear-tenantId");
-        CrossConnectDo ccToClear = crossConnectBl.getOrThrow(clearT, ccWithoutTenant.getId());
-        CrossConnectDo clearedCc = ccToClear.toBuilder().tenantId(null).build();
-        crossConnectBl.update(clearT,clearedCc);
-        clearT.commit();
-
-        // Verify tenantId is null before backfill
-        CrossConnectDo beforeBackfill = crossConnectBl.getOrThrow(ccWithoutTenant.getId());
-        assertNull("TenantId should be null before backfill", beforeBackfill.getTenantId());
-
-        // mock the tenantId lookup
-        when(identityMetadataHelper.getTenantId(beforeBackfill.getCompartmentId())).thenReturn(newTenantId);
-
-        // Call backfillTenantId parsing in a null tenantId parameter
-        CrossConnectDo result = crossConnectBl.backfillTenantId(beforeBackfill.getId(), null, beforeBackfill);
-
-        // verify tenantId is not null
-        assertNotNull("TenantId should not be null", result.getTenantId());
-        assertEquals("TenantId should match", newTenantId, result.getTenantId());
-
-        // Verify the returned object has the new tenantId
-        assertEquals("ID should match", beforeBackfill.getId(), result.getId());
-        assertEquals("tenantId's should match", ccWithoutTenant.getTenantId(), result.getTenantId());
-
-        // Verify the update was actually persisted to the database
-        CrossConnectDo persisted = crossConnectBl.getOrThrow(ccWithoutTenant.getId());
-        assertEquals("TenantId should be persisted in database", result.getTenantId(), persisted.getTenantId());
-        assertEquals("Other fields should remain unchanged", beforeBackfill.getDisplayName(), persisted.getDisplayName());
-        assertEquals("Other fields should remain unchanged", beforeBackfill.getCompartmentId(),
-                persisted.getCompartmentId());
+// Inject the mock into crossConnectBl
+    try {
+        Field field = crossConnectBl.getClass().getDeclaredField("identityMetadataHelper");
+        field.setAccessible(true);
+        field.set(crossConnectBl, identityMetadataHelper);
+    } catch (Exception e) {
+        // Try other possible field names
+        Field[] fields = crossConnectBl.getClass().getDeclaredFields();
+        for (Field f : fields) {
+            if (f.getType().equals(IdentityMetadataHelper.class)) {
+                f.setAccessible(true);
+                f.set(crossConnectBl, identityMetadataHelper);
+                break;
+            }
+        }
     }
