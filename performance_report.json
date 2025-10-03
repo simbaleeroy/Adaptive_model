@@ -1,18 +1,673 @@
-private Stream<?> getStreamFromBl(Object blObj) {
-    if (blObj instanceof CrossConnectBl) {
-        return ((CrossConnectBl) blObj).stream();
-    } else if (blObj instanceof CrossConnectGroupBl) {
-        return ((CrossConnectGroupBl) blObj).stream();
-    } else if (blObj instanceof VirtualCircuitBl) {
-        return ((VirtualCircuitBl) blObj).stream();
-    } else if (blObj instanceof IPsecConnectionBl) {
-        return ((IPsecConnectionBl) blObj).stream();
-    } else if (blObj instanceof RemotePeeringConnectionBl) {
-        return ((RemotePeeringConnectionBl) blObj).stream();
-    } else if (blObj instanceof TunnelBl) {
-        return ((TunnelBl) blObj).stream();
-    } else if (blObj instanceof DeviceBl) {
-        return ((DeviceBl) blObj).stream();
+package com.oracle.pic.vpn.api.resources;
+
+import com.codahale.metrics.annotation.Timed;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
+import com.google.inject.Inject;
+import com.opencsv.exceptions.CsvDataTypeMismatchException;
+import com.opencsv.exceptions.CsvRequiredFieldEmptyException;
+import com.google.inject.name.Named;
+import com.oracle.bmc.core.model.CrossConnectGroup;
+import com.oracle.bmc.core.model.Drg;
+import com.oracle.bmc.core.model.LimitConsumption;
+import com.oracle.bmc.objectstorage.model.CreateBucketDetails;
+import com.oracle.pic.commons.exceptions.server.ErrorCode;
+import com.oracle.pic.commons.exceptions.server.RenderableException;
+import com.oracle.pic.commons.metrics.MetricsScope;
+import com.oracle.pic.commons.rid.RequestIdHolder;
+import com.oracle.pic.commons.service.Headers;
+import com.oracle.pic.commons.service.Params;
+import com.oracle.pic.commons.service.model.PaginatedResponse;
+import com.oracle.pic.commons.util.EntityType;
+import com.oracle.pic.identity.authentication.Principal;
+import com.oracle.pic.identity.authentication.error.AuthServerUnavailableException;
+import com.oracle.pic.identity.authorization.sdk.AuthorizationRequest;
+import com.oracle.pic.identity.authorization.sdk.context.AuthorizationRequestContext;
+import com.oracle.pic.identity.authorization.sdk.context.PrincipalContext;
+import com.oracle.pic.kiev.Bucket;
+import com.oracle.pic.kiev.ColumnValueSet;
+import com.oracle.pic.kiev.Transaction;
+import com.oracle.pic.kiev.exceptions.CommitConflictException;
+import com.oracle.pic.kiev.mapping.Index;
+import com.oracle.pic.kiev.mapping.PaginationToken;
+import com.oracle.pic.kiev.mapping.ScanPage;
+import com.oracle.pic.limits.entities.exceptions.CompartmentQuotaException;
+import com.oracle.pic.vpn.VpnRegion;
+import com.oracle.pic.vpn.api.auth.VpnSkipAuthorization;
+import com.oracle.pic.vpn.api.resources.util.CustomParams;
+import com.oracle.pic.vpn.api.resources.util.ManagementResourceHelper;
+import com.oracle.pic.vpn.api.resources.util.PaginationUtils;
+import com.oracle.pic.vpn.api.resources.util.PatchPanelPortPairTemplateValidator;
+import com.oracle.pic.vpn.api.resources.util.PortMigrationUtils;
+import com.oracle.pic.vpn.api.resources.util.PromdiffUtils.ImpactedCustomersPrometheus;
+import com.oracle.pic.vpn.common.prometheus.PrometheusQueryResponse;
+import com.oracle.pic.vpn.api.resources.util.ResourceUtils;
+import com.oracle.pic.vpn.api.resources.util.WorkflowVersionHelper;
+import com.oracle.pic.vpn.api.resources.v20160918.CrossConnectGroupResource;
+import com.oracle.pic.vpn.common.MetricConstants;
+import com.oracle.pic.vpn.common.RouteInformation;
+import com.oracle.pic.vpn.config.renderer.ConfigPair;
+import com.oracle.pic.vpn.config.renderer.FtlGroupTemplateInterface;
+import com.oracle.pic.vpn.config.renderer.JuniperConfigHelper;
+import com.oracle.pic.vpn.db.ArchiveBl;
+import com.oracle.pic.vpn.db.AzureExpressRouteBl;
+import com.oracle.pic.vpn.db.BOMBl;
+import com.oracle.pic.vpn.db.BgpBl;
+import com.oracle.pic.vpn.db.BgpSessionBl;
+import com.oracle.pic.vpn.db.CrossConnectBl;
+import com.oracle.pic.vpn.db.CrossConnectGroupBl;
+import com.oracle.pic.vpn.db.DrgBl;
+import com.oracle.pic.vpn.db.DrgStatusBl;
+import com.oracle.pic.vpn.db.EventBl;
+import com.oracle.pic.vpn.db.IPNetworkVCNConnectionBl;
+import com.oracle.pic.vpn.db.IPsecConnectionBl;
+import com.oracle.pic.vpn.db.InterfaceBl;
+import com.oracle.pic.vpn.db.LoaBl;
+import com.oracle.pic.vpn.db.LocationBl;
+import com.oracle.pic.vpn.db.NetworkTopologyDaoModule;
+import com.oracle.pic.vpn.db.OciClassicVirtualCircuitBl;
+import com.oracle.pic.vpn.db.PatchPanelBl;
+import com.oracle.pic.vpn.db.PatchPanelPortPairBl;
+import com.oracle.pic.vpn.db.PatchPanelPortPairFileMetaDataBl;
+import com.oracle.pic.vpn.db.PortMigrationBackupBl;
+import com.oracle.pic.vpn.db.PropertiesBl;
+import com.oracle.pic.vpn.db.ProviderServiceBl;
+import com.oracle.pic.vpn.db.RemotePeeringConnectionBl;
+import com.oracle.pic.vpn.db.SvlanPfabBl;
+import com.oracle.pic.vpn.db.TenancyMetadataBl;
+import com.oracle.pic.vpn.db.TunnelBl;
+import com.oracle.pic.vpn.db.TunnelStatusBl;
+import com.oracle.pic.vpn.db.VirtualCircuitBl;
+import com.oracle.pic.vpn.db.WorkRequestBl;
+import com.oracle.pic.vpn.db.devices.ConfigSnippetBl;
+import com.oracle.pic.vpn.db.devices.DeviceBl;
+import com.oracle.pic.vpn.db.devices.model.ConfigSnippetDo;
+import com.oracle.pic.vpn.db.devices.model.DeviceDo;
+import com.oracle.pic.vpn.db.encryption.EncryptionException;
+import com.oracle.pic.vpn.db.encryption.EncryptionManager;
+import com.oracle.pic.vpn.db.encryption.EncryptionManager.EncryptedRecord;
+import com.oracle.pic.vpn.db.exception.ValidationException;
+import com.oracle.pic.vpn.db.metering.VpnMetering;
+import com.oracle.pic.vpn.db.model.AzureExpressRouteDo;
+import com.oracle.pic.vpn.db.model.BOMSDo;
+import com.oracle.pic.vpn.db.model.Component;
+import com.oracle.pic.vpn.db.model.CountDo;
+import com.oracle.pic.vpn.db.model.CrossConnectDo;
+import com.oracle.pic.vpn.db.model.CrossConnectGroupDo;
+import com.oracle.pic.vpn.db.model.CrossConnectMappings;
+import com.oracle.pic.vpn.db.model.DrgDo;
+import com.oracle.pic.vpn.db.model.DrgStatusDo;
+import com.oracle.pic.vpn.db.model.EventDo;
+import com.oracle.pic.vpn.db.model.GlobalPopLocationMetadata;
+import com.oracle.pic.vpn.db.model.IPNetworkVCNConnectionDo;
+import com.oracle.pic.vpn.db.model.IPsecConnectionDo;
+import com.oracle.pic.vpn.db.model.InterfaceDo;
+import com.oracle.pic.vpn.db.model.InterfaceDo.PortSpeed;
+import com.oracle.pic.vpn.db.model.LoaDo;
+import com.oracle.pic.vpn.db.model.LocationDo;
+import com.oracle.pic.vpn.db.model.MacsecKeyInternal;
+import com.oracle.pic.vpn.db.model.MacsecPropertiesInternal;
+import com.oracle.pic.vpn.db.model.OciClassicVirtualCircuitDo;
+import com.oracle.pic.vpn.db.model.PatchPanelDo;
+import com.oracle.pic.vpn.db.model.PatchPanelPortPairDo;
+import com.oracle.pic.vpn.db.model.PatchPanelPortPairFileMetaDataDo;
+import com.oracle.pic.vpn.db.model.PortMigrationBackupDo;
+import com.oracle.pic.vpn.db.model.PropertiesDo;
+import com.oracle.pic.vpn.db.model.ProviderServiceDo;
+import com.oracle.pic.vpn.db.model.RemotePeeringConnectionDo;
+import com.oracle.pic.vpn.db.model.TenancyMetadataDo;
+import com.oracle.pic.vpn.db.model.TunnelDo;
+import com.oracle.pic.vpn.db.model.VirtualCircuitDo;
+import com.oracle.pic.vpn.db.model.WorkRequestDo;
+import com.oracle.pic.vpn.db.util.CrossConnectUtils;
+import com.oracle.pic.vpn.db.util.DateUtil;
+import com.oracle.pic.vpn.db.util.IPNetworkVCNConnectionHelper;
+import com.oracle.pic.vpn.db.util.KievGetRawData;
+import com.oracle.pic.vpn.db.util.ModelUtils;
+import com.oracle.pic.vpn.db.util.PaginationTokenUtils;
+import com.oracle.pic.vpn.db.util.PublicValidation;
+import com.oracle.pic.vpn.db.util.RegionUtil;
+import com.oracle.pic.vpn.db.util.ScanAllIterable;
+import com.oracle.pic.vpn.db.util.TagUtils;
+import com.oracle.pic.vpn.db.util.Validation;
+import com.oracle.pic.vpn.db.util.VirtualCircuitValidationHelper;
+import com.oracle.pic.vpn.db.workflow.args.RotateWorkflowArgs;
+import com.oracle.pic.vpn.device.connector.DeviceConnector;
+import com.oracle.pic.vpn.device.connector.FatalDeviceException;
+import com.oracle.pic.vpn.identity.IdentityConfiguration;
+import com.oracle.pic.vpn.identity.IdentityMetadataHelper;
+import com.oracle.pic.vpn.kmsSecrets.KmsSecretsManager;
+import com.oracle.pic.vpn.limits.VpnLimitsHelper;
+import com.oracle.pic.vpn.model.BOM;
+import com.oracle.pic.vpn.model.ConfigSnippet;
+import com.oracle.pic.vpn.model.ConfigSnippetOverrideTemplate;
+import com.oracle.pic.vpn.model.ConfigSnippetTemplate;
+import com.oracle.pic.vpn.model.CreateConfigSnippetRequestDetails;
+import com.oracle.pic.vpn.model.CreateCrossConnectGroupInternalDetails;
+import com.oracle.pic.vpn.model.CreateFakePatchPanelPortPairAutogenInterfaceDetails;
+import com.oracle.pic.vpn.model.CreateFlexibleConfigGroupRequest;
+import com.oracle.pic.vpn.model.CreateFlexibleConfigGroupResponse;
+import com.oracle.pic.vpn.model.CreateIPNetworkConnectionDetails;
+import com.oracle.pic.vpn.model.CreateLocationDetails;
+import com.oracle.pic.vpn.model.CreatePatchPanelDetails;
+import com.oracle.pic.vpn.model.CreatePatchPanelPortPairDetails;
+import com.oracle.pic.vpn.model.CrossConnectAndInterfacePair;
+import com.oracle.pic.vpn.model.CustomerList;
+import com.oracle.pic.vpn.model.DrgRedundancyRecord;
+import com.oracle.pic.vpn.model.DrgRedundancyStatus;
+import com.oracle.pic.vpn.model.Event;
+import com.oracle.pic.vpn.model.ExpressRouteConnection;
+import com.oracle.pic.vpn.model.FastConnectCustomerType;
+import com.oracle.pic.vpn.model.FlexibleConfigGroupDetail;
+import com.oracle.pic.vpn.model.FlexibleConfigGroupName;
+import com.oracle.pic.vpn.model.IPNetworkVCNConnection;
+import com.oracle.pic.vpn.model.InterfaceCustomer;
+import com.oracle.pic.vpn.model.Loa;
+import com.oracle.pic.vpn.model.Location;
+import com.oracle.pic.vpn.model.MacsecKey;
+import com.oracle.pic.vpn.model.MacsecProperties;
+import com.oracle.pic.vpn.model.MigratePortsForCrossConnectGroupRequest;
+import com.oracle.pic.vpn.model.PatchPanel;
+import com.oracle.pic.vpn.model.PatchPanelPortPair;
+import com.oracle.pic.vpn.model.PatchPanelPortPairFileMetaData;
+import com.oracle.pic.vpn.model.PatchPanelPortPairFileRequestMetaData;
+import com.oracle.pic.vpn.model.PatchPanelPortPairFileSheetResult;
+import com.oracle.pic.vpn.model.Property;
+import com.oracle.pic.vpn.model.SaveGeneratedBOMRequestDetails;
+import com.oracle.pic.vpn.model.SaveGeneratedBOMResponseDetails;
+import com.oracle.pic.vpn.model.TenantMetadata;
+import com.oracle.pic.vpn.model.UpdateConfigSnippetOverrideTemplateRequest;
+import com.oracle.pic.vpn.model.UpdateConfigSnippetRequestDetails;
+import com.oracle.pic.vpn.model.UpdateCrossConnectGroupInternalDetails;
+import com.oracle.pic.vpn.model.UpdateFlexibleConfigGroupRequest;
+import com.oracle.pic.vpn.model.UpdateFlexibleConfigGroupResponse;
+import com.oracle.pic.vpn.model.UpdateLoaDetails;
+import com.oracle.pic.vpn.model.UpdateLocationDetails;
+import com.oracle.pic.vpn.model.UpdatePatchPanelDetails;
+import com.oracle.pic.vpn.model.UpdatePatchPanelPortPairDetails;
+import com.oracle.pic.vpn.model.UpdateTenantMetadataDetails;
+import com.oracle.pic.vpn.model.UploadPatchPanelPortPairsFileDetail;
+import com.oracle.pic.vpn.model.UploadPatchPanelPortPairsFileResult;
+import com.oracle.pic.vpn.oci.DrgV2Helper;
+import com.oracle.pic.vpn.oci.ObjectStorageClientHelper;
+import com.oracle.pic.vpn.ociclassic.OciClassicFastConnectClient;
+import com.oracle.pic.vpn.ociclassic.model.PrivateGatewayResponse;
+import com.oracle.pic.vpn.ociclassic.model.VirtualCircuitPostRequest;
+import com.oracle.pic.vpn.ociclassic.model.VirtualCircuitResponse;
+import com.oracle.pic.vpn.workflows.casemetric.PerformanceMetricHelper;
+import com.oracle.pic.workflow.client.v1.model.WorkflowDefinitionId;
+import lombok.NonNull;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.NotImplementedException;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.validator.routines.InetAddressValidator;
+import org.joda.time.DateTime;
+
+import javax.annotation.Nullable;
+import javax.validation.Valid;
+import javax.ws.rs.BadRequestException;
+import javax.ws.rs.Consumes;
+import javax.ws.rs.DELETE;
+import javax.ws.rs.DefaultValue;
+import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
+import javax.ws.rs.POST;
+import javax.ws.rs.PUT;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.security.InvalidParameterException;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Random;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
+
+import static com.oracle.pic.vpn.api.resources.util.RetryHelper.withRetriesOnCommitConflictException;
+import static com.oracle.pic.vpn.config.renderer.FtlGroupTemplateInterface.C3_BASE_CONFIG_GROUP_NAME;
+import static com.oracle.pic.vpn.config.renderer.FtlGroupTemplateInterface.C3_CUSTOMER_CONFIG_GROUP_NAME;
+import static com.oracle.pic.vpn.config.renderer.FtlGroupTemplateInterface.baseConfigGroupToTemplates;
+import static com.oracle.pic.vpn.oci.ObjectStorageClientHelper.OBJECT_PATH_SEPARATOR;
+
+/**
+ * Management resource if for performing management commands on the service
+ * <p>
+ * TODO: Move everything over from the other management resource
+ */
+@Path("/v1/management")
+@Produces({"application/json", "application/x-json-stream"})
+@Slf4j
+public class ManagementResourceV1 {
+
+    public static final String LIST_LIMIT = "16";
+    public static final String CROSS_CONNECT_TYPE = "Cross Connect";
+    public static final String CROSS_CONNECT_GROUP_TYPE = "Cross Connect Group";
+    public static final String IPSEC_CONNECT_TYPE = "IPsec Tunnel";
+    public static final String VIRTUAL_CIRCUIT_TYPE = "Virtual Circuit";
+    public static final WorkflowDefinitionId rotateCredsWorkflowId = WorkflowDefinitionId.builder()
+            .name("rotateCreds").majorVersion(3).minorVersion(1).build();
+    private static final Integer DEVICE_CONNECTOR_TIMEOUT_MILLISEC = 30000;
+    private static final Integer MAX_DEVICES = 1000;
+    private static final Integer MAX_INTERFACE_AMOUNT = 10000;
+    private static final Integer NAMING_RETRY_MAX = 5;
+    private static final String[] REDACTED_CONFIG_SNIPPET_TEMPLATE_KEY_VALUES = {"tunnelPSK", "bgpMd5AuthKey"};
+    private static final String HASHED_PARTIAL_STRING = "PARTIALHASH";
+    public static final int LAST_FLAPPED_MIN = 900;
+    public static final String INTERFACE_STATUS_STABLE_QUERY_FORMAT = "max_over_time(ifOperStatusNumeric{device='%s', interface='%s'}[%sm])";
+    public static final String INTERVAL_15M = "15";
+    public static final String TIMESTAMP_NOW = "now";
+    public static final String FAKE_OLD_VALUE = "fake-value";
+    private static final String API_SAVE_GENERATED_BOM = "SaveGeneratedBOM";
+    private static final String DEFAULT_PAGE_SIZE = "4999";
+    public static final String PPPP_FILE_UPLOAD_BUCKET="pppp_file_upload";
+    private static final String API_UPLOAD_PPPP_FILE = "UploadPPPFile";
+    public static final String FILE_CONTENT_TYPE = "application/json";
+
+
+    private static InetAddressValidator inetAddressValidator = InetAddressValidator.getInstance();
+    private final DeviceBl deviceBl;
+    private final DrgBl drgBl;
+    private final DrgStatusBl drgStatusBl;
+    private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module());
+    private final WorkRequestBl workRequestBl;
+    private final ProviderServiceBl providerBl;
+    private final PropertiesBl propertiesBl;
+    private final VirtualCircuitBl virtualCircuitBl;
+    private final EventBl eventBl;
+    private final BgpBl bgpBl;
+    private final BgpSessionBl bgpSessionBl;
+    private final InterfaceBl interfaceBl;
+    private final LocationBl locationBl;
+    private final CrossConnectBl crossConnectBl;
+    private final CrossConnectGroupBl crossConnectGroupBl;
+    private final SvlanPfabBl svlanPfabBl;
+    private final PatchPanelPortPairBl patchPanelPortPairBl;
+    private final VpnLimitsHelper limitsHelper;
+    private final LoaBl loaBl;
+    private final PatchPanelBl patchPanelBl;
+    private final IdentityMetadataHelper identityHelper;
+    private final TenancyMetadataBl tenancyMetadataBl;
+    private final TunnelBl tunnelBl;
+    private final TunnelStatusBl tunnelStatusBl;
+    private final ConfigSnippetBl configSnippetBl;
+    private final VpnMetering vpnMetering;
+    private final RemotePeeringConnectionBl remotePeeringConnectionBl;
+    private final IPsecConnectionBl iPsecConnectionBl;
+    private final AzureExpressRouteBl azureExpressRouteBl;
+    private final IPNetworkVCNConnectionBl ipNetworkVCNConnectionBl;
+    private final OciClassicVirtualCircuitBl ociClassicVirtualCircuitBl;
+    private final PortMigrationBackupBl portMigrationBackupBl;
+    private final ArchiveBl archiveBl;
+    private final OciClassicFastConnectClient ociClassicFastConnectClient;
+    private final WorkflowVersionHelper workflowVersionHelper;
+    private final EncryptionManager encryptionManager;
+    private final Long regionBgpAsn;
+    private final VpnLimitsHelper vpnLimitsHelper;
+    private final DrgV2Helper drgV2Helper;
+    private final ImpactedCustomersPrometheus prometheusClient;
+    private final KmsSecretsManager kmsSecretsManager;
+    private final ManagementResourceHelper managementResourceHelper;
+    private final PerformanceMetricHelper metricHelper;
+    private final BOMBl bomBl;
+    private final Index<Date, BOMSDo> bomCreatedDateIndex;
+    private final Index<Date, PatchPanelPortPairFileMetaDataDo> createdDatePPPPFileMetaDataIndex;
+    private final ObjectStorageClientHelper objectStorageClientHelper;
+    private final PatchPanelPortPairFileMetaDataBl patchPanelPortPairFileMetaDataBl;
+    private final VpnRegion vpnRegion;
+    private final PatchPanelPortPairTemplateValidator patchPanelPortPairTemplateValidator;
+    private final IdentityConfiguration identityConfiguration;
+    @Inject
+    public ManagementResourceV1(DeviceBl deviceBl,
+                                WorkRequestBl workRequestBl,
+                                ProviderServiceBl providerBl,
+                                PropertiesBl propertiesBl,
+                                VirtualCircuitBl virtualCircuitBl,
+                                EventBl eventBl,
+                                BgpBl bgpBl,
+                                BgpSessionBl bgpSessionBl,
+                                DrgBl drgBl,
+                                DrgStatusBl drgStatusBl,
+                                InterfaceBl interfaceBl,
+                                LocationBl locationBl,
+                                CrossConnectBl crossConnectBl,
+                                CrossConnectGroupBl crossConnectGroupBl,
+                                PatchPanelPortPairBl patchPanelPortPairBl,
+                                VpnLimitsHelper limitsHelper,
+                                LoaBl loaBl,
+                                PatchPanelBl patchPanelBl,
+                                IdentityMetadataHelper identityHelper,
+                                TenancyMetadataBl tenancyMetadataBl,
+                                TunnelBl tunnelBl,
+                                TunnelStatusBl tunnelStatusBl,
+                                ConfigSnippetBl configSnippetBl,
+                                VpnMetering vpnMetering,
+                                RemotePeeringConnectionBl remotePeeringConnectionBl,
+                                IPsecConnectionBl iPsecConnectionBl,
+                                AzureExpressRouteBl azureExpressRouteBl,
+                                IPNetworkVCNConnectionBl ipNetworkVCNConnectionBl,
+                                OciClassicVirtualCircuitBl ociClassicVirtualCircuitBl,
+                                PortMigrationBackupBl portMigrationBackupBl,
+                                ArchiveBl archiveBl,
+                                OciClassicFastConnectClient ociClassicFastConnectClient,
+                                WorkflowVersionHelper workflowVersionHelper,
+                                EncryptionManager encryptionManager,
+                                RegionUtil regionUtil,
+                                VpnLimitsHelper vpnLimitsHelper,
+                                DrgV2Helper drgV2Helper,
+                                ImpactedCustomersPrometheus prometheusClient,
+                                KmsSecretsManager kmsSecretsManager,
+                                SvlanPfabBl svlanPfabBl,
+                                ManagementResourceHelper managementResourceHelper,
+                                VpnRegion vpnRegion,
+                                BOMBl bomBl,
+                                @Named(BOMSDo.BOMS_BY_DATE_CREATED_IDX) Index<Date, BOMSDo> bomCreatedDateIndex,
+                                @Named(PatchPanelPortPairFileMetaDataDo.PPPP_FILE_METADATA_BY_DATE_CREATED_IDX) Index<Date, PatchPanelPortPairFileMetaDataDo> createdDatePPPPFileMetaDataIndex,
+                                @Nullable  ObjectStorageClientHelper objectStorageClientHelper,
+                                PatchPanelPortPairFileMetaDataBl patchPanelPortPairFileMetaDataBl,
+                                PatchPanelPortPairTemplateValidator patchPanelPortPairTemplateValidator,
+                                IdentityConfiguration identityConfiguration){
+
+        this.deviceBl = deviceBl;
+        this.workRequestBl = workRequestBl;
+        this.providerBl = providerBl;
+        this.propertiesBl = propertiesBl;
+        this.virtualCircuitBl = virtualCircuitBl;
+        this.eventBl = eventBl;
+        this.bgpBl = bgpBl;
+        this.bgpSessionBl = bgpSessionBl;
+        this.drgBl = drgBl;
+        this.drgStatusBl = drgStatusBl;
+        this.interfaceBl = interfaceBl;
+        this.locationBl = locationBl;
+        this.crossConnectBl = crossConnectBl;
+        this.crossConnectGroupBl = crossConnectGroupBl;
+        this.patchPanelPortPairBl = patchPanelPortPairBl;
+        this.limitsHelper = limitsHelper;
+        this.loaBl = loaBl;
+        this.patchPanelBl = patchPanelBl;
+        this.identityHelper = identityHelper;
+        this.tenancyMetadataBl = tenancyMetadataBl;
+        this.tunnelBl = tunnelBl;
+        this.tunnelStatusBl = tunnelStatusBl;
+        this.configSnippetBl = configSnippetBl;
+        this.vpnMetering = vpnMetering;
+        this.remotePeeringConnectionBl = remotePeeringConnectionBl;
+        this.iPsecConnectionBl = iPsecConnectionBl;
+        this.azureExpressRouteBl = azureExpressRouteBl;
+        this.ipNetworkVCNConnectionBl = ipNetworkVCNConnectionBl;
+        this.ociClassicVirtualCircuitBl = ociClassicVirtualCircuitBl;
+        this.portMigrationBackupBl = portMigrationBackupBl;
+        this.archiveBl = archiveBl;
+        this.ociClassicFastConnectClient = ociClassicFastConnectClient;
+        this.workflowVersionHelper = workflowVersionHelper;
+        this.encryptionManager = encryptionManager;
+        this.regionBgpAsn = regionUtil.getRegionBgpAsn(vpnRegion);
+        this.vpnLimitsHelper = vpnLimitsHelper;
+        this.drgV2Helper = drgV2Helper;
+        this.prometheusClient = prometheusClient;
+        this.kmsSecretsManager = kmsSecretsManager;
+        this.svlanPfabBl = svlanPfabBl;
+        this.managementResourceHelper = managementResourceHelper;
+        this.metricHelper = new PerformanceMetricHelper();
+        this.bomBl = bomBl;
+        this.bomCreatedDateIndex = bomCreatedDateIndex;
+        this.createdDatePPPPFileMetaDataIndex = createdDatePPPPFileMetaDataIndex;
+        this.objectStorageClientHelper = objectStorageClientHelper;
+        this.patchPanelPortPairFileMetaDataBl = patchPanelPortPairFileMetaDataBl;
+        this.vpnRegion = vpnRegion;
+        this.patchPanelPortPairTemplateValidator = patchPanelPortPairTemplateValidator;
+        this.identityConfiguration = identityConfiguration;
     }
-    throw new IllegalArgumentException("Unknown BL type: " + blObj.getClass());
+
+    private static String validateEdgePopRegion(String edgePop, String currentValue) throws ValidationException {
+        if (edgePop == null) {
+            edgePop = currentValue;
+        } else if (StringUtils.isEmpty(edgePop)) {
+            edgePop = null;
+        } else {
+            try {
+                if (!VpnRegion.fromName(edgePop).isEdgePop()) {
+                    PublicValidation.failInvalidEdgePop(edgePop);
+                }
+            } catch (IllegalArgumentException e) {
+                PublicValidation.failInvalidEdgePop(edgePop);
+            }
+        }
+        return edgePop;
+    }
+
+    private List<PatchPanelPortPairDo> getPatchPanelPortPairsByPatchPanelId(String patchPanelId) {
+        return ScanAllIterable.from(patchPanelPortPairBl::list, 100)
+                                .stream()
+                                .filter(p -> patchPanelId.equals(p.getCustomerPatchPanelId()) || patchPanelId.equals(p.getLocalPatchPanelId()))
+                                .collect(Collectors.toList());
+    }
+
+@GET
+@Path("/tenancy/{tenancyId}")
+@Produces({ "application/json" })
+@Timed(name = "export-tenancy-data")
+@VpnSkipAuthorization
+public Response exportTenancyData(@PathParam("tenancyId") String tenancyId) throws ValidationException {
+    Validation.OCIDValidate(tenancyId);
+
+    javax.ws.rs.core.StreamingOutput stream = (output) -> {
+        JsonGenerator generator = null;
+        try {
+            generator = mapper.getFactory().createGenerator(output, com.fasterxml.jackson.core.JsonEncoding.UTF8);
+            generator.writeStartObject();
+
+            // predicate: checks tenantId then falls back to compartment resolution
+            java.util.function.Predicate<Object> belongsToTenancy = (obj) -> fetchTenantId(obj, tenancyId);
+
+            // directly fetch and write each resource type
+            generator.writeStringField("tenancyName", getTenancyName(tenancyId));
+            generator.writeStringField("homeRegion", getHomeRegion(tenancyId));
+            generator.writeStringField("tenancyOcid", tenancyId);
+
+            List<String> resourcesList = Arrays.asList("CrossConnects", "CrossConnectGroups", "VirtualCircuits", "IPsecConnections", "RemotePeeringConnections", "Tunnels", "Devices");
+            List<Object> resourceBl = Arrays.asList(crossConnectBl, crossConnectGroupBl, virtualCircuitBl,iPsecConnectionBl, remotePeeringConnectionBl, tunnelBl, deviceBl );
+
+            for (int i = 0; i < resourcesList.size(); i++) {
+                String resourceName = resourcesList.get(i);
+                Object blObj = resourceBl.get(i);
+
+                Stream<?> streamBl = getStreamFromBl(blObj);
+                writeResourceToJson(generator, mapper, resourceName, streamBl, belongsToTenancy);
+            }
+
+            // tenancy metadata
+            generator.writeFieldName("tenancyMetadata");
+            try {
+                mapper.writeValue(generator, tenancyMetadataBl.get(tenancyId).orElse(null));
+            } catch (Exception e) {
+                log.warn("Failed to get tenancy metadata for tenancyId: {}", tenancyId, e);
+                generator.writeNull();
+            }
+
+            generator.writeEndObject();
+            generator.flush();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } finally {
+            if (generator != null)
+                try {
+                    generator.close();
+                } catch (IOException ignored) {
+                }
+        }
+    };
+
+    return Response.ok(stream).type(javax.ws.rs.core.MediaType.APPLICATION_JSON).build();
 }
+
+private static final Map<Class<?>, Function<Object, String[]>> TENANT_INFO = Map.of(
+        CrossConnectDo.class,
+        obj -> {
+            CrossConnectDo crossConnectDo = (CrossConnectDo) obj;
+            return new String[] {crossConnectDo.getTenantId(), crossConnectDo.getCompartmentId()};
+        },
+        CrossConnectGroupDo.class,
+        obj -> {
+            CrossConnectGroupDo crossConnectGroupDo = (CrossConnectGroupDo) obj;
+            return new String[] {crossConnectGroupDo.getTenantId(),  crossConnectGroupDo.getCompartmentId()};
+        },
+        VirtualCircuitDo.class,
+        obj -> {
+            VirtualCircuitDo virtualCircuitDo = (VirtualCircuitDo) obj;
+            return new String[] {virtualCircuitDo.getTenantId(), virtualCircuitDo.getCompartmentId()};
+        },
+        IPsecConnectionDo.class,
+        obj -> {
+            IPsecConnectionDo iPsecConnectionDo = (IPsecConnectionDo) obj;
+            return new String [] {iPsecConnectionDo.getTenancyId(), iPsecConnectionDo.getCompartmentId()};
+        },
+        RemotePeeringConnectionDo.class,
+        obj ->{
+            RemotePeeringConnectionDo remotePeeringConnectionDo = (RemotePeeringConnectionDo) obj;
+            return new String[] {remotePeeringConnectionDo.getPeerTenantId(), remotePeeringConnectionDo.getCompartmentId()};
+        },
+        TunnelDo.class,
+        obj -> {
+            TunnelDo tunnelDo = (TunnelDo) obj;
+            return new String[] {tunnelDo.getTenancyId(), tunnelDo.getCompartmentId()};
+        }
+
+
+);
+    private Stream<?> getStreamFromBl(Object blObj) {
+        if (blObj instanceof CrossConnectBl) {
+            return ((CrossConnectBl) blObj).stream();
+        } else if (blObj instanceof CrossConnectGroupBl) {
+            return ((CrossConnectGroupBl) blObj).stream();
+        } else if (blObj instanceof VirtualCircuitBl) {
+            return ((VirtualCircuitBl) blObj).stream();
+        } else if (blObj instanceof IPsecConnectionBl) {
+            return ((IPsecConnectionBl) blObj).stream();
+        } else if (blObj instanceof RemotePeeringConnectionBl) {
+            return ((RemotePeeringConnectionBl) blObj).stream();
+        } else if (blObj instanceof TunnelBl) {
+            return ((TunnelBl) blObj).stream();
+        } else if (blObj instanceof DeviceBl) {
+            return ((DeviceBl) blObj).stream();
+        }
+        throw new IllegalArgumentException("Unknown BL type: " + blObj.getClass());
+    }
+    private void writeResourceToJson(JsonGenerator generator, ObjectMapper mapper, String fieldName, Stream <?> resourceStream, Predicate<Object> belongsToTenancy) throws IOException {
+
+        generator.writeFieldName(fieldName);
+        generator.writeStartArray();
+
+        try {
+            JsonGenerator finalGen = generator;
+                resourceStream
+                        .filter(item -> item != null || ("Devices".equals(fieldName) && belongsToTenancy.test(item)))
+                        .forEach(item -> {
+                            try {
+                                mapper.writeValue(finalGen, item);
+                            } catch (Exception e) {
+                                log.warn("Failed to write {} item", fieldName, e);
+                            }
+                        });
+        } catch (Exception e) {
+            log.warn("Failed to get {} list", fieldName, e);
+        }
+        generator.writeEndArray();
+    }
+
+
+    public Boolean fetchTenantId(Object obj, String tenancyId) {
+
+        try {
+            if (obj == null)
+                return false;
+
+            String[] tenantInfo = getTenantInfo(obj);
+            String objTenantId = tenantInfo[0];
+            String compartmentId = tenantInfo[1];
+
+            // check tenantId directly
+            if (tenancyId.equals(objTenantId)) {
+                return true;
+            }
+
+            // fallback to compartmentId resolution
+            if (compartmentId != null) {
+                String resolvedTenantId = identityHelper.getTenantId(compartmentId);
+                return tenancyId.equals(resolvedTenantId);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to tenancy check for object {}", obj, e);
+        }
+        return false;
+    }
+
+    private String[] getTenantInfo(Object obj) {
+        Function<Object, String[]> extractor = TENANT_INFO.get(obj.getClass());
+        return extractor != null ? extractor.apply(obj) : new String [] {null, null};
+    }
+public String getTenancyName(String tenancyId) {
+        try {
+            java.util.Optional<TenancyMetadataDo> tenancyMetadata = tenancyMetadataBl.get(tenancyId);
+            if (tenancyMetadata != null &&  tenancyMetadata.isPresent()) {
+                TenancyMetadataDo metadata = tenancyMetadata.get();
+                String legalEntityName = metadata.getLegalEntityName();
+                return legalEntityName != null ? legalEntityName : metadata.getId();
+            }
+        }
+        catch (Exception e) {
+            log.warn("Failed to get tenancy metadata for name lookup: {}",  tenancyId, e);
+        }
+        return null;
+}
+
+    public String getHomeRegion(String tenancyId) {
+        try {
+            if (this.vpnRegion != null) {
+                String homeRegion = this.vpnRegion.getName();
+                return homeRegion.toString();
+            }
+            else {
+                log.warn("Cannot get home region for tenancyId: {}", tenancyId);
+                return null;
+            }
+
+        } catch (Exception e) {
+            log.warn("Failed to get the name of the tenancy: {}",   tenancyId, e);
+        }
+
+        return null;
+    }
