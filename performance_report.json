@@ -1,5 +1,39 @@
-when(drgV2AttachmentBl.listByAttachedResourceId(t, virtualCircuitDo.getId())).thenReturn(List.of());
+@Test
+    public void testCreateOrUpdateDrgV2Attachment_BmcException_SimpleTest() throws Exception {
+        // Arrange - Simple VC setup
+        VirtualCircuitDo virtualCircuitDo = VirtualCircuitDo.builder()
+                .id("test-vc-id")
+                .gatewayId("test-drg-id")
+                .state(VirtualCircuitDo.State.PROVISIONING)
+                .compartmentId("test-compartment")
+                .build();
+
+        // Act and Assert
+        try (Transaction t = drgV2AttachmentBl.beginTransaction("test")) {
             
-            // Mock the feature controller and identity helper
+            // Mock dependencies to ensure we reach the createDrgV2AttachmentAndDo call
+            when(drgV2AttachmentBl.listByAttachedResourceId(any(Transaction.class), anyString())).thenReturn(List.of());
             when(featureController.isTenancyWhitelisted(any(), any())).thenReturn(false);
             when(identityMetadataHelper.getTenantId(any())).thenReturn("testTenantId");
+            
+            // Mock the helper to throw BmcException when creating DRG V2 attachment
+            when(drgV2Helper.createDrgV2AttachmentAndDo(any(Transaction.class), any(VirtualCircuitDo.class), anyBoolean()))
+                    .thenThrow(new BmcException(500, "Internal Server Error", "test", "test"));
+
+            // Call the method using reflection
+            Method method = VirtualCircuitWorkflowBase.class.getDeclaredMethod("createOrUpdateDrgV2Attachment", Transaction.class, VirtualCircuitDo.class);
+            method.setAccessible(true);
+            
+            // Verify BmcException is thrown
+            assertThrows(BmcException.class, () -> {
+                method.invoke(createVcDrgV2AttachmentWorkflow, t, virtualCircuitDo);
+            });
+
+            t.commit();
+            
+            // Verify VC state changed to FAILED
+            VirtualCircuitDo updatedVc = virtualCircuitBl.getOrThrow(virtualCircuitDo.getId());
+            assertThat(updatedVc.getState()).isEqualTo(VirtualCircuitDo.State.FAILED);
+        }
+    }
+
