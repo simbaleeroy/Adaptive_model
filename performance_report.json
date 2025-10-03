@@ -1,1 +1,239 @@
 
+package com.oracle.pic.vpn.workflows.workflows;
+
+import com.google.inject.Inject;
+import com.oracle.bmc.auth.exception.AuthServerUnavailableException;
+import com.oracle.bmc.core.VirtualNetworkClient;
+import com.oracle.bmc.core.model.CreateDrgAttachmentDetails;
+import com.oracle.bmc.core.model.CrossConnectMapping;
+import com.oracle.bmc.core.model.DrgAttachment;
+import com.oracle.bmc.core.model.RemotePeeringConnectionDrgAttachmentNetworkCreateDetails;
+import com.oracle.bmc.core.model.RemotePeeringConnectionDrgAttachmentNetworkDetails;
+import com.oracle.bmc.core.model.VirtualCircuitDrgAttachmentNetworkCreateDetails;
+import com.oracle.bmc.core.model.VirtualCircuitDrgAttachmentNetworkDetails;
+import com.oracle.bmc.core.requests.CreateC3DrgAttachmentRequest;
+import com.oracle.bmc.core.requests.DeleteC3DrgAttachmentRequest;
+import com.oracle.bmc.core.requests.GetC3DrgAttachmentRequest;
+import com.oracle.bmc.core.responses.CreateC3DrgAttachmentResponse;
+import com.oracle.bmc.core.responses.DeleteC3DrgAttachmentResponse;
+import com.oracle.bmc.core.responses.GetC3DrgAttachmentResponse;
+import com.oracle.bmc.model.BmcException;
+import com.oracle.oci.tos.health.HealthStatusClient;
+import com.oracle.pic.commons.id.RegionIdFactory;
+import com.oracle.pic.commons.testing.UnitTest;
+import com.oracle.pic.kiev.Transaction;
+import com.oracle.pic.kiev.exceptions.CommitConflictException;
+import com.oracle.pic.kiev.mapping.MappedDataStore;
+import com.oracle.pic.vpn.VpnRegion;
+import com.oracle.pic.vpn.common.RegionConfiguration;
+import com.oracle.pic.vpn.common.RoutingPolicy;
+import com.oracle.pic.vpn.db.CrossConnectBl;
+import com.oracle.pic.vpn.db.CrossConnectBlTest;
+import com.oracle.pic.vpn.db.CrossConnectGroupBl;
+import com.oracle.pic.vpn.db.CrossConnectGroupBlTest;
+import com.oracle.pic.vpn.db.DaoTestInjector;
+import com.oracle.pic.vpn.db.DrgBl;
+import com.oracle.pic.vpn.db.DrgV2AttachmentBl;
+import com.oracle.pic.vpn.db.EventBl;
+import com.oracle.pic.vpn.db.GlobalConnectivityGatewayAttachmentBl;
+import com.oracle.pic.vpn.db.IPsecConnectionBl;
+import com.oracle.pic.vpn.db.LocationBl;
+import com.oracle.pic.vpn.db.NetworkTopologyDaoTestInjector;
+import com.oracle.pic.vpn.db.RemotePeeringConnectionBl;
+import com.oracle.pic.vpn.db.TenancyMetadataBl;
+import com.oracle.pic.vpn.db.VcTunnelAssociationBl;
+import com.oracle.pic.vpn.db.VirtualCircuitBl;
+import com.oracle.pic.vpn.db.VirtualCircuitBlTest;
+import com.oracle.pic.vpn.db.devices.DeviceBl;
+import com.oracle.pic.vpn.db.devices.DeviceModuleTestInjector;
+import com.oracle.pic.vpn.db.devices.DeviceSynchronizerBl;
+import com.oracle.pic.vpn.db.devices.model.Authentication;
+import com.oracle.pic.vpn.db.devices.model.DeviceConfig;
+import com.oracle.pic.vpn.db.devices.model.DeviceDo;
+import com.oracle.pic.vpn.db.exception.ValidationException;
+import com.oracle.pic.vpn.db.model.CrossConnectGroupDo;
+import com.oracle.pic.vpn.db.model.CrossConnectMappings;
+import com.oracle.pic.vpn.db.model.DrgV2AttachmentDo;
+import com.oracle.pic.vpn.db.model.LocationDo;
+import com.oracle.pic.vpn.db.model.VirtualCircuitDo;
+import com.oracle.pic.vpn.db.util.FJava;
+import com.oracle.pic.vpn.featurecontrol.FeatureController;
+import com.oracle.pic.vpn.identity.IdentityMetadataHelper;
+import com.oracle.pic.vpn.oci.DrgV2Helper;
+import com.oracle.pic.vpn.workflows.config.VpnWorkerConfiguration;
+import com.oracle.pic.vpn.workflows.poller.WorkRequestHandlerTest;
+import com.oracle.pic.vpn.workflows.testutil.DrgV2TestMockHelper;
+import com.oracle.pic.vpn.workflows.util.TestUtil;
+import net.bytebuddy.implementation.bind.MethodDelegationBinder;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.experimental.categories.Category;
+import org.mockito.ArgumentMatcher;
+import org.mockito.Mockito;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+
+import static com.oracle.pic.vpn.db.VirtualCircuitBlTest.ORACLE_BGP_PEERING_IP;
+import static com.oracle.pic.vpn.db.VirtualCircuitBlTest.REMOTE_BGP_PEERING_IP;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.notNull;
+import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.when;
+
+@Category(UnitTest.class)
+public class CreateVcDrgV2AttachmentWorkflowTest {
+
+    private static final String TEST_EXISTING_DRG_ATTACHMENT_ID = "testExistingDrgAttachmentId";
+    private static final String TEST_EXISTING_DRG_ATTACHMENT_ID_2 = "testExistingDrgAttachmentId_2";
+    private static final String TEST_NON_EXISTING_DRG_ATTACHMENT_ID = "testNonExistingDrgAttachmentId";
+    private static final String TEST_INTERNAL_ERROR_ATTACHMENT_ID = "testInternalErrorAttachmentId";
+    private static final String TEST_RETRY_DRG_ATTACHMENT_ID = "testRetryDrgAttachmentId";
+    private static final String TEST_IMPORT_RT = "TestImportRT";
+    private static final String TEST_EXPORT_RT = "testExportRT";
+    private static final String TEST_MPLS_LABEL = "100000";
+    private static final String TEST_IMPORT_RT_2 = "TestImportRT_2";
+    private static final String TEST_EXPORT_RT_2 = "testExportRT_2";
+    private static final String TEST_MPLS_LABEL_2 = "100001";
+    private static final String TEST_DRG_ID = "testDrgId";
+    private static final String TEST_DRG_ID_2 = "testDrgId_2";
+    private static final String TEST_EXISTING_RPC_ID = "testExistingRpcId";
+    private static final String TEST_EXISTING_VC_ID = "testExistingVcId";
+    private static final String TEST_ORIGINAL_COMPARTMENT_ID = "testOriginalCompartmentId";
+    private static final String TEST_DISPLAY_NAME = "testDisplayName";
+    private static final String TEST_OPC_REQUEST_ID = "038AA750E4CD4958BAA46B92600F8D7B/3D94F92D1CD94EB2A65432EE4A20AABA/0B1EAD66208DB037724FA4BB9C376FEF";
+
+    @Rule
+    public DaoTestInjector injector = new NetworkTopologyDaoTestInjector(this)
+            .include(DeviceModuleTestInjector::new);
+
+    @Inject
+    private DrgV2AttachmentBl drgV2AttachmentBl;
+
+    @Inject
+    private VirtualCircuitBl virtualCircuitBl;
+
+    @Inject
+    private RemotePeeringConnectionBl remotePeeringConnectionBl;
+
+    @Inject
+    private EventBl eventBl;
+
+    @Inject
+    private MappedDataStore mappedDataStore;
+
+    @Inject
+    private CrossConnectBl crossConnectBl;
+
+    @Inject
+    private DeviceBl deviceBl;
+
+    @Inject
+    private CrossConnectGroupBl crossConnectGroupBl;
+
+    @Inject
+    private LocationBl locationBl;
+
+    @Inject
+    private DrgBl drgBl;
+
+    @Inject
+    private VcTunnelAssociationBl vcTunnelAssociationBl;
+
+    @Inject
+    private RegionIdFactory regionIdFactory;
+
+    private RegionConfiguration regionConfiguration;
+
+    private DrgV2Helper drgV2Helper;
+    private DrgBl drgBlMock = mock(DrgBl.class);
+    private FeatureController featureController = mock(FeatureController.class);
+    private IPsecConnectionBl iPsecConnectionBl = mock(IPsecConnectionBl.class);
+    private VirtualNetworkClient virtualNetworkClient = mock(VirtualNetworkClient.class);
+    private final IdentityMetadataHelper identityMetadataHelper = mock(IdentityMetadataHelper.class);
+    private final TenancyMetadataBl tenancyMetadataBl = mock(TenancyMetadataBl.class);
+    private HealthStatusClient sentinelClient = mock(HealthStatusClient.class);
+    private VpnWorkerConfiguration vpnWorkerConfiguration = TestUtil.getVpnWorkerConfigWithSentinelDetail();
+
+    private CreateVcDrgV2AttachmentWorkflow createVcDrgV2AttachmentWorkflow;
+
+    @Before
+    public void setup() throws ValidationException, CommitConflictException {
+        regionConfiguration = mock(RegionConfiguration.class);
+
+        drgV2Helper = DrgV2TestMockHelper.setupTestDrgV2Helper(
+                featureController,
+                virtualNetworkClient,
+                drgV2AttachmentBl,
+                drgBlMock,
+                iPsecConnectionBl,
+                virtualCircuitBl,
+                remotePeeringConnectionBl,
+                vcTunnelAssociationBl,
+                regionIdFactory);
+
+        mockGetC3DrgAttachment();
+        mockCreateC3DrgAttachment();
+
+        createVcDrgV2AttachmentWorkflow = new CreateVcDrgV2AttachmentWorkflow(
+                mappedDataStore,
+                remotePeeringConnectionBl,
+                virtualCircuitBl,
+                eventBl,
+                drgV2AttachmentBl,
+                drgV2Helper,
+                identityMetadataHelper,
+                tenancyMetadataBl,
+                featureController,
+                sentinelClient,
+                vpnWorkerConfiguration);
+    }
+
+    @Test
+    public void testCreateOrUpdateDrgV2Attachment_BmcExceptionAndVC_put_in_FailedState() throws Exception {
+        // Arrange
+        VirtualCircuitDo virtualCircuitDo = VirtualCircuitDo.builder()
+                .id(TEST_EXISTING_VC_ID)
+                .gatewayId(TEST_DRG_ID)
+                .state(VirtualCircuitDo.State.PROVISIONING)
+                .build();
+
+        // Mock the helper to throw BmcException
+        VpnRegion vpnRegion = mock(VpnRegion.class);
+
+        // Act and Assert - Test that BmcException is thrown and VC state is updated
+        try (Transaction t = drgV2AttachmentBl.beginTransaction("test")) {
+
+            when(drgV2Helper.createDrgV2AttachmentAndDo(t, virtualCircuitDo, anyBoolean()))
+                    .thenThrow(new BmcException(500, "test", "test", "test"));
+
+
+            Method method = VirtualCircuitWorkflowBase.class.getDeclaredMethod("createOrUpdateDrgV2Attachment", Transaction.class, VirtualCircuitDo.class, VpnRegion.class);
+            method.setAccessible(true);
+            assertThrows(BmcException.class, () -> {
+                method.invoke(createVcDrgV2AttachmentWorkflow, t, virtualCircuitDo, vpnRegion);
+            });
+
+            t.commit();
+            VirtualCircuitDo updatedVc = virtualCircuitBl.getOrThrow(virtualCircuitDo.getId());
+            assertThat(updatedVc.getId()).isEqualTo(virtualCircuitDo.getId());
+            assertThat(updatedVc.getState()).isEqualTo(VirtualCircuitDo.State.FAILED);
+        }
+    }
