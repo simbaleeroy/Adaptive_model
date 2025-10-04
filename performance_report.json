@@ -1,46 +1,37 @@
-@Test
-public void testCreateOrUpdateDrgV2Attachment_BmcExceptionAndVC_put_in_FailedState() throws Exception {
-    // Arrange
-    VirtualCircuitDo virtualCircuitDo = VirtualCircuitDo.builder()
-            .id(TEST_EXISTING_VC_ID)
-            .gatewayId(TEST_DRG_ID)
-            .state(VirtualCircuitDo.State.PROVISIONING)
-            .compartmentId(TEST_ORIGINAL_COMPARTMENT_ID)
-            .crossConnectGroupId("test-cross-connect-group-id")
-            .customerBgpPeeringIp(REMOTE_BGP_PEERING_IP)
-            .oracleBgpPeeringIp(ORACLE_BGP_PEERING_IP)
-            .build();
+ @Test
+    public void ttestCreateOrUpdateDrgV2Attachment_BmcExceptionAndVC_put_in_FailedState() throws Exception {
+        // Arrange
+//        VirtualCircuitDo virtualCircuitDo = VirtualCircuitDo.builder()
+//                .id(TEST_EXISTING_VC_ID)
+//                .gatewayId(TEST_DRG_ID)
+//                .state(VirtualCircuitDo.State.PROVISIONING)
+//                .build();
+        VirtualCircuitDo virtualCircuitDo  = generateVirtualCircuitDo(VirtualCircuitDo.IpAddressType.PUBLIC, null, null);
+        Transaction t = virtualCircuitBl.beginTransaction("create-vc");
+            VirtualCircuitDo vcToUpdate = virtualCircuitBl.getOrThrow(virtualCircuitDo.getId());
+            VirtualCircuitDo updated = vcToUpdate.toBuilder().state(VirtualCircuitDo.State.PROVISIONING).build();
+            virtualCircuitBl.update(t, updated);
+            t.commit();
 
-    // Act and Assert - Test that BmcException is thrown and VC state is updated
-    try (Transaction t = drgV2AttachmentBl.beginTransaction("test")) {
-        
-        // First, save the Virtual Circuit to the database
-        virtualCircuitDo = virtualCircuitBl.create(t, virtualCircuitDo);
-        
-        // Mock that no existing DRG V2 attachments exist (so it goes to the create new attachment path)
-        when(drgV2AttachmentBl.listByAttachedResourceId(t, virtualCircuitDo.getId())).thenReturn(List.of());
-        
-        // Mock the feature controller and identity helper
-        when(featureController.isTenancyWhitelisted(any(), any())).thenReturn(false);
-        when(identityMetadataHelper.getTenantId(any())).thenReturn("testTenantId");
 
-        // Mock the helper to throw BmcException (2-parameter version since we're passing null for VpnRegion)
-        when(drgV2Helper.createDrgV2AttachmentAndDo(any(Transaction.class), any(VirtualCircuitDo.class), anyBoolean()))
-                .thenThrow(new BmcException(500, "test", "test", "test"));
+           // Act and Assert - Test that BmcException is thrown and VC state is updated
+           try (Transaction tx = drgV2AttachmentBl.beginTransaction("test")) {
 
-        Method method = VirtualCircuitWorkflowBase.class.getDeclaredMethod("createOrUpdateDrgV2Attachment", Transaction.class, VirtualCircuitDo.class, VpnRegion.class);
-        method.setAccessible(true);
-        assertThrows(Exception.class, () -> {
-            method.invoke(createVcDrgV2AttachmentWorkflow, t, virtualCircuitDo, null);
-        }, "Expected BmcException to be thrown");
+               when(drgV2Helper.createDrgV2AttachmentAndDo(tx, virtualCircuitDo, true))
+                       .thenThrow(new BmcException(500, "test", "test", "test"));
 
-        t.commit();
+               Method method = VirtualCircuitWorkflowBase.class.getDeclaredMethod("createOrUpdateDrgV2Attachment", Transaction.class, VirtualCircuitDo.class, VpnRegion.class);
+               method.setAccessible(true);
+               assertThrows(Exception.class, () -> {
+                   method.invoke(createVcDrgV2AttachmentWorkflow, tx, virtualCircuitDo, null);
+               }, "Expected BmcException to be thrown");
+
+               //virtualCircuitBl.update(t, virtualCircuitDo);
+               tx.commit();
+           }
+
+           VirtualCircuitDo updatedVc = virtualCircuitBl.getOrThrow(virtualCircuitDo.getId());
+           assertThat(updatedVc.getId()).isEqualTo(virtualCircuitDo.getId());
+           assertThat(updatedVc.getState()).isEqualTo(VirtualCircuitDo.State.FAILED);
+
     }
-    
-    // Verify VC state changed to FAILED
-    try (Transaction t = virtualCircuitBl.beginTransaction("get-vc")) {
-        VirtualCircuitDo updatedVc = virtualCircuitBl.getOrThrow(t, virtualCircuitDo.getId());
-        assertThat(updatedVc.getId()).isEqualTo(virtualCircuitDo.getId());
-        assertThat(updatedVc.getState()).isEqualTo(VirtualCircuitDo.State.FAILED);
-    }
-}
