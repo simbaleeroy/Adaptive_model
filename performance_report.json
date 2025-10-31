@@ -1,1 +1,9 @@
+PROMPT_COMMAND_COUNT=0
+precmd() {
+    PROMPT_COMMAND_COUNT=$((PROMPT_COMMAND_COUNT + 1))
+    if [ $PROMPT_COMMAND_COUNT -gt 10 ]; then
+        clear
+        PROMPT_COMMAND_COUNT=0
+    fi
+}
 
