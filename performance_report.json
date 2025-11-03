@@ -1,60 +1,64 @@
-import { MauiAppState } from "maui";
-
-import { apiClients, TimeInterval } from "@shared/api";
+import { apiClients } from "@shared/api";
 
 import { CoreServicesApi, VaultSecretManagementApi } from "@clientUtils";
 
 import { default as Messages, MessagesKeys } from "@messages";
 
-import { CrossConnectDetailsActions } from "@modules/common/actions";
 import {
+  CrossConnectDetailsActions,
+  CrossConnectGroupDetailsActions,
+} from "@modules/common/actions";
+import {
+  connectivityOverviewEnabled,
   isProviderTenant,
-  isRedundancyEnabled,
+  isSuperDrgTransitHubEnabled,
+  newIaEnabled,
   whitelistLLDP,
   whitelistMacsec,
   whitelistmacSecSessionFailure,
 } from "@modules/common/capabilities";
-import { macsecCAK, macsecCKN } from "@modules/common/constants";
+import { macsecCAK, macsecCKN, SubresourcePath } from "@modules/common/constants";
 import { IntentId } from "@modules/common/id";
-import { HelpDoc } from "@modules/common/url";
-import { getCompartmentName, getEndpoint } from "@modules/common/utils";
+import { CrossConnectGroupLifecycleStateEnum } from "@modules/common/types";
+import { getCompartmentName, getNoResourceMessage } from "@modules/common/utils";
 import {
-  getMacsecEncryptionStatus,
-  getMacsecSessionFailureOption,
-  getSelectedCompartment,
+  getCrossConnectGroupBreadcrumbs,
+  getlistCrossConnectsDetailsData,
+  getMacecEncryptionState,
+  hasSecretIds,
   makeSecretDetailUrl,
-} from "@modules/details/cross-connect/details";
+} from "@modules/cross-connect-group/details";
+import { getSelectedCompartment } from "@modules/details/cross-connect/details";
 import {
-  allowCrossConnectActivate,
-  crossConnectLifecycleMap,
+  crossConnectGroupLifecycleMap,
+  disableCrossConnectGroupDelete,
+  disableCrossConnectGroupUpdate,
   disableCrossConnectUpdate,
-  enableCrossConnectAddVC,
-  getCrossConnectBreadcrumbs,
-  interfaceStateLifecycleMap,
-  lightLevelIndicatorLifecycleMap,
-  macsecEncryptionStatusLifecycleMap,
-  showMacsecSessionFailMessage,
+  enableCrossConnectGroupAddVC,
   showNextStepsBlock,
-  showRedundancyWarningMessage,
 } from "@modules/utils";
 
-declare const $app: MauiAppState;
-
-const CrossConnectDetailsPage: Template["details"]["2.1.0"] = {
-  id: IntentId.CrossConnectDetail,
+const CrossConnectGroupDetailsPage: Template["details"]["2.1.0"] = {
+  id: IntentId.CrossConnectGroupDetail,
   version: "0.0.1",
+  detailsMetadata: {
+    loading: mauiExpression($data.CoreServicesApi_ListCrossConnects_details?.loading),
+  },
   breadcrumb: {
     showBreadcrumb: true,
     items: mauiExpression(
-      getCrossConnectBreadcrumbs(
+      getCrossConnectGroupBreadcrumbs(
         $app.route.location.pathname,
+        $app.route.match.params?.parentId,
         t,
         isProviderTenant($app.consoleState),
+        newIaEnabled($app.consoleState),
+        connectivityOverviewEnabled($app.consoleState),
       ),
     ),
   },
   detailsHeader: {
-    resourceType: Messages.CrossConnect.title,
+    resourceType: Messages.CrossConnectGroup.title,
     messages: [
       {
         status: "warning",
@@ -71,33 +75,15 @@ const CrossConnectDetailsPage: Template["details"]["2.1.0"] = {
           },
         ],
         show: mauiExpression(
-          showNextStepsBlock(CoreServicesApi.GetCrossConnect?.response()?.data, $app.consoleState),
-        ),
-      },
-      {
-        status: "warning",
-        show: mauiExpression(
-          showMacsecSessionFailMessage(
-            CoreServicesApi.GetCrossConnectStatus?.response()?.data,
-            CoreServicesApi.GetCrossConnect?.response()?.data,
-            $app,
+          showNextStepsBlock(
+            CoreServicesApi.GetCrossConnectGroup.response()?.data,
+            $app.consoleState,
           ),
-        ),
-        text: Messages.CrossConnect.encryptionDetail.MacsecSessionFilureCriticalMessage,
-      },
-      {
-        status: "warning",
-        show: mauiExpression(
-          isRedundancyEnabled($app.consoleState) &&
-            showRedundancyWarningMessage(CoreServicesApi.ListVirtualCircuits?.response()?.data),
-        ),
-        text: Messages.VirtualCircuit.banner.redundancyWarningMessage(
-          mauiExpression(HelpDoc.FastConnectRedundancyBaseLink).ref,
         ),
       },
     ],
   },
-  primaryDataSource: mauiExpression(CoreServicesApi.GetCrossConnect.datasource),
+  primaryDataSource: mauiExpression(CoreServicesApi.GetCrossConnectGroup?.datasource),
   detailsActions: {
     primary: {
       variant: "preset",
@@ -106,22 +92,11 @@ const CrossConnectDetailsPage: Template["details"]["2.1.0"] = {
       actions: CrossConnectDetailsActions.toggleEditModal,
       enabled: mauiExpression(
         !disableCrossConnectUpdate(
-          CoreServicesApi.GetCrossConnect?.response()?.data?.lifecycleState,
+          CoreServicesApi.GetCrossConnectGroup.response()?.data?.lifecycleState,
         ),
       ),
     },
     secondary: [
-      {
-        variant: "preset",
-        preset: "enable",
-        enabled: mauiExpression(
-          allowCrossConnectActivate(
-            CoreServicesApi.GetCrossConnect?.response()?.data?.lifecycleState,
-          ),
-        ),
-        label: Messages.CrossConnect.actions.activate,
-        actions: CrossConnectDetailsActions.toggleActivateModal,
-      },
       {
         variant: "preset",
         preset: "view-details",
@@ -129,11 +104,11 @@ const CrossConnectDetailsPage: Template["details"]["2.1.0"] = {
         actions: CrossConnectDetailsActions.toggleViewVlanModal,
         enabled: mauiExpression(
           !disableCrossConnectUpdate(
-            CoreServicesApi.GetCrossConnect?.response()?.data?.lifecycleState,
+            CoreServicesApi.GetCrossConnect.response()?.data?.lifecycleState,
           ),
         ),
         show: mauiExpression(
-          !CoreServicesApi.GetCrossConnect?.response()?.data?.crossConnectGroupId &&
+          !CoreServicesApi.GetCrossConnect.response()?.data?.crossConnectGroupId &&
             isProviderTenant($app.consoleState),
         ),
       },
@@ -141,21 +116,25 @@ const CrossConnectDetailsPage: Template["details"]["2.1.0"] = {
         variant: "preset",
         preset: "move-resource",
         label: Messages.MoveResource.menuText,
-        actions: CrossConnectDetailsActions.toggleChangeCompartment,
+        actions: CrossConnectGroupDetailsActions.toggleChangeCompartment,
         enabled: mauiExpression(
-          !disableCrossConnectUpdate(
-            CoreServicesApi.GetCrossConnect?.response()?.data?.lifecycleState,
+          !disableCrossConnectGroupUpdate(
+            CoreServicesApi.GetCrossConnectGroup.response()?.data?.lifecycleState,
           ),
         ),
       },
       {
         variant: "tag",
-        resource: mauiExpression(CoreServicesApi.GetCrossConnect?.response()?.data),
-        taggableStates: ["PENDING_CUSTOMER", "PROVISIONED"],
-        onTagsApplied: CoreServicesApi.GetCrossConnect.action.id,
+        resource: mauiExpression(CoreServicesApi.GetCrossConnectGroup.response()?.data),
+        taggableStates: [
+          CrossConnectGroupLifecycleStateEnum.Provisioned,
+          CrossConnectGroupLifecycleStateEnum.Terminated,
+          CrossConnectGroupLifecycleStateEnum.Inactive,
+        ],
+        onTagsApplied: CoreServicesApi.GetCrossConnectGroup.action.id,
         updateTagsApi: {
-          endpoint: mauiExpression(getEndpoint("crossConnects", $app.route.match.params.id)),
-          operationName: "updateCrossConnect",
+          endpoint: mauiExpression(`/crossConnectGroups/${$app.route.match.params.id}`),
+          operationName: "updateCrossConnectGroup",
           serviceBasePath: CoreServicesApi.serviceBasePath({
             region: mauiExpression($app.consoleState.regionName).ref,
             secondLevelDomain: mauiExpression($app.consoleState.serviceDomainBase).ref,
@@ -163,21 +142,21 @@ const CrossConnectDetailsPage: Template["details"]["2.1.0"] = {
           }),
           serviceName: "crossConnectApi",
         },
-        label: Messages.DrgAttachmentList.actions.addTags,
+        label: "~> t('maui.Tagging.addTags')",
         enabled: mauiExpression(
-          !disableCrossConnectUpdate(
-            CoreServicesApi.GetCrossConnect?.response()?.data?.lifecycleState,
+          !disableCrossConnectGroupUpdate(
+            CoreServicesApi.GetCrossConnectGroup?.response()?.data?.lifecycleState,
           ),
         ),
       },
       {
         variant: "preset",
+        label: Messages.actions.delete,
+        actions: CrossConnectGroupDetailsActions.toggleDelete,
         preset: "delete",
-        label: Messages.CrossConnect.actions.delete,
-        actions: CrossConnectDetailsActions.toggleDeleteModal,
         enabled: mauiExpression(
-          !disableCrossConnectUpdate(
-            CoreServicesApi.GetCrossConnect?.response()?.data?.lifecycleState,
+          !disableCrossConnectGroupDelete(
+            CoreServicesApi.GetCrossConnectGroup?.response()?.data?.lifecycleState,
           ),
         ),
       },
@@ -187,290 +166,298 @@ const CrossConnectDetailsPage: Template["details"]["2.1.0"] = {
     sections: {
       details: {
         variant: "record",
-        label: Messages.CrossConnect.detailsInformation,
+        label: Messages.CrossConnectGroup.detailsInformation,
         fields: [
           {
             variant: "text",
-            label: Messages.CrossConnect.label.crossConnectType,
+            label: Messages.CrossConnectGroup.label.crossConnectGroupType,
             value: Messages.CrossConnect.connectionType.colocate,
           },
           {
-            if: mauiExpression(!!CoreServicesApi.GetCrossConnect?.response()?.data?.lifecycleState),
+            if: mauiExpression(
+              !!CoreServicesApi.GetCrossConnectGroup.response()?.data?.lifecycleState,
+            ),
             variant: "lifecycle",
             label: Messages.CrossConnect.label.lifecycleState,
             value: mauiExpression(
-              CoreServicesApi.GetCrossConnect?.response()?.data?.lifecycleState || "",
+              CoreServicesApi.GetCrossConnectGroup.response()?.data?.lifecycleState || "",
             ),
-            customLifecycleMap: mauiExpression(crossConnectLifecycleMap(t)),
-          },
-          {
-            variant: "text",
-            label: Messages.CrossConnect.label.location,
-            value: mauiExpression(CoreServicesApi.GetCrossConnect?.response()?.data?.locationName),
-          },
-          {
-            variant: "text",
-            show: mauiExpression(whitelistLLDP($app.consoleState)),
-            label: Messages.CrossConnect.label.deviceNamePhysical,
-            value: mauiExpression(
-              CoreServicesApi.GetCrossConnect?.response()?.data?.ociPhysicalDeviceName,
-            ),
-          },
-          {
-            variant: "text",
-            show: mauiExpression(whitelistLLDP($app.consoleState)),
-            label: Messages.CrossConnect.label.deviceNameLogical,
-            value: mauiExpression(
-              CoreServicesApi.GetCrossConnect?.response()?.data?.ociLogicalDeviceName,
-            ),
-          },
-          {
-            variant: "text",
-            label: Messages.CrossConnect.label.portSpeed,
-            value: mauiExpression(
-              CoreServicesApi.GetCrossConnect?.response()?.data?.portSpeedShapeName,
-            ),
+            customLifecycleMap: mauiExpression(crossConnectGroupLifecycleMap(t)),
           },
           {
             if: mauiExpression(
-              !!CoreServicesApi.GetCrossConnectStatus?.response()?.data?.interfaceState,
-            ),
-            variant: "lifecycle",
-            label: Messages.CrossConnect.lightLevel.interfaceState,
-            value: mauiExpression(
-              CoreServicesApi.GetCrossConnectStatus?.response()?.data?.interfaceState || "",
-            ),
-            customLifecycleMap: mauiExpression(interfaceStateLifecycleMap(t)),
-          },
-          {
-            if: mauiExpression(
-              !!CoreServicesApi.GetCrossConnectStatus?.response()?.data?.lightLevelIndicator,
-            ),
-            variant: "lifecycle",
-            label: Messages.CrossConnect.lightLevel.lightLevelIndicator,
-            value: mauiExpression(
-              CoreServicesApi.GetCrossConnectStatus?.response()?.data?.lightLevelIndicator || "",
-            ),
-            customLifecycleMap: mauiExpression(lightLevelIndicatorLifecycleMap(t)),
-          },
-          {
-            variant: "text",
-            label: Messages.CrossConnect.lightLevel.lightLevelValue,
-            /* TODO: Bug in template, shows as {lightLevelIndBm} dBm when value is 0 */
-            value: Messages.CrossConnect.lightLevel.dBm(
-              String(CoreServicesApi.GetCrossConnectStatus?.response()?.data?.lightLevelIndBm),
-            ),
-          },
-          {
-            variant: "text",
-            show: mauiExpression(
-              !isProviderTenant($app.consoleState) &&
-                !CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties,
-            ),
-            label: Messages.CrossConnect.encryptionDetail.MacecEncryption,
-            value: mauiExpression(
-              getMacsecEncryptionStatus(
-                CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties.state,
-                CoreServicesApi.GetCrossConnectStatus?.response()?.data?.encryptionStatus,
-                t,
-              ),
-            ),
-          },
-          {
-            if: mauiExpression(
-              !!getMacsecEncryptionStatus(
-                CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties.state,
-                CoreServicesApi.GetCrossConnectStatus?.response()?.data?.encryptionStatus,
-                t,
-              ),
-            ),
-            variant: "lifecycle",
-            show: mauiExpression(
-              !isProviderTenant($app.consoleState) &&
-                whitelistMacsec($app.consoleState) &&
-                !!CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties,
-            ),
-            label: Messages.CrossConnect.encryptionDetail.MacecEncryptionStatus,
-            value: mauiExpression(
-              getMacsecEncryptionStatus(
-                CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties.state,
-                CoreServicesApi.GetCrossConnectStatus?.response()?.data?.encryptionStatus,
-                t,
-              ) || "",
-            ),
-            customLifecycleMap: mauiExpression(macsecEncryptionStatusLifecycleMap(t)),
-          },
-          {
-            variant: "link",
-            show: mauiExpression(
-              !isProviderTenant($app.consoleState) &&
-                whitelistMacsec($app.consoleState) &&
-                !!CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties,
-            ),
-            label: Messages.CrossConnect.encryptionDetail.CKNTitle,
-            href: mauiExpression(
-              makeSecretDetailUrl(
-                VaultSecretManagementApi.GetSecret.namespaced(macsecCKN)?.response()?.data?.vaultId,
-                CoreServicesApi.GetCrossConnect.response()?.data?.macsecProperties?.primaryKey
-                  ?.connectivityAssociationNameSecretId,
-              ),
-            ),
-            value: mauiExpression(
-              VaultSecretManagementApi.GetSecret.namespaced(macsecCKN)?.response()?.data
-                ?.secretName,
-            ),
-            actions: [
-              {
-                variant: "custom",
-                label: Messages.CrossConnect.encryptionDetail.viewKey,
-                show: mauiExpression(
-                  !isProviderTenant($app.consoleState) &&
-                    whitelistMacsec($app.consoleState) &&
-                    !!CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties
-                      ?.primaryKey?.connectivityAssociationNameSecretId,
-                ),
-                actions: [{ actionId: CrossConnectDetailsActions.toggleCknSecretView }],
-              },
-            ],
-          },
-          {
-            variant: "link",
-            show: mauiExpression(
-              !isProviderTenant($app.consoleState) &&
-                whitelistMacsec($app.consoleState) &&
-                !!CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties,
-            ),
-            label: Messages.CrossConnect.encryptionDetail.CAKTitle,
-            href: mauiExpression(
-              makeSecretDetailUrl(
-                VaultSecretManagementApi.GetSecret.namespaced(macsecCAK)?.response()?.data?.vaultId,
-                CoreServicesApi.GetCrossConnect.response()?.data?.macsecProperties?.primaryKey
-                  ?.connectivityAssociationKeySecretId,
-              ),
-            ),
-            value: mauiExpression(
-              VaultSecretManagementApi.GetSecret.namespaced(macsecCAK)?.response()?.data
-                ?.secretName,
-            ),
-            actions: [
-              {
-                variant: "custom",
-                label: Messages.CrossConnect.encryptionDetail.viewKey,
-                show: mauiExpression(
-                  !isProviderTenant($app.consoleState) &&
-                    whitelistMacsec($app.consoleState) &&
-                    !!CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties
-                      ?.primaryKey?.connectivityAssociationKeySecretId,
-                ),
-                actions: [{ actionId: CrossConnectDetailsActions.toggleCakSecretView }],
-              },
-            ],
-          },
-          {
-            if: mauiExpression(
-              !!CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties
-                .encryptionCipher,
-            ),
-            variant: "text",
-            show: mauiExpression(
-              !isProviderTenant($app.consoleState) &&
-                whitelistMacsec($app.consoleState) &&
-                !!CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties,
-            ),
-            label: Messages.CrossConnect.encryptionDetail.encryptionAlgorithm,
-            value: mauiExpression(
-              CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties.encryptionCipher,
-            ),
-          },
-          {
-            variant: "text",
-            show: mauiExpression(
-              !isProviderTenant($app.consoleState) &&
-                whitelistMacsec($app.consoleState) &&
-                whitelistmacSecSessionFailure($app.consoleState) &&
-                !!CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties,
-            ),
-            label: Messages.CrossConnect.encryptionDetail.MacsecFailOpenMode,
-            value: mauiExpression(
-              getMacsecSessionFailureOption(
-                CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties
-                  .isUnprotectedTrafficAllowed,
-                t,
-              ),
-            ),
-          },
-          {
-            if: mauiExpression(
-              !!CoreServicesApi.GetCrossConnect?.response()?.data?.customerReferenceName,
+              !!CoreServicesApi.GetCrossConnectGroup.response()?.data?.customerReferenceName,
             ),
             variant: "text",
             label: Messages.CrossConnect.label.referenceName,
             value: mauiExpression(
-              CoreServicesApi.GetCrossConnect?.response()?.data?.customerReferenceName,
-            ),
-          },
-          {
-            variant: "text",
-            label: Messages.CrossConnect.label.grouped,
-            value: mauiExpression(
-              CoreServicesApi.GetCrossConnect?.response()?.data?.crossConnectGroupId
-                ? Messages.common.yes
-                : Messages.common.no,
-            ),
-          },
-          {
-            variant: "text",
-            label: Messages.CrossConnect.label.relatedDocument,
-            value: Messages.CrossConnect.label.loaTitle,
-            actions: [
-              {
-                variant: "preset",
-                preset: "enable",
-                label: Messages.CrossConnect.actions.view,
-                actions: [CrossConnectDetailsActions.toggleLoaModal],
-              },
-            ],
-          },
-          {
-            variant: "text",
-            label: Messages.CrossConnect.form.compartment,
-            value: mauiExpression(
-              getCompartmentName(
-                $app.consoleState?.compartments,
-                CoreServicesApi.GetCrossConnect?.response()?.data?.compartmentId,
-              ),
+              CoreServicesApi.GetCrossConnectGroup.response()?.data?.customerReferenceName,
             ),
           },
           {
             variant: "ocid",
             label: Messages.CrossConnect.label.id,
-            value: mauiExpression(CoreServicesApi.GetCrossConnect?.response()?.data?.id),
+            value: mauiExpression(CoreServicesApi.GetCrossConnectGroup.response()?.data?.id),
           },
           {
             variant: "text",
             label: Messages.CrossConnect.label.timeCreated,
             value: mauiExpression(
               t("CrossConnect.fullDate", [
-                new Date(CoreServicesApi.GetCrossConnect?.response()?.data?.timeCreated),
+                new Date(CoreServicesApi.GetCrossConnectGroup.response()?.data?.timeCreated),
               ]),
             ),
           },
+          {
+            if: mauiExpression(
+              !!CoreServicesApi.GetCrossConnectGroup.response()?.data?.ociPhysicalDeviceName,
+            ),
+            variant: "text",
+            label: Messages.CrossConnectGroup.label.deviceNamePhysical,
+            value: mauiExpression(
+              CoreServicesApi.GetCrossConnectGroup.response()?.data?.ociPhysicalDeviceName,
+            ),
+            show: mauiExpression(whitelistLLDP($app.consoleState)),
+          },
+          {
+            if: mauiExpression(
+              !!CoreServicesApi.GetCrossConnectGroup.response()?.data?.ociLogicalDeviceName,
+            ),
+            variant: "text",
+            label: Messages.CrossConnectGroup.label.deviceNameLogical,
+            value: mauiExpression(
+              CoreServicesApi.GetCrossConnectGroup.response()?.data?.ociLogicalDeviceName,
+            ),
+            show: mauiExpression(whitelistLLDP($app.consoleState)),
+          },
+          {
+            variant: "text",
+            label: Messages.CrossConnect.encryptionDetail.MacecEncryptionState,
+            value: mauiExpression(
+              getMacecEncryptionState(
+                CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.state,
+                t,
+              ),
+            ),
+            show: mauiExpression(
+              !isProviderTenant($app.consoleState) &&
+                whitelistMacsec($app.consoleState) &&
+                !!CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.state,
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.CrossConnect.encryptionDetail.MacecEncryption,
+            value: Messages.CrossConnect.encryptionDetail.statusIncapable,
+            show: mauiExpression(
+              !isProviderTenant($app.consoleState) &&
+                !(
+                  whitelistMacsec($app.consoleState) &&
+                  CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.state
+                ),
+            ),
+            description: Messages.CrossConnect.encryptionDetail.encryptionIncapableTooltip,
+          },
+          {
+            variant: "link",
+            if: mauiExpression(
+              !!CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.primaryKey
+                ?.connectivityAssociationNameSecretId,
+            ),
+            label: Messages.CrossConnect.encryptionDetail.CKNTitle,
+            loading: mauiExpression(VaultSecretManagementApi.GetSecret.loading),
+            href: mauiExpression(
+              makeSecretDetailUrl(
+                VaultSecretManagementApi.GetSecret.namespaced(macsecCKN).response()?.data?.vaultId,
+                CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.primaryKey
+                  ?.connectivityAssociationNameSecretId,
+              ),
+            ),
+            value: mauiExpression(
+              VaultSecretManagementApi.GetSecret.namespaced(macsecCKN).response()?.data?.secretName,
+            ),
+            show: mauiExpression(
+              !isProviderTenant($app.consoleState) &&
+                whitelistMacsec($app.consoleState) &&
+                !!CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties
+                  ?.primaryKey?.connectivityAssociationNameSecretId,
+            ),
+            actions: [
+              {
+                variant: "custom",
+                label: Messages.CrossConnect.encryptionDetail.viewSecret,
+                actions: [
+                  {
+                    actionId: CrossConnectGroupDetailsActions.toggleSecretKeyViewCKN,
+                    args: {
+                      $secretOCID: mauiExpression(
+                        CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties
+                          ?.primaryKey?.connectivityAssociationNameSecretId,
+                      ),
+                      operation: "refresh",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            variant: "link",
+            if: mauiExpression(
+              !!CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.primaryKey
+                ?.connectivityAssociationKeySecretId,
+            ),
+            label: Messages.CrossConnect.encryptionDetail.CAKTitle,
+            loading: mauiExpression(VaultSecretManagementApi.GetSecret?.loading),
+            href: mauiExpression(
+              makeSecretDetailUrl(
+                VaultSecretManagementApi.GetSecret.namespaced(macsecCAK).response()?.data?.vaultId,
+                CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.primaryKey
+                  ?.connectivityAssociationKeySecretId,
+              ),
+            ),
+            value: mauiExpression(
+              VaultSecretManagementApi.GetSecret.namespaced(macsecCAK).response()?.data?.secretName,
+            ),
+            show: mauiExpression(
+              !isProviderTenant($app.consoleState) &&
+                whitelistMacsec($app.consoleState) &&
+                !!CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties
+                  ?.primaryKey?.connectivityAssociationKeySecretId,
+            ),
+            actions: [
+              {
+                variant: "custom",
+                label: Messages.CrossConnect.encryptionDetail.viewSecret,
+                actions: [
+                  {
+                    actionId: CrossConnectGroupDetailsActions.toggleSecretKeyViewCAK,
+                    args: {
+                      $secretOCID: mauiExpression(
+                        CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties
+                          ?.primaryKey?.connectivityAssociationKeySecretId,
+                      ),
+                      operation: "refresh",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            variant: "text",
+            if: mauiExpression(
+              !!CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties
+                ?.encryptionCipher,
+            ),
+            label: Messages.CrossConnect.encryptionDetail.encryptionAlgorithm,
+            value: mauiExpression(
+              CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties
+                ?.encryptionCipher,
+            ),
+            show: mauiExpression(
+              !isProviderTenant($app.consoleState) &&
+                whitelistMacsec($app.consoleState) &&
+                !!CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.state,
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.CrossConnect.encryptionDetail.MacsecFailOpenMode,
+            value: mauiExpression(
+              CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties
+                ?.isUnprotectedTrafficAllowed
+                ? Messages.CrossConnect.encryptionDetail.failOpenOption
+                : Messages.CrossConnect.encryptionDetail.failCloseOption,
+            ),
+            show: mauiExpression(
+              !isProviderTenant($app.consoleState) &&
+                whitelistMacsec($app.consoleState) &&
+                !!CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.state &&
+                whitelistmacSecSessionFailure($app.consoleState),
+            ),
+          },
+          {
+            if: mauiExpression(
+              !!getlistCrossConnectsDetailsData(
+                $data.CoreServicesApi_ListCrossConnects_details,
+                "locationName",
+              ),
+            ),
+            variant: "text",
+            label: Messages.Partner.label.physicalLocation,
+            value: mauiExpression(
+              getlistCrossConnectsDetailsData(
+                $data.CoreServicesApi_ListCrossConnects_details,
+                "locationName",
+              ),
+            ),
+            show: mauiExpression(isProviderTenant($app.consoleState)),
+          },
+          {
+            if: mauiExpression(
+              !!getlistCrossConnectsDetailsData(
+                $data.CoreServicesApi_ListCrossConnects_details,
+                "portSpeedShapeName",
+              ),
+            ),
+            variant: "text",
+            label: Messages.Partner.label.portSpeed,
+            value: mauiExpression(
+              getlistCrossConnectsDetailsData(
+                $data.CoreServicesApi_ListCrossConnects_details,
+                "portSpeedShapeName",
+              ),
+            ),
+            show: mauiExpression(isProviderTenant($app.consoleState)),
+          },
         ],
+      },
+      [SubresourcePath.ListCrossConnects]: {
+        variant: "config",
+        label: Messages.CrossConnect.title,
+        intentId: IntentId.ListCrossConnects,
+        show: mauiExpression(isSuperDrgTransitHubEnabled($app.consoleState)),
+        args: {
+          $disableCrossConnectGroupUpdate: mauiExpression(
+            disableCrossConnectGroupUpdate(
+              CoreServicesApi.GetCrossConnectGroup.response()?.data?.lifecycleState,
+            ),
+          ),
+        },
+      },
+      [SubresourcePath.virtualCircuits]: {
+        variant: "config",
+        label: Messages.VirtualCircuitList.title,
+        intentId: IntentId.ListVirtualCircuitSubResource,
+        args: {
+          $enableCrossConnectGroupAddVC: mauiExpression(
+            enableCrossConnectGroupAddVC(
+              CoreServicesApi.GetCrossConnectGroup.response()?.data?.lifecycleState,
+            ),
+          ),
+          $isRedundantVC: false,
+          $fastConnectId: mauiExpression(CoreServicesApi.GetCrossConnectGroup.response()?.data?.id),
+        },
       },
       tags: {
         variant: "tag-details",
         label: Messages.Tagging.tags,
-        resource: mauiExpression(CoreServicesApi.GetCrossConnect?.response()?.data),
-        taggableStates: ["PENDING_CUSTOMER", "PROVISIONED"],
+        resource: mauiExpression(CoreServicesApi.GetCrossConnectGroup.response()?.data),
+        taggableStates: [
+          CrossConnectGroupLifecycleStateEnum.Provisioned,
+          CrossConnectGroupLifecycleStateEnum.Terminated,
+          CrossConnectGroupLifecycleStateEnum.Inactive,
+        ],
         onTagsApplied: {
-          actionId: CoreServicesApi.GetCrossConnect.action.id,
+          actionId: CoreServicesApi.GetCrossConnectGroup.action.id,
           args: {
             operation: "refresh",
           },
         },
         updateTagsApi: {
-          endpoint: mauiExpression(getEndpoint("crossConnects", $app.route.match.params.id)),
-          operationName: "updateCrossConnect",
+          endpoint: "/crossConnectGroups/{$app.route.match.params.id}",
+          operationName: "updateCrossConnectGroup",
           serviceBasePath: CoreServicesApi.serviceBasePath({
             region: mauiExpression($app.consoleState.regionName).ref,
             secondLevelDomain: mauiExpression($app.consoleState.serviceDomainBase).ref,
@@ -479,18 +466,12 @@ const CrossConnectDetailsPage: Template["details"]["2.1.0"] = {
           serviceName: "crossConnectApi",
         },
       },
-      virtualCircuits: {
+      [SubresourcePath.Metrics]: {
         variant: "config",
-        label: Messages.VirtualCircuitList.title,
-        intentId: IntentId.ListVirtualCircuitSubResource,
+        label: Messages.sidePanels.resource.metrics,
+        intentId: IntentId.Metrics,
         args: {
-          $isRedundantVC: false,
-          $fastConnectId: mauiExpression(CoreServicesApi.GetCrossConnect.response()?.data?.id),
-          $enableCrossConnectGroupAddVC: mauiExpression(
-            enableCrossConnectAddVC(
-              CoreServicesApi.GetCrossConnect.response()?.data?.lifecycleState,
-            ),
-          ),
+          $compartmentId: mauiExpression($app.consoleState?.compartmentId),
         },
       },
     },
@@ -501,165 +482,84 @@ const CrossConnectDetailsPage: Template["details"]["2.1.0"] = {
         group: ["details"],
       },
       {
-        key: "virtual-circuits",
+        key: SubresourcePath.ListCrossConnects,
+        label: Messages.CrossConnect.title,
+        group: [SubresourcePath.ListCrossConnects],
+      },
+      {
+        key: SubresourcePath.virtualCircuits,
         label: Messages.VirtualCircuitList.title,
-        group: ["virtualCircuits"],
-        /* Dont show for provider flow */
-        show: mauiExpression(
-          !isProviderTenant($app.consoleState) &&
-            !$app.route.location.pathname.includes("cross-connect-group"),
-        ),
+        group: [SubresourcePath.virtualCircuits],
+        show: mauiExpression(!isProviderTenant($app.consoleState)),
+      },
+      {
+        key: SubresourcePath.Metrics,
+        label: Messages.sidePanels.resource.monitoring,
+        group: [SubresourcePath.Metrics],
+        show: mauiExpression(!isProviderTenant($app.consoleState)),
       },
       "tags",
     ],
   },
   actions: [
-    CoreServicesApi.GetCrossConnect.action.withProperties({
+    CoreServicesApi.ListCrossConnects.action.withProperties({
+      queryParams: {
+        crossConnectGroupId: mauiExpression(
+          CoreServicesApi.GetCrossConnectGroup.response()?.data?.id,
+        ),
+        compartmentId: mauiExpression($app.consoleState?.compartmentId),
+      },
+      bind: [
+        mauiExpression($app.consoleState?.compartmentId),
+        mauiExpression($app.consoleState?.regionName),
+      ],
+      paginationOptions: {
+        pagination: "client",
+        preFetchRecords: "all",
+      },
+      dest: "CoreServicesApi_ListCrossConnects_details",
+    }),
+    CoreServicesApi.GetCrossConnectGroup.action.withProperties({
       bind: [
         mauiExpression($app.consoleState?.compartmentId),
         mauiExpression($app.consoleState?.regionName),
         mauiExpression($app.consoleState?.serviceDomainBase),
       ],
       onSuccess: [
-        {
-          actionId: CoreServicesApi.GetCrossConnectStatus.action.id,
-          args: {
-            $crossConnectId: mauiExpression(CoreServicesApi.GetCrossConnect?.response()?.data?.id),
-            operation: "refresh",
-          },
-        },
-        CrossConnectDetailsActions.triggerGetCknKey,
-        CrossConnectDetailsActions.triggerGetCakKey,
+        // CoreServicesApi.ListCrossConnects.action.id,
+        CrossConnectGroupDetailsActions.shouldGetCAKandCKNSecretNames,
       ],
     }),
-    CoreServicesApi.GetCrossConnectStatus.action.withProperties({
-      bind: [
-        mauiExpression($app.consoleState?.compartmentId),
-        mauiExpression($app.consoleState?.regionName),
-        mauiExpression($app.consoleState?.serviceDomainBase),
-      ],
-    }),
-    {
-      id: CrossConnectDetailsActions.toggleLoaModal,
-      intentId: IntentId.CrossConnectLoa,
-      type: "ConfigRendererAction",
-      args: {
-        $size: "medium",
-        $onCloseAction: CrossConnectDetailsActions.toggleLoaModal,
-        $crossConnect: mauiExpression(CoreServicesApi.GetCrossConnect?.response()?.data),
-        $onSuccess: [
-          CrossConnectDetailsActions.toggleLoaModal,
-          CoreServicesApi.GetCrossConnect.action.id,
-        ],
-      },
-    },
     VaultSecretManagementApi.GetSecret.namespaced(macsecCKN).action,
+    VaultSecretManagementApi.GetSecret.namespaced(macsecCAK).action,
     {
-      id: CrossConnectDetailsActions.triggerGetCknKey,
+      id: CrossConnectGroupDetailsActions.shouldGetCAKandCKNSecretNames,
       type: "ConditionalExecuteAction",
       predicate: mauiExpression(
-        !!CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties.primaryKey
-          .connectivityAssociationNameSecretId,
-      ),
-      bind: [
-        mauiExpression(
-          CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties.primaryKey
-            .connectivityAssociationNameSecretId,
+        hasSecretIds(
+          CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.primaryKey,
         ),
-      ],
+      ),
       onTrue: [
         {
           actionId: VaultSecretManagementApi.GetSecret.namespaced(macsecCKN).action.id,
           args: {
             $secretId: mauiExpression(
-              CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties.primaryKey
-                .connectivityAssociationNameSecretId,
+              CoreServicesApi.GetCrossConnectGroup?.response()?.data?.macsecProperties?.primaryKey
+                ?.connectivityAssociationNameSecretId,
             ),
           },
         },
-      ],
-    },
-    VaultSecretManagementApi.GetSecret.namespaced(macsecCAK).action,
-    {
-      id: CrossConnectDetailsActions.triggerGetCakKey,
-      type: "ConditionalExecuteAction",
-      predicate: mauiExpression(
-        !!CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties.primaryKey
-          .connectivityAssociationKeySecretId,
-      ),
-      bind: [
-        mauiExpression(
-          CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties.primaryKey
-            .connectivityAssociationKeySecretId,
-        ),
-      ],
-      onTrue: [
         {
           actionId: VaultSecretManagementApi.GetSecret.namespaced(macsecCAK).action.id,
           args: {
             $secretId: mauiExpression(
-              CoreServicesApi.GetCrossConnect?.response()?.data?.macsecProperties.primaryKey
-                .connectivityAssociationKeySecretId,
+              CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.primaryKey
+                ?.connectivityAssociationKeySecretId,
             ),
           },
         },
       ],
-    },
-    {
-      id: CrossConnectDetailsActions.toggleEditModal,
-      intentId: IntentId.EditCrossConnect,
-      type: "ConfigRendererAction",
-      args: {
-        $size: "medium",
-        $isGrouped: mauiExpression(false),
-        $onCloseAction: CrossConnectDetailsActions.toggleEditModal,
-        $crossConnectOrGroup: mauiExpression(CoreServicesApi.GetCrossConnect?.response()?.data),
-        $onSuccess: [
-          CrossConnectDetailsActions.toggleEditModal,
-          {
-            actionId: CoreServicesApi.GetCrossConnect.action.id,
-            behavior: "sync",
-            args: {
-              operation: "refresh",
-            },
-          },
-          CrossConnectDetailsActions.showUpdateSuccess,
-        ],
-      },
-    },
-    {
-      id: CrossConnectDetailsActions.toggleActivateModal,
-      intentId: IntentId.ActivateCrossConnect,
-      type: "ConfigRendererAction",
-      args: {
-        $size: "medium",
-        $onCloseAction: CrossConnectDetailsActions.toggleActivateModal,
-        $crossConnect: mauiExpression(CoreServicesApi.GetCrossConnect?.response()?.data),
-        $onSuccess: [
-          CrossConnectDetailsActions.toggleActivateModal,
-          {
-            actionId: CoreServicesApi.GetCrossConnect.action.id,
-            behavior: "sync",
-            args: {
-              operation: "refresh",
-            },
-          },
-          CrossConnectDetailsActions.showActivateSuccess,
-        ],
-        $onError: [],
-      },
-    },
-    {
-      id: CrossConnectDetailsActions.showActivateSuccess,
-      type: "ToastNotificationAction",
-      notificationType: "success",
-      message: Messages.CrossConnect.activate.toast,
-    },
-    {
-      id: CrossConnectDetailsActions.showUpdateSuccess,
-      type: "ToastNotificationAction",
-      notificationType: "success",
-      message: Messages.CrossConnectOrGroupEditPanel.crossConnectUpdateSuccess,
     },
     {
       id: CrossConnectDetailsActions.toggleViewVlanModal,
@@ -667,39 +567,50 @@ const CrossConnectDetailsPage: Template["details"]["2.1.0"] = {
       type: "ConfigRendererAction",
       args: {
         $size: "small", // opens medium no matter what
-        $crossConnect: mauiExpression(CoreServicesApi.GetCrossConnect?.response()?.data),
-        $isCrossConnectGroup: mauiExpression(false),
+        $crossConnect: mauiExpression(CoreServicesApi.GetCrossConnectGroup?.response()?.data),
+        $isCrossConnectGroup: mauiExpression(true),
         $onSuccess: [CrossConnectDetailsActions.toggleViewVlanModal],
         $onCloseAction: CrossConnectDetailsActions.toggleViewVlanModal,
       },
     },
     {
-      id: CrossConnectDetailsActions.toggleChangeCompartment,
+      id: CrossConnectGroupDetailsActions.toggleChangeCompartment,
       intentId: IntentId.SharedChangeCompartment,
       type: "ConfigRendererAction",
       args: {
         $submitAction: {
-          actionId: CoreServicesApi.ChangeCrossConnectCompartment.action.id,
+          actionId: CoreServicesApi.ChangeCrossConnectGroupCompartment.action.id,
           args: {
-            $crossConnectId: mauiExpression(CoreServicesApi.GetCrossConnect?.response()?.data?.id),
+            $crossConnectGroupId: mauiExpression(
+              CoreServicesApi.GetCrossConnectGroup.response()?.data?.id,
+            ),
           },
         },
         $compartmentId: mauiExpression(
-          CoreServicesApi.GetCrossConnect?.response()?.data?.compartmentId,
+          CoreServicesApi.GetCrossConnectGroup.response()?.data?.compartmentId,
         ),
         $onCloseAction: [
-          CrossConnectDetailsActions.toggleChangeCompartment,
+          CrossConnectGroupDetailsActions.toggleChangeCompartment,
           {
-            actionId: CoreServicesApi.ChangeCrossConnectCompartment.action.id,
+            actionId: CoreServicesApi.ChangeCrossConnectGroupCompartment.action.id,
             args: {
               operation: "reset",
             },
           },
         ],
-        $dataSource: mauiExpression(CoreServicesApi.ChangeCrossConnectCompartment.datasource),
+        $dataSource: mauiExpression(CoreServicesApi.ChangeCrossConnectGroupCompartment.destination),
+        $resourceMessage: mauiExpression(
+          getNoResourceMessage(
+            t,
+            getCompartmentName(
+              $app?.consoleState?.compartments,
+              CoreServicesApi.GetCrossConnectGroup.response()?.data?.compartmentId,
+            ),
+          ),
+        ),
       },
     },
-    CoreServicesApi.ChangeCrossConnectCompartment.action.withProperties({
+    CoreServicesApi.ChangeCrossConnectGroupCompartment.action.withProperties({
       bodyParams: {
         type: "content",
         content: {
@@ -711,11 +622,11 @@ const CrossConnectDetailsPage: Template["details"]["2.1.0"] = {
       parseResponseBody: false,
       onSuccess: [
         {
-          actionId: CrossConnectDetailsActions.toggleChangeCompartment,
+          actionId: CrossConnectGroupDetailsActions.toggleChangeCompartment,
           behavior: "sync",
         },
         {
-          actionId: CoreServicesApi.GetCrossConnect.action.id,
+          actionId: CoreServicesApi.GetCrossConnectGroup.action.id,
           args: {
             operation: "refresh",
           },
@@ -724,116 +635,127 @@ const CrossConnectDetailsPage: Template["details"]["2.1.0"] = {
       ],
     }),
     {
-      id: CrossConnectDetailsActions.toggleDeleteModal,
-      type: "ConfigRendererAction",
-      intentId: IntentId.DeleteCrossConnect,
-      args: {
-        $size: "medium",
-        $onCloseAction: CrossConnectDetailsActions.toggleDeleteModal,
-        $crossConnect: mauiExpression(CoreServicesApi.GetCrossConnect?.response()?.data),
-        $singleQuestion: mauiExpression(
-          t(MessagesKeys.CrossConnect.delete.message, [
-            CoreServicesApi.GetCrossConnect?.response()?.data?.displayName,
-          ]),
-        ),
-        $onSuccess: [
-          CrossConnectDetailsActions.toggleDeleteModal,
-          CrossConnectDetailsActions.navigateToListPage,
-          CrossConnectDetailsActions.showDeleteSuccess,
-        ],
-        $onError: [],
-      },
-    },
-    {
-      id: CrossConnectDetailsActions.showDeleteSuccess,
-      type: "ToastNotificationAction",
-      notificationType: "success",
-      message: Messages.CrossConnect.delete.toast,
-    },
-    {
-      id: CrossConnectDetailsActions.navigateToListPage,
+      id: CrossConnectGroupDetailsActions.navigateToFastConnectListing,
       type: "NavigateAction",
       href: mauiExpression(
-        isProviderTenant($app.consoleState)
+        isProviderTenant($app?.consoleState)
           ? "/networking/fast-connect/provider/cross-connects"
           : "/networking/fast-connect",
       ),
     },
-    {
-      id: CrossConnectDetailsActions.toggleCknSecretView,
-      type: "ConfigRendererAction",
-      intentId: IntentId.ViewCrossConnectSecret,
-      args: {
-        $size: "medium",
-        $labelName: Messages.CrossConnect.form.encryptionCKN,
-        $onCloseAction: CrossConnectDetailsActions.toggleCknSecretView,
-        $secretOCID: mauiExpression(
-          CoreServicesApi.GetCrossConnect.response()?.data?.macsecProperties?.primaryKey
-            ?.connectivityAssociationNameSecretId,
-        ),
-      },
-    },
-    {
-      id: CrossConnectDetailsActions.toggleCakSecretView,
-      type: "ConfigRendererAction",
-      intentId: IntentId.ViewCrossConnectSecret,
-      args: {
-        $size: "medium",
-        $labelName: Messages.CrossConnect.form.encryptionCAK,
-        $onCloseAction: CrossConnectDetailsActions.toggleCakSecretView,
-        $secretOCID: mauiExpression(
-          CoreServicesApi.GetCrossConnect.response()?.data?.macsecProperties?.primaryKey
-            ?.connectivityAssociationNameSecretId,
-        ),
-      },
-    },
-    CoreServicesApi.ListVirtualCircuits.action.withProperties({
+    CoreServicesApi.ListCrossConnectGroups.action.withProperties({
       queryParams: {
         compartmentId: mauiExpression($app.consoleState?.compartmentId),
-        sortBy: mauiExpression(
-          ["displayName", "timeCreated"].includes(String($user?.sort?.sortBy))
-            ? $user?.sort?.sortBy
-            : undefined,
-        ),
-        sortOrder: mauiExpression(
-          ["displayName", "timeCreated"].includes(String($user?.sort?.sortBy))
-            ? $user?.sort?.sortOrder
-            : undefined,
-        ),
       },
       bind: [
         mauiExpression($app.consoleState?.compartmentId),
         mauiExpression($app.consoleState?.regionName),
       ],
-      paginationOptions: {
-        pagination: "client",
-        preFetchRecords: "all",
-      },
+      paginationOptions: { pagination: "server" },
     }),
+    {
+      id: CrossConnectGroupDetailsActions.toggleDelete,
+      type: "ConfigRendererAction",
+      intentId: IntentId.DeleteCrossConnectGroup,
+      args: {
+        $size: "medium",
+        $onCloseAction: mauiExpression(CrossConnectGroupDetailsActions.toggleDelete),
+        $crossConnectGroup: mauiExpression(CoreServicesApi.GetCrossConnectGroup?.response()?.data),
+        $singleQuestion: mauiExpression(
+          t(MessagesKeys.CrossConnectGroup.delete.confirmation, [
+            CoreServicesApi.GetCrossConnectGroup?.response()?.data?.displayName,
+          ]),
+        ),
+        $onSuccess: [
+          CrossConnectGroupDetailsActions.toggleDelete,
+          CrossConnectGroupDetailsActions.navigateToFastConnectListing,
+          {
+            actionId: CoreServicesApi.ListCrossConnectGroups.action.id,
+            behavior: "sync",
+            args: {
+              operation: "refresh",
+            },
+          },
+          CrossConnectGroupDetailsActions.showDeleteSuccess,
+        ],
+      },
+    },
+    {
+      id: CrossConnectGroupDetailsActions.showDeleteSuccess,
+      type: "ToastNotificationAction",
+      notificationType: "success",
+      message: Messages.CrossConnectGroup.delete.toast,
+    },
+    {
+      id: CrossConnectGroupDetailsActions.toggleSecretKeyViewCKN,
+      type: "ConfigRendererAction",
+      intentId: IntentId.ViewCrossConnectSecret,
+      args: {
+        $size: "medium",
+        $labelName: Messages.CrossConnect.form.encryptionCKN,
+        $onCloseAction: CrossConnectGroupDetailsActions.toggleSecretKeyViewCKN,
+        $secretOCID: mauiExpression(
+          CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.primaryKey
+            ?.connectivityAssociationNameSecretId,
+        ),
+      },
+    },
+    {
+      id: CrossConnectGroupDetailsActions.toggleSecretKeyViewCAK,
+      type: "ConfigRendererAction",
+      intentId: IntentId.ViewCrossConnectSecret,
+      args: {
+        $size: "medium",
+        $labelName: Messages.CrossConnect.form.encryptionCAK,
+        $onCloseAction: CrossConnectGroupDetailsActions.toggleSecretKeyViewCAK,
+        $secretOCID: mauiExpression(
+          CoreServicesApi.GetCrossConnectGroup.response()?.data?.macsecProperties?.primaryKey
+            ?.connectivityAssociationKeySecretId,
+        ),
+      },
+    },
+    {
+      id: CrossConnectDetailsActions.toggleEditModal,
+      intentId: IntentId.EditCrossConnect,
+      type: "ConfigRendererAction",
+      args: {
+        $size: "medium",
+        $isGrouped: mauiExpression(true),
+        $crossConnectOrGroup: mauiExpression(
+          CoreServicesApi.GetCrossConnectGroup?.response()?.data,
+        ),
+        $onCloseAction: CrossConnectDetailsActions.toggleEditModal,
+        $onSuccess: [
+          CrossConnectDetailsActions.toggleEditModal,
+          {
+            actionId: CoreServicesApi.GetCrossConnectGroup.action.id,
+            behavior: "sync",
+            args: {
+              operation: "refresh",
+            },
+          },
+          CrossConnectGroupDetailsActions.showUpdateSuccess,
+        ],
+      },
+    },
+    {
+      id: CrossConnectGroupDetailsActions.showUpdateSuccess,
+      type: "ToastNotificationAction",
+      notificationType: "success",
+      message: Messages.CrossConnectOrGroupEditPanel.crossConnectGroupUpdateSuccess,
+    },
   ],
   triggers: [
     {
       type: "OnLoadTrigger",
-      action: CoreServicesApi.GetCrossConnect.action.id,
+      action: CoreServicesApi.GetCrossConnectGroup.action.id,
     },
     {
       type: "OnLoadTrigger",
-      action: CrossConnectDetailsActions.triggerGetCknKey,
-    },
-    {
-      type: "OnLoadTrigger",
-      action: CrossConnectDetailsActions.triggerGetCakKey,
-    },
-    {
-      type: "TimerTrigger",
-      action: CoreServicesApi.GetCrossConnect.action.id,
-      interval: TimeInterval.md,
-      args: {
-        operation: "refresh",
-      },
+      action: CoreServicesApi.ListCrossConnects.action.id,
     },
   ],
   apiClients,
 };
 
-export default CrossConnectDetailsPage;
+export default CrossConnectGroupDetailsPage;
