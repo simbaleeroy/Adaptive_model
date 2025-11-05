@@ -1,767 +1,1605 @@
-import { AppState, ConsoleState, MauiRenderEngineRef } from "@oci-maui/render-engine-types";
+import { AppState } from "@oci-maui/render-engine-types";
 
-import {
-  BgpSessionInfoBgpStateEnum as ApiBgpSessionInfoBgpStateEnum,
-  CrossConnectMapping,
-  CrossConnectMappingDetails,
-  CrossConnectMappingDetailsCollection,
-  DrgRedundancyStatusStatusEnum,
-  FastConnectProviderService,
-  VirtualCircuit,
-  VirtualCircuitLifecycleStateEnum as ApiVirtualCircuitLifeCycleState,
-  VirtualCircuitLifecycleStateEnum as ApiVirtualCircuitLifecycleStateEnum,
-  VirtualCircuitRedundancyMetadataConfiguredRedundancyLevelEnum,
-  VirtualCircuitRedundancyMetadataIpv4bgpSessionRedundancyStatusEnum,
-  VirtualCircuitRedundancyMetadataIpv6bgpSessionRedundancyStatusEnum,
-  VirtualCircuitServiceTypeEnum as ApiVirtualCircuitServiceTypeEnum,
-} from "@clients/CoreServicesApi";
-import {
-  DEFINITION_CoreServicesApi_CrossConnect,
-  DEFINITION_CoreServicesApi_CrossConnectGroup,
-  DEFINITION_CoreServicesApi_DrgRedundancyStatus,
-  DEFINITION_CoreServicesApi_VirtualCircuitErrorDetails,
-} from "../../../gen/clientUtils";
+import { apiClients, TimeInterval } from "@shared/api";
 
-import { MessagesKeys } from "@messages";
+import { CoreServicesApi } from "@clientUtils";
 
-import { getConsoleCapabilities, isRedundancyStatusEnabled } from "../common/capabilities";
+import Messages, { MessagesKeys } from "@messages";
+
+import { VirtualCircuitDetailsActions } from "@modules/common/actions";
 import {
-  colocatedProvider,
-  coltLoginURL,
-  megaportLoginURL,
-  ProviderNames,
-} from "../common/constants";
+  connectivityOverviewEnabled,
+  isProviderTenant,
+  isRedundancyStatusEnabled,
+  isSuperDrgTransitHubEnabled,
+  newIaEnabled,
+} from "@modules/common/capabilities";
+import { SubresourcePath } from "@modules/common/constants";
+import { IntentId } from "@modules/common/id";
 import {
-  BgpAdminStateEnum,
-  BgpSessionInfoBgpStateEnum,
-  ConnectionType,
-  DrgRedundancyStatusEnum,
-  FastConnectCapabilities as WhitelistKeys,
-  FastConnectIpMtuEnum,
-  FastConnectProviderServicePrivatePeeringBgpManagementEnum,
-  FastConnectProviderServiceRoutingPolicyEnum,
-  RedundancyLevelEnum,
+  FastConnectType,
+  NavTargetType,
   VirtualCircuitLifecycleStateEnum,
-  VirtualCircuitServiceTypeEnum,
-  VirtualCircuitTypeEnum,
-} from "../common/types";
-import { DrgRedundancyLinks } from "../common/url";
+} from "@modules/common/types";
+import { HelpLink } from "@modules/common/url";
 import {
+  getCompartmentName,
+  getNoResourceMessage,
   getProviderName,
-  getProviderProvisionWhitelistName,
-  whitelistProvisionForProvider,
-} from "../common/utils";
+  isValidURL,
+} from "@modules/common/utils";
+import {
+  BgpSessionLifecycleStateMap,
+  getVirtualCircuitBreadcrumbs,
+  virtualCircuitLifecycleMap,
+} from "@modules/utils";
+import {
+  disableVirtualCircuitDelete,
+  disableVirtualCircuitUpdate,
+  enableIpv6,
+  enableIpv6Provider,
+  getBgpIpv6SessionState,
+  getCcOrCcgHeading,
+  getConnectionType,
+  getCustomerIpv4,
+  getCustomerIpv6,
+  getDrgLinkHref,
+  getDrgRedundancyWarningMessage,
+  getMTU,
+  getOnCreationInfoInstructionText,
+  getOracleIpv4,
+  getOracleIpv6,
+  getProviderLoginURL,
+  getProvisionedBandwidth,
+  getQosBandwidthReservationEnabled,
+  getRedundantTypeText,
+  getRouteFiltering,
+  getToastDeactivateMessage,
+  getToggleDeactivateLabel,
+  getTrafficType,
+  getVbgpMd5Authentication,
+  getVirtualCircuitActive,
+  getVirtualCircuitErrorsCriticalTexts,
+  getVirtualCircuitErrorsWarningTexts,
+  getVlan,
+  isBfdEnabled,
+  isDrgNotRedundant,
+  isIPSecOverFCEnabled,
+  isPrivateVC,
+  isProviderATT,
+  isPublicRouteFilteringEnabled,
+  isPublicVC,
+  isPublicVirtualCircuit,
+  isQoSBandwidthTemplateEnabled,
+  isRedundancyEnabled,
+  shouldShowBgpFailedInfoBlock,
+  shouldShowBGPIpv6,
+  shouldShowCustomerBgpAsn,
+  shouldShowLifecycleHelp,
+  shouldShowNextStepInfo,
+  shouldShowOnCreationInfo,
+  shouldShowPartnerName,
+  showDrg,
+  showVlan,
+  whitelistBfd,
+  whitelistEnableCustomerDeactivate,
+  whitelistIpv6,
+  whitelistLLDP,
+} from "@modules/virtual-circuit";
+declare const $app: AppState;
+const virtualCircuitsDetails: Template["details"]["2.1.0"] = {
+  id: IntentId.VirtualCircuitDetail,
+  version: "2.0.1",
+  breadcrumb: {
+    showBreadcrumb: true,
+    items: mauiExpression(
+      getVirtualCircuitBreadcrumbs(
+        $app.route.location.pathname,
+        $app.route.match.params?.parentId,
+        t,
+        isProviderTenant($app.consoleState),
+        newIaEnabled($app.consoleState),
+        connectivityOverviewEnabled($app.consoleState),
+      ),
+    ),
+  },
+  detailsContent: {
+    sections: {
+      VCdetails: {
+        variant: "record",
+        label: Messages.VirtualCircuit.virtualCircuitInformation,
+        fields: [
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.connectionType,
+            value: mauiExpression(
+              getConnectionType(CoreServicesApi.GetVirtualCircuit?.response()?.data, t),
+            ),
+            actions: [
+              {
+                variant: "nav",
+                label: Messages.VirtualCircuit.help,
+                actions: [VirtualCircuitDetailsActions.navigateToFastConnectTroubleshoot],
+                show: mauiExpression(!isProviderTenant($app.consoleState)),
+              },
+            ],
+          },
+          {
+            variant: "text",
+            if: mauiExpression(!!CoreServicesApi.GetVirtualCircuit?.response()?.data?.providerName),
+            label: Messages.VirtualCircuit.label.partnerName,
+            value: mauiExpression(
+              CoreServicesApi.GetVirtualCircuit?.response()?.data?.providerName,
+            ),
+            show: mauiExpression(
+              shouldShowPartnerName(CoreServicesApi.GetVirtualCircuit?.response()?.data) ||
+                isProviderTenant($app.consoleState),
+            ),
+          },
+          {
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.lifecycleState,
+            ),
+            variant: "lifecycle",
+            label: Messages.VirtualCircuit.label.lifecycleState,
+            value: mauiExpression(
+              CoreServicesApi.GetVirtualCircuit?.response()?.data?.lifecycleState || "",
+            ),
+            customLifecycleMap: mauiExpression(virtualCircuitLifecycleMap(t)),
+            actions: [
+              {
+                variant: "nav",
+                label: Messages.VirtualCircuit.help,
+                actions: [VirtualCircuitDetailsActions.navigateToFastConnectTroubleshoot],
+                show: mauiExpression(
+                  isProviderTenant($app.consoleState) &&
+                    shouldShowLifecycleHelp(CoreServicesApi.GetVirtualCircuit?.response()?.data),
+                ),
+              },
+            ],
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.virtualCircuit,
+            value: mauiExpression(
+              getVirtualCircuitActive(CoreServicesApi.GetVirtualCircuit?.response()?.data, t),
+            ),
+            show: mauiExpression(
+              whitelistEnableCustomerDeactivate($app) && !isProviderTenant($app.consoleState),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.virtualCircuitType,
+            value: mauiExpression(
+              isPublicVC(CoreServicesApi.GetVirtualCircuit?.response()?.data, t),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.Partner.label.referenceName,
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.referenceComment,
+            ),
+            value: mauiExpression(
+              CoreServicesApi.GetVirtualCircuit?.response()?.data?.referenceComment,
+            ),
+            show: mauiExpression(isProviderTenant($app.consoleState)),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.redundancyLevel,
+            if: mauiExpression(
+              !!getRedundantTypeText(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data
+                  ?.virtualCircuitRedundancyMetadata?.configuredRedundancyLevel,
+                t,
+              ),
+            ),
+            value: mauiExpression(
+              getRedundantTypeText(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data
+                  ?.virtualCircuitRedundancyMetadata?.configuredRedundancyLevel,
+                t,
+              ),
+            ),
+            show: mauiExpression(isRedundancyEnabled($app) && !isProviderTenant($app.consoleState)),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.traffic,
+            value: mauiExpression(
+              getTrafficType(CoreServicesApi.GetVirtualCircuit?.response()?.data, t),
+            ),
+            show: mauiExpression(
+              isIPSecOverFCEnabled($app) && !isProviderTenant($app.consoleState),
+            ),
+          },
+          {
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.bgpSessionState,
+            ),
+            variant: "lifecycle",
+            label: Messages.VirtualCircuit.label.ipv4BgpState,
+            value: mauiExpression(
+              CoreServicesApi.GetVirtualCircuit?.response()?.data?.bgpSessionState || "",
+            ),
+            customLifecycleMap: mauiExpression(BgpSessionLifecycleStateMap(t)),
+          },
+          {
+            if: mauiExpression(
+              !!getBgpIpv6SessionState(CoreServicesApi.GetVirtualCircuit?.response()?.data),
+            ),
+            variant: "lifecycle",
+            label: Messages.VirtualCircuit.label.ipv6BgpState,
+            value: mauiExpression(
+              getBgpIpv6SessionState(CoreServicesApi.GetVirtualCircuit?.response()?.data) || "",
+            ),
+            customLifecycleMap: mauiExpression(BgpSessionLifecycleStateMap(t)),
+            show: mauiExpression(whitelistIpv6($app)),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.provisionedBandwidth,
+            value: mauiExpression(
+              getProvisionedBandwidth(CoreServicesApi.GetVirtualCircuit?.response()?.data, t),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.bgpMd5Authentication,
+            value: mauiExpression(
+              getVbgpMd5Authentication(CoreServicesApi.GetVirtualCircuit?.response()?.data, t),
+            ),
+            show: mauiExpression(!isProviderTenant($app.consoleState)),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.form.routeFiltering,
+            value: mauiExpression(
+              getRouteFiltering(CoreServicesApi.GetVirtualCircuit?.response()?.data, t),
+            ),
+            show: mauiExpression(
+              isPublicRouteFilteringEnabled(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data,
+                $app,
+              ) && !isProviderTenant($app.consoleState),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.form.mtuDetail,
+            value: mauiExpression(
+              getMTU(CoreServicesApi.GetVirtualCircuit?.response()?.data?.ipMtu, t),
+            ),
+            show: mauiExpression(!isProviderTenant($app.consoleState)),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.form.compartment,
+            value: mauiExpression(
+              getCompartmentName(
+                $app.consoleState?.compartments,
+                CoreServicesApi.GetVirtualCircuit?.response()?.data?.compartmentId,
+              ),
+            ),
+          },
+          {
+            variant: "ocid",
+            label: Messages.VirtualCircuit.label.id,
+            value: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data?.id),
+          },
+          {
+            variant: "text",
+            label: Messages.Partner.label.partnerState,
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.providerState,
+            ),
+            value: mauiExpression(
+              CoreServicesApi.GetVirtualCircuit?.response()?.data?.providerState,
+            ),
+            show: mauiExpression(isProviderTenant($app.consoleState)),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.dateCreated,
+            value: Messages.VirtualCircuit.fullDate(
+              mauiExpression(
+                new Date(CoreServicesApi.GetVirtualCircuit?.response()?.data?.timeCreated),
+              ).ref,
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.Partner.label.partnerType,
+            value: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data?.serviceType),
+            show: mauiExpression(isProviderTenant($app.consoleState)),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.vlan,
+            value: mauiExpression(getVlan(CoreServicesApi.GetVirtualCircuit?.response()?.data, t)),
+            show: mauiExpression(showVlan(CoreServicesApi.GetVirtualCircuit?.response()?.data)),
+          },
+          {
+            variant: "text",
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.providerServiceKeyName,
+            ),
+            label: Messages.VirtualCircuit.label.partnerServiceKey,
+            value: mauiExpression(
+              CoreServicesApi.GetVirtualCircuit?.response()?.data?.providerServiceKeyName,
+            ),
+            show: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.providerServiceKeyName ||
+                (isProviderATT(CoreServicesApi.GetFastConnectProviderService?.response()?.data) &&
+                  !isProviderTenant($app.consoleState)),
+            ),
+          },
+          {
+            variant: "link",
+            label: Messages.VirtualCircuit.label.drg,
+            loading: mauiExpression(mauiExpression(CoreServicesApi.GetDrg.loading)),
+            href: mauiExpression(getDrgLinkHref(CoreServicesApi.GetDrg?.response()?.data?.id)),
+            value: mauiExpression(CoreServicesApi.GetDrg?.response()?.data?.displayName),
+            show: mauiExpression(
+              showDrg(CoreServicesApi.GetVirtualCircuit?.response()?.data) &&
+                !isProviderTenant($app.consoleState),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.qosText,
+            value: mauiExpression(
+              getQosBandwidthReservationEnabled(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data,
+                t,
+              ),
+            ),
+            show: mauiExpression(
+              isQoSBandwidthTemplateEnabled($app) && !isProviderTenant($app.consoleState),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.qosBandwidthTemplate,
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data
+                ?.qosBandwidthReservationTemplateShapeName,
+            ),
+            value: mauiExpression(
+              String(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data
+                  ?.qosBandwidthReservationTemplateShapeName || "",
+              ),
+            ),
+            show: mauiExpression(
+              isQoSBandwidthTemplateEnabled($app) && !isProviderTenant($app.consoleState),
+            ),
+          },
+        ],
+      },
+      BGPPrimary: {
+        variant: "record",
+        show: mauiExpression(
+          CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.length > 0,
+        ),
+        label: mauiExpression(
+          isProviderTenant($app.consoleState)
+            ? getCcOrCcgHeading(
+                CoreServicesApi.ListCrossConnects?.response()?.data,
+                CoreServicesApi.ListCrossConnectGroups?.response()?.data,
+                CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0]
+                  ?.crossConnectOrCrossConnectGroupId,
+              ) || Messages.VirtualCircuit.label.primary
+            : Messages.VirtualCircuit.label.primary,
+        ),
+        fields: [
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.customerIpv4,
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0]
+                ?.customerBgpPeeringIp,
+            ),
+            value: mauiExpression(
+              getCustomerIpv4(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0],
+                t,
+              ),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.oracleIpv4,
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0]
+                ?.oracleBgpPeeringIp,
+            ),
+            value: mauiExpression(
+              getOracleIpv4(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0],
+                t,
+              ),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.customerIpv6,
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0]
+                ?.customerBgpPeeringIpv6,
+            ),
+            value: mauiExpression(
+              getCustomerIpv6(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0],
+                t,
+              ),
+            ),
+            show: mauiExpression(
+              isProviderTenant($app.consoleState)
+                ? enableIpv6Provider(
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data,
+                    CoreServicesApi.GetFastConnectProviderService?.response()?.data,
+                    $app,
+                  ) ||
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0]
+                      ?.customerBgpPeeringIpv6 ||
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0]
+                      ?.oracleBgpPeeringIpv6
+                : enableIpv6(
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data,
+                    CoreServicesApi.GetFastConnectProviderService?.response()?.data,
+                    $app,
+                  ) ||
+                    shouldShowBGPIpv6(
+                      CoreServicesApi.GetVirtualCircuit?.response()?.data
+                        ?.crossConnectMappings?.[0],
+                    ),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.oracleIpv6,
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0]
+                ?.oracleBgpPeeringIpv6,
+            ),
+            value: mauiExpression(
+              getOracleIpv6(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0],
+                t,
+              ),
+            ),
+            show: mauiExpression(
+              isProviderTenant($app.consoleState)
+                ? enableIpv6Provider(
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data,
+                    CoreServicesApi.GetFastConnectProviderService?.response()?.data,
+                    $app,
+                  ) ||
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0]
+                      ?.customerBgpPeeringIpv6 ||
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0]
+                      ?.oracleBgpPeeringIpv6
+                : enableIpv6(
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data,
+                    CoreServicesApi.GetFastConnectProviderService?.response()?.data,
+                    $app,
+                  ) ||
+                    shouldShowBGPIpv6(
+                      CoreServicesApi.GetVirtualCircuit?.response()?.data
+                        ?.crossConnectMappings?.[0],
+                    ),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.deviceNameLogical,
+            if: mauiExpression(
+              !!CoreServicesApi.ListCrossConnectMappings?.response()?.data?.items?.[0]
+                ?.ociLogicalDeviceName,
+            ),
+            value: mauiExpression(
+              CoreServicesApi.ListCrossConnectMappings?.response()?.data?.items?.[0]
+                ?.ociLogicalDeviceName,
+            ),
+            show: mauiExpression(whitelistLLDP($app)),
+          },
+          {
+            variant: "lifecycle",
+            label: Messages.VirtualCircuit.label.ipv4BgpState,
+            if: mauiExpression(
+              !!CoreServicesApi.ListCrossConnectMappings?.response()?.data?.items?.[0]
+                ?.ipv4BgpStatus,
+            ),
+            value: mauiExpression(
+              CoreServicesApi.ListCrossConnectMappings?.response()?.data?.items?.[0]
+                ?.ipv4BgpStatus || "",
+            ),
+            customLifecycleMap: mauiExpression(BgpSessionLifecycleStateMap(t)),
+            show: mauiExpression(isProviderTenant($app.consoleState)),
+          },
+          {
+            variant: "lifecycle",
+            label: Messages.VirtualCircuit.label.ipv6BgpState,
+            if: mauiExpression(
+              !!CoreServicesApi.ListCrossConnectMappings?.response()?.data?.items?.[0]
+                ?.ipv6BgpStatus,
+            ),
+            value: mauiExpression(
+              CoreServicesApi.ListCrossConnectMappings?.response()?.data?.items?.[0]
+                ?.ipv6BgpStatus || "",
+            ),
+            customLifecycleMap: mauiExpression(BgpSessionLifecycleStateMap(t)),
+            show: mauiExpression(
+              isProviderTenant($app.consoleState) &&
+                enableIpv6Provider(
+                  CoreServicesApi.GetVirtualCircuit?.response()?.data,
+                  CoreServicesApi.GetFastConnectProviderService?.response()?.data,
+                  $app,
+                ),
+            ),
+          },
+        ],
+      },
+      BGPSecondary: {
+        variant: "record",
+        label: mauiExpression(
+          isProviderTenant($app.consoleState)
+            ? getCcOrCcgHeading(
+                CoreServicesApi.ListCrossConnects?.response()?.data,
+                CoreServicesApi.ListCrossConnectGroups?.response()?.data,
+                CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[0]
+                  ?.crossConnectOrCrossConnectGroupId,
+              ) || Messages.VirtualCircuit.label.secondary
+            : Messages.VirtualCircuit.label.secondary,
+        ),
+        show: mauiExpression(
+          CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.length > 1,
+        ),
+        fields: [
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.customerIpv4,
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[1]
+                ?.customerBgpPeeringIp,
+            ),
+            value: mauiExpression(
+              getCustomerIpv4(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[1],
+                t,
+              ),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.oracleIpv4,
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[1]
+                ?.oracleBgpPeeringIp,
+            ),
+            value: mauiExpression(
+              getOracleIpv4(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[1],
+                t,
+              ),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.customerIpv6,
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[1]
+                ?.customerBgpPeeringIpv6,
+            ),
+            value: mauiExpression(
+              getCustomerIpv6(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[1],
+                t,
+              ),
+            ),
+            show: mauiExpression(
+              isProviderTenant($app.consoleState)
+                ? enableIpv6Provider(
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data,
+                    CoreServicesApi.GetFastConnectProviderService?.response()?.data,
+                    $app,
+                  ) ||
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[1]
+                      ?.customerBgpPeeringIpv6 ||
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[1]
+                      ?.oracleBgpPeeringIpv6
+                : enableIpv6(
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data,
+                    CoreServicesApi.GetFastConnectProviderService?.response()?.data,
+                    $app,
+                  ) ||
+                    shouldShowBGPIpv6(
+                      CoreServicesApi.GetVirtualCircuit?.response()?.data
+                        ?.crossConnectMappings?.[1],
+                    ),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.oracleIpv6,
+            if: mauiExpression(
+              !!CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[1]
+                ?.oracleBgpPeeringIpv6,
+            ),
+            value: mauiExpression(
+              getOracleIpv6(
+                CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[1],
+                t,
+              ),
+            ),
+            show: mauiExpression(
+              isProviderTenant($app.consoleState)
+                ? enableIpv6Provider(
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data,
+                    CoreServicesApi.GetFastConnectProviderService?.response()?.data,
+                    $app,
+                  ) ||
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[1]
+                      ?.customerBgpPeeringIpv6 ||
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data?.crossConnectMappings?.[1]
+                      ?.oracleBgpPeeringIpv6
+                : enableIpv6(
+                    CoreServicesApi.GetVirtualCircuit?.response()?.data,
+                    CoreServicesApi.GetFastConnectProviderService?.response()?.data,
+                    $app,
+                  ) ||
+                    shouldShowBGPIpv6(
+                      CoreServicesApi.GetVirtualCircuit?.response()?.data
+                        ?.crossConnectMappings?.[1],
+                    ),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.deviceNameLogical,
+            if: mauiExpression(
+              !!CoreServicesApi.ListCrossConnectMappings?.response()?.data?.items?.[1]
+                ?.ociLogicalDeviceName,
+            ),
+            value: mauiExpression(
+              CoreServicesApi.ListCrossConnectMappings?.response()?.data?.items?.[1]
+                ?.ociLogicalDeviceName,
+            ),
+            show: mauiExpression(whitelistLLDP($app)),
+          },
+          {
+            if: mauiExpression(
+              !!CoreServicesApi.ListCrossConnectMappings?.response()?.data?.items?.[1]
+                ?.ipv4BgpStatus,
+            ),
+            variant: "lifecycle",
+            label: Messages.VirtualCircuit.label.ipv4BgpState,
+            value: mauiExpression(
+              CoreServicesApi.ListCrossConnectMappings?.response()?.data?.items?.[1]
+                ?.ipv4BgpStatus || "",
+            ),
+            customLifecycleMap: mauiExpression(BgpSessionLifecycleStateMap(t)),
+            show: mauiExpression(isProviderTenant($app.consoleState)),
+          },
+          {
+            variant: "lifecycle",
+            label: Messages.VirtualCircuit.label.ipv6BgpState,
+            if: mauiExpression(
+              !!CoreServicesApi.ListCrossConnectMappings?.response()?.data?.items?.[1]
+                ?.ipv6BgpStatus || "",
+            ),
+            value: mauiExpression(
+              CoreServicesApi.ListCrossConnectMappings?.response()?.data?.items?.[1]
+                ?.ipv6BgpStatus || "",
+            ),
+            customLifecycleMap: mauiExpression(BgpSessionLifecycleStateMap(t)),
+            show: mauiExpression(
+              isProviderTenant($app.consoleState) &&
+                enableIpv6Provider(
+                  CoreServicesApi.GetVirtualCircuit?.response()?.data,
+                  CoreServicesApi.GetFastConnectProviderService?.response()?.data,
+                  $app,
+                ),
+            ),
+          },
+        ],
+      },
+      BGPInfo: {
+        variant: "record",
+        label: Messages.VirtualCircuit.bgpInformation,
+        fields: [
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.customerBgpAsn,
+            value: mauiExpression(
+              String(CoreServicesApi.GetVirtualCircuit?.response()?.data?.customerAsn),
+            ),
+            show: mauiExpression(
+              shouldShowCustomerBgpAsn(CoreServicesApi.GetVirtualCircuit?.response()?.data),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.oracleBgpAsn,
+            value: mauiExpression(
+              String(CoreServicesApi.GetVirtualCircuit?.response()?.data?.oracleBgpAsn),
+            ),
+          },
+          {
+            variant: "text",
+            label: Messages.VirtualCircuit.label.enableBfd,
+            value: mauiExpression(
+              isBfdEnabled(CoreServicesApi.GetVirtualCircuit?.response()?.data, t),
+            ),
+            show: mauiExpression(
+              whitelistBfd($app) &&
+                isPrivateVC(CoreServicesApi.GetVirtualCircuit?.response()?.data?.type),
+            ),
+          },
+        ],
+      },
+      [SubresourcePath.ListDrgAttachments]: {
+        variant: "config",
+        label: Messages.sidePanels.resource.drgAttachment,
+        intentId: IntentId.ListDrgAttachments,
+        show: mauiExpression(isSuperDrgTransitHubEnabled($app.consoleState)),
+      },
+      [SubresourcePath.Metrics]: {
+        variant: "config",
+        label: Messages.sidePanels.resource.monitoring,
+        intentId: IntentId.Metrics,
+        args: {
+          $compartmentId: mauiExpression($app.consoleState?.compartmentId),
+        },
+        show: mauiExpression(
+          isSuperDrgTransitHubEnabled($app.consoleState) && !isProviderTenant($app.consoleState),
+        ),
+      },
+      [SubresourcePath.PublicPrefixes]: {
+        variant: "config",
+        label: Messages.PublicIpPrefixes.title,
+        intentId: IntentId.ListPublicPrefixes,
+        args: {
+          $virtualCircuitId: mauiExpression($app.route.match.params.id),
+          $disablePublicPrefixAction: mauiExpression(
+            disableVirtualCircuitUpdate(
+              CoreServicesApi.GetVirtualCircuit?.response()?.data?.lifecycleState,
+            ),
+          ),
+        },
+      },
+      [SubresourcePath.AssociatedTunnels]: {
+        variant: "config",
+        label: Messages.VirtualCircuit.resource.associatedTunnels.text,
+        intentId: IntentId.ListAssociatedTunnels,
+        args: {
+          $virtualCircuitId: mauiExpression($app.route.match.params.id),
+        },
+      },
+      tags: {
+        variant: "tag-details",
+        label: Messages.Tagging.tags,
+        show: mauiExpression(!isProviderTenant($app.consoleState)),
+        resource: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data),
+        taggableStates: [
+          VirtualCircuitLifecycleStateEnum.PendingProvider,
+          VirtualCircuitLifecycleStateEnum.Provisioned,
+          VirtualCircuitLifecycleStateEnum.Verifying,
+          VirtualCircuitLifecycleStateEnum.Terminated,
+          VirtualCircuitLifecycleStateEnum.Inactive,
+        ],
+        onTagsApplied: {
+          actionId: CoreServicesApi.GetVirtualCircuit.action.id,
+          args: {
+            operation: "refresh",
+          },
+        },
+        updateTagsApi: {
+          endpoint: "/virtualCircuits/{$app.route.match.params.id}",
+          operationName: "updateVirtualCircuit",
+          serviceBasePath: CoreServicesApi.serviceBasePath({
+            region: mauiExpression($app.consoleState.regionName).ref,
+            secondLevelDomain: mauiExpression($app.consoleState.serviceDomainBase).ref,
+            dualStack: "",
+          }),
+          serviceName: "coreServicesApi",
+        },
+      },
+      virtualCircuits: {
+        variant: "config",
+        label: Messages.VirtualCircuit.resource.redundantVirtualCircuit.text,
+        intentId: IntentId.ListVirtualCircuitSubResource,
+        args: {
+          $isRedundantVC: true,
+          $fastConnectId: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data?.id),
+          $fastConnect: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data),
+        },
+      },
+      crossConnectGroupsAndCrossConnects: {
+        variant: "config",
+        label: Messages.Partner.crossConnectTitle,
+        show: mauiExpression(isProviderTenant($app.consoleState)),
+        intentId: IntentId.ListCrossConnectAndGroupsVC,
+      },
+    },
+    groups: [
+      {
+        label: Messages.VirtualCircuit.detailsInformation,
+        group: ["VCdetails"],
+        key: "details",
+      },
+      {
+        label: Messages.VirtualCircuit.bgpInformation,
+        group: ["BGPInfo", "BGPPrimary", "BGPSecondary"],
+        key: "bgp-information",
+      },
+      {
+        key: SubresourcePath.ListDrgAttachments,
+        label: Messages.VirtualCircuit.DynamicRoutingGatewayAttachment,
+        group: [SubresourcePath.ListDrgAttachments],
+        show: mauiExpression(
+          isSuperDrgTransitHubEnabled($app.consoleState) && !isProviderTenant($app.consoleState),
+        ),
+      },
+      {
+        label: Messages.PublicIpPrefixes.title,
+        group: [SubresourcePath.PublicPrefixes],
+        key: "publicPrefixes",
+        show: mauiExpression(
+          isPublicVirtualCircuit(CoreServicesApi.GetVirtualCircuit?.response()?.data),
+        ),
+      },
+      {
+        label: Messages.VirtualCircuit.resource.associatedTunnels.text,
+        group: [SubresourcePath.AssociatedTunnels],
+        key: "associatedTunnels",
+        show: mauiExpression(!isProviderTenant($app.consoleState)),
+      },
+      {
+        key: "virtual-circuits",
+        label: Messages.VirtualCircuit.resource.redundantVirtualCircuit.text,
+        group: ["virtualCircuits"],
+        show: mauiExpression(isRedundancyEnabled($app) && !isProviderTenant($app.consoleState)),
+      },
+      "crossConnectGroupsAndCrossConnects",
+      SubresourcePath.Metrics,
+      "tags",
+    ],
+  },
+  detailsMetadata: {
+    loading: mauiExpression(CoreServicesApi.GetVirtualCircuit.loading),
+    displayName: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data?.displayName),
+  },
+  primaryDataSource: mauiExpression(CoreServicesApi.GetVirtualCircuit.datasource),
+  detailsHeader: {
+    resourceType: Messages.VirtualCircuit.label.virtualCircuit,
+    messages: [
+      {
+        status: "critical",
+        label: Messages.VirtualCircuit.OnCreationInfoBlock.bgpFailedTitle,
+        text: mauiExpression(
+          t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.bgpFailed, [
+            HelpLink.FastConnectTroubleshootPage,
+          ]),
+        ),
+        show: mauiExpression(
+          !isProviderTenant($app.consoleState) &&
+            shouldShowBgpFailedInfoBlock(
+              CoreServicesApi.GetVirtualCircuit.response()?.data?.lifecycleState,
+              CoreServicesApi.GetVirtualCircuit.response()?.data?.bgpSessionState,
+            ),
+        ),
+      },
+      {
+        status: "warning",
+        label: Messages.ProviderConnection.infoBlock,
+        /*
+        actions: [
+          {
+            preset: "enable",
+            label: Messages.ProviderConnection.infoBlockButton,
+            variant: "preset",
+            actions: [],
+            show: mauiExpression(
+              isProviderMegaport(
+                getProviderName(CoreServicesApi.GetVirtualCircuit.response()?.data?.providerName),
+              ),
+            ),
+          },
+        ],
+        */
+        show: mauiExpression(
+          !isProviderTenant($app.consoleState) &&
+            shouldShowNextStepInfo(
+              $app.consoleState,
+              CoreServicesApi.GetVirtualCircuit.response()?.data,
+            ),
+        ),
+        actions: [
+          {
+            variant: "nav",
+            label: Messages.ProviderConnection.loginInToText(
+              mauiExpression(
+                getProviderName(CoreServicesApi.GetVirtualCircuit.response()?.data?.providerName),
+              ).ref,
+            ),
+            loading: mauiExpression(CoreServicesApi.GetVirtualCircuit.loading),
+            actions: [VirtualCircuitDetailsActions.navigateToMegaportPortalLogin],
+          },
+        ],
+        text: [
+          {
+            variant: "text",
+            value: Messages.ProviderConnection.nextStepHeading1(
+              mauiExpression(
+                getProviderName(CoreServicesApi.GetVirtualCircuit.response()?.data?.providerName),
+              ).ref,
+            ),
+          },
+          {
+            variant: "text",
+            value: Messages.ProviderConnection.nextStepMegaport1(
+              mauiExpression(
+                getProviderName(CoreServicesApi.GetVirtualCircuit.response()?.data?.providerName),
+              ).ref,
+            ),
+          },
+          /*
+          {
+            variant: "text",
+            show: mauiExpression(
+              isProviderMegaport(
+                getProviderName(CoreServicesApi.GetVirtualCircuit.response()?.data?.providerName),
+              ),
+            ),
+            value: Messages.ProviderConnection.nextStepHeading2(
+              mauiExpression(
+                getProviderName(CoreServicesApi.GetVirtualCircuit.response()?.data?.providerName),
+              ).ref,
+            ),
+          },
+          */
+        ],
+      },
+      /*
+      {
+        status: "info",
+        label: Messages.ProviderConnection.connectionInProgress(
+          mauiExpression(
+            getProviderName(CoreServicesApi.GetVirtualCircuit.response()?.data?.providerName),
+          ).ref,
+        ),
+        show: mauiExpression(
+          !isProviderTenant($app.consoleState) &&
+            whitelistProvisionForProvider(
+              $app.consoleState,
+              getProviderProvisionWhitelistName(
+                CoreServicesApi.GetVirtualCircuit.response()?.data?.providerName,
+              ),
+            ),
+        ),
+        text: [
+          {
+            variant: "text",
+            show: mauiExpression(
+              isProviderMegaport(
+                getProviderName(CoreServicesApi.GetVirtualCircuit.response()?.data?.providerName),
+              ),
+            ),
+            value: Messages.ProviderConnection.connectionInProgressInfo1,
+          },
+          {
+            variant: "text",
+            show: mauiExpression(
+              isProviderMegaport(
+                getProviderName(CoreServicesApi.GetVirtualCircuit.response()?.data?.providerName),
+              ),
+            ),
+            value: Messages.ProviderConnection.connectionInProgressInfo2(
+              mauiExpression("test").ref,
+            ),
+          },
+        ],
+      },
+      */
+      {
+        status: "warning",
+        label: Messages.VirtualCircuit.OnCreationInfoBlock.title,
+        show: mauiExpression(
+          !isProviderTenant($app.consoleState) &&
+            shouldShowOnCreationInfo(
+              $app.consoleState,
+              CoreServicesApi.GetVirtualCircuit.response()?.data,
+            ),
+        ),
+        actions: [
+          {
+            variant: "nav",
+            label: Messages.VirtualCircuit.OnCreationInfoBlock.partnerPortalText(
+              mauiExpression(
+                CoreServicesApi.GetFastConnectProviderService.response()?.data?.providerName,
+              ).ref,
+            ),
+            show: mauiExpression(
+              !CoreServicesApi.GetVirtualCircuit.loading &&
+                !CoreServicesApi.GetFastConnectProviderService.loading &&
+                CoreServicesApi.GetFastConnectProviderService.response()?.data?.description &&
+                isValidURL(
+                  CoreServicesApi.GetFastConnectProviderService.response()?.data?.description,
+                ),
+            ),
+            loading: mauiExpression(CoreServicesApi.GetFastConnectProviderService.loading),
+            actions: [VirtualCircuitDetailsActions.navigateToPartnerPortal],
+          },
+        ],
+        text: [
+          {
+            variant: "text",
+            value: Messages.VirtualCircuit.OnCreationInfoBlock.whatIsNext,
+          },
+          {
+            variant: "text",
+            value: mauiExpression(
+              getOnCreationInfoInstructionText(
+                CoreServicesApi.GetVirtualCircuit.response()?.data,
+                CoreServicesApi.GetFastConnectProviderService.response()?.data,
+                t,
+              ),
+            ),
+          },
+          {
+            variant: "text",
+            value: Messages.VirtualCircuit.OnCreationInfoBlock.partnerPortalText(
+              mauiExpression(
+                CoreServicesApi.GetFastConnectProviderService.response()?.data?.providerName,
+              ).ref,
+            ),
+            show: mauiExpression(
+              !CoreServicesApi.GetVirtualCircuit.loading &&
+                !CoreServicesApi.GetFastConnectProviderService.loading &&
+                (!CoreServicesApi.GetFastConnectProviderService.response()?.data?.description ||
+                  !isValidURL(
+                    CoreServicesApi.GetFastConnectProviderService.response()?.data?.description,
+                  )),
+            ),
+          },
+        ],
+      },
+      {
+        status: "warning",
+        label: mauiExpression(
+          getDrgRedundancyWarningMessage(
+            CoreServicesApi.GetDrgRedundancyStatus.response()?.data?.status,
+            t,
+          ),
+        ),
+        text: [],
+        show: mauiExpression(
+          !isProviderTenant($app.consoleState) &&
+            isDrgNotRedundant(
+              CoreServicesApi.GetDrgRedundancyStatus.response()?.data,
+              $app.consoleState,
+            ),
+        ),
+      },
+      {
+        status: "warning",
+        text: mauiExpression(
+          getVirtualCircuitErrorsWarningTexts(
+            CoreServicesApi.ListVirtualCircuitErrors?.response()?.data,
+            t,
+          ),
+        ),
+        show: mauiExpression(
+          !isProviderTenant($app.consoleState) &&
+            isQoSBandwidthTemplateEnabled($app) &&
+            getVirtualCircuitErrorsWarningTexts(
+              CoreServicesApi.ListVirtualCircuitErrors?.response()?.data,
+              t,
+            ).length > 0,
+        ),
+      },
+      {
+        status: "critical",
+        text: mauiExpression(
+          getVirtualCircuitErrorsCriticalTexts(
+            CoreServicesApi.ListVirtualCircuitErrors?.response()?.data,
+            t,
+          ),
+        ),
+        show: mauiExpression(
+          !isProviderTenant($app.consoleState) &&
+            isQoSBandwidthTemplateEnabled($app) &&
+            getVirtualCircuitErrorsCriticalTexts(
+              CoreServicesApi.ListVirtualCircuitErrors?.response()?.data,
+              t,
+            ).length > 0,
+        ),
+      },
+    ],
+  },
+  actions: [
+    CoreServicesApi.GetVirtualCircuit.action.withProperties({
+      bind: [
+        mauiExpression($app.consoleState?.compartmentId),
+        mauiExpression($app.consoleState?.regionName),
+        mauiExpression($app.route.location.pathname),
+      ],
+      onSuccess: [
+        VirtualCircuitDetailsActions.shouldGetDrg,
+        VirtualCircuitDetailsActions.shouldGetProviderService,
+        VirtualCircuitDetailsActions.shouldGetListCrossConnectMappings,
+        VirtualCircuitDetailsActions.shouldGetDrgStatus,
+      ],
+    }),
+    CoreServicesApi.ListVirtualCircuitErrors.action.withProperties({
+      queryParams: {
+        compartmentId: mauiExpression($app.consoleState?.compartmentId),
+      },
+    }),
+    {
+      id: VirtualCircuitDetailsActions.shouldGetVirtualCircuitErrors,
+      type: "ConditionalExecuteAction",
+      predicate: mauiExpression(isQoSBandwidthTemplateEnabled($app)),
+      onTrue: CoreServicesApi.ListVirtualCircuitErrors.action.id,
+    },
+    {
+      id: VirtualCircuitDetailsActions.shouldGetDrg,
+      type: "ConditionalExecuteAction",
+      predicate: mauiExpression(
+        showDrg(CoreServicesApi.GetVirtualCircuit?.response()?.data) &&
+          !isProviderTenant($app.consoleState),
+      ),
+      onTrue: [
+        {
+          actionId: CoreServicesApi.GetDrg.action.id,
+          args: {
+            $drgId: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data?.gatewayId),
+            operation: "refresh",
+          },
+        },
+      ],
+    },
+    {
+      id: VirtualCircuitDetailsActions.shouldGetDrgStatus,
+      type: "ConditionalExecuteAction",
+      predicate: mauiExpression(
+        !isProviderTenant($app.consoleState) &&
+          isRedundancyStatusEnabled($app.consoleState) &&
+          CoreServicesApi.GetVirtualCircuit.response()?.data?.gatewayId,
+      ),
+      onTrue: [
+        {
+          actionId: CoreServicesApi.GetDrgRedundancyStatus.action.id,
+          args: {
+            $drgId: mauiExpression(CoreServicesApi.GetVirtualCircuit.response()?.data?.gatewayId),
+            operation: "refresh",
+          },
+        },
+      ],
+    },
+    {
+      id: VirtualCircuitDetailsActions.shouldGetProviderService,
+      type: "ConditionalExecuteAction",
+      predicate: mauiExpression(
+        CoreServicesApi.GetVirtualCircuit?.response()?.data?.providerServiceId,
+      ),
+      onTrue: [
+        {
+          actionId: CoreServicesApi.GetFastConnectProviderService.action.id,
+          args: {
+            $providerServiceId: mauiExpression(
+              CoreServicesApi.GetVirtualCircuit?.response()?.data?.providerServiceId,
+            ),
+            operation: "refresh",
+          },
+        },
+      ],
+    },
+    {
+      id: VirtualCircuitDetailsActions.shouldGetListCrossConnectMappings,
+      type: "ConditionalExecuteAction",
+      predicate: mauiExpression(!!CoreServicesApi.GetVirtualCircuit?.response()?.data?.id),
+      onTrue: [
+        {
+          actionId: CoreServicesApi.ListCrossConnectMappings.action.id,
+          args: {
+            operation: "refresh",
+          },
+        },
+      ],
+    },
+    CoreServicesApi.GetDrg.action.withProperties({
+      onSuccess: [VirtualCircuitDetailsActions.shouldGetDrgRouteTable],
+    }),
+    CoreServicesApi.GetDrgRedundancyStatus.action.withProperties({}),
+    {
+      id: VirtualCircuitDetailsActions.shouldGetDrgRouteTable,
+      type: "ConditionalExecuteAction",
+      predicate: mauiExpression(!!CoreServicesApi.GetDrg?.response()?.data?.id),
+      onTrue: [CoreServicesApi.ListDrgRouteTables.action.id],
+    },
+    CoreServicesApi.ListDrgRouteTables.action.withProperties({
+      queryParams: {
+        drgId: mauiExpression(CoreServicesApi.GetDrg?.response()?.data?.id),
+      },
+      paginationOptions: { pagination: "server" },
+    }),
+    CoreServicesApi.GetFastConnectProviderService.action.withProperties({}),
+    CoreServicesApi.ListCrossConnectMappings.action.withProperties({
+      bind: [mauiExpression($app.route.match.params.id)],
+    }),
+    CoreServicesApi.ListCrossConnectGroups.action.withProperties({
+      queryParams: {
+        compartmentId: mauiExpression(
+          $user?.activeCompartmentId || $app.consoleState?.compartmentId,
+        ),
+        sortBy: mauiExpression($user.sort?.sortBy !== "" ? $user.sort?.sortBy : ""),
+        sortOrder: mauiExpression($user.sort?.sortOrder),
+      },
+      bind: [
+        mauiExpression($app.consoleState?.compartmentId),
+        mauiExpression($app.consoleState?.regionName),
+        mauiExpression($user.sort?.sortBy),
+        mauiExpression($user.sort?.sortOrder),
+      ],
+      paginationOptions: { pagination: "server" },
+    }),
+    CoreServicesApi.ListCrossConnects.action.withProperties({
+      queryParams: {
+        sortBy: mauiExpression($user.sort?.sortBy !== "" ? $user.sort?.sortBy : ""),
+        sortOrder: mauiExpression($user.sort?.sortOrder),
+        compartmentId: mauiExpression(
+          $user?.activeCompartmentId || $app.consoleState?.compartmentId,
+        ),
+      },
+      bind: [
+        mauiExpression($app.consoleState?.compartmentId),
+        mauiExpression($app.consoleState?.regionName),
+        mauiExpression($user.sort?.sortBy),
+        mauiExpression($user.sort?.sortOrder),
+      ],
+      paginationOptions: { pagination: "server" },
+    }),
 
-export interface VirtualCircuitDetail extends Omit<VirtualCircuit, "timeCreated"> {
-  timeCreated?: Date | string;
-  virtualCircuitRedundancyMetadata?: {
-    configuredRedundancyLevel?: VirtualCircuitRedundancyMetadataConfiguredRedundancyLevelEnum;
-    ipv4bgpSessionRedundancyStatus?: VirtualCircuitRedundancyMetadataIpv4bgpSessionRedundancyStatusEnum;
-    ipv6bgpSessionRedundancyStatus?: VirtualCircuitRedundancyMetadataIpv6bgpSessionRedundancyStatusEnum;
-  };
-  isQosBandwidthReservationEnabled?: boolean;
-}
-export const getBgpIpv6SessionState = (data: VirtualCircuitDetail) => data?.bgpIpv6SessionState;
-
-export const getCrossConnectMappingBgpIpv6SessionState = (
-  crossConnectMapping: CrossConnectMappingDetails,
-) => crossConnectMapping?.ipv6BgpStatus;
-// Whitelist
-export function isRedundancyEnabled($app: AppState): boolean {
-  return !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.FCRedundancyEnabled];
-}
-export function isIPSecOverFCEnabled($app: AppState): boolean {
-  return !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.IPSecOverFC];
-}
-export const whitelistIpv6 = ($app: AppState): boolean =>
-  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.EnableIpv6];
-export const whitelistBandwidthPolicing = ($app: AppState): boolean =>
-  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.BandwidthPolicing];
-export const whitelistEnableCustomerDeactivate = ($app: AppState): boolean =>
-  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.EnableCustomerVCDeactivate];
-export const isRouteFilteringPublicEnabled = ($app: AppState): boolean =>
-  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.RouteFilteringPublicV2];
-
-export const isQoSBandwidthTemplateEnabled = ($app: AppState): boolean =>
-  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.FCQOSBandwidthTemplateEnabled];
-
-export const whitelistLLDP = ($app: AppState): boolean =>
-  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.EnableLLDP];
-
-export const whitelistBfd = ($app: AppState): boolean =>
-  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.EnableBfd];
-
-export function getVirtualCircuitConnectionType(
-  serviceType: ApiVirtualCircuitServiceTypeEnum,
-): ConnectionType {
-  return serviceType === VirtualCircuitServiceTypeEnum.Colocated
-    ? ConnectionType.Colocated
-    : ConnectionType.Provider;
-}
-
-export const getConnectionType = (
-  data: VirtualCircuitDetail,
-  t: MauiRenderEngineRef["tFn"],
-): string => {
-  const connectionType = getVirtualCircuitConnectionType(data?.serviceType);
-  return connectionType === ConnectionType.Provider
-    ? t(MessagesKeys.FastConnect.connectionType.partner)
-    : t(MessagesKeys.FastConnect.connectionType.colocated);
+    {
+      id: VirtualCircuitDetailsActions.toggleChangeCompartment,
+      intentId: IntentId.SharedChangeCompartment,
+      type: "ConfigRendererAction",
+      args: {
+        $submitAction: {
+          actionId: CoreServicesApi.ChangeVirtualCircuitCompartment.action.id,
+          args: {
+            $virtualCircuitId: mauiExpression(
+              CoreServicesApi.GetVirtualCircuit?.response()?.data?.id,
+            ),
+          },
+        },
+        $compartmentId: mauiExpression(
+          CoreServicesApi.GetVirtualCircuit?.response()?.data?.compartmentId,
+        ),
+        $onCloseAction: [
+          VirtualCircuitDetailsActions.toggleChangeCompartment,
+          {
+            actionId: CoreServicesApi.ChangeVirtualCircuitCompartment.action.id,
+            args: {
+              operation: "reset",
+            },
+          },
+        ],
+        $dataSource: mauiExpression(CoreServicesApi.ChangeVirtualCircuitCompartment.destination),
+        $resourceMessage: mauiExpression(
+          getNoResourceMessage(
+            t,
+            getCompartmentName(
+              $app?.consoleState?.compartments,
+              CoreServicesApi.GetVirtualCircuit?.response()?.data?.compartmentId,
+            ),
+          ),
+        ),
+      },
+    },
+    CoreServicesApi.ChangeVirtualCircuitCompartment.action.withProperties({
+      bodyParams: {
+        type: "content",
+        content: {
+          compartmentId: mauiExpression(
+            /* @ts-expect-error remove after types are updated */
+            $user?.forms?.[IntentId.SharedChangeCompartment]?.$formFields?.compartmentDropdown,
+          ),
+        },
+      },
+      parseResponseBody: false,
+      onSuccess: [
+        {
+          actionId: VirtualCircuitDetailsActions.toggleChangeCompartment,
+          behavior: "sync",
+        },
+        {
+          actionId: CoreServicesApi.GetVirtualCircuit.action.id,
+          args: {
+            operation: "refresh",
+          },
+          behavior: "sync",
+        },
+      ],
+    }),
+    {
+      id: VirtualCircuitDetailsActions.toggleDelete,
+      type: "ConfigRendererAction",
+      intentId: IntentId.DeleteVirtualCircuit,
+      args: {
+        $size: "medium",
+        $onCloseAction: VirtualCircuitDetailsActions.toggleDelete,
+        $virtualCircuit: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data),
+        $onSuccess: [
+          {
+            actionId: CoreServicesApi.ListVirtualCircuits.action.id,
+            behavior: "sync",
+            args: {
+              operation: "refresh",
+            },
+          },
+          {
+            actionId: VirtualCircuitDetailsActions.navigateToFastConnectListing,
+            behavior: "sync",
+          },
+          VirtualCircuitDetailsActions.showDeleteSuccess,
+        ],
+      },
+    },
+    {
+      id: VirtualCircuitDetailsActions.toggleDeactivate,
+      type: "ConfigRendererAction",
+      intentId: IntentId.DeactivateVirtualCircuit,
+      args: {
+        $size: "medium",
+        $onCloseAction: VirtualCircuitDetailsActions.toggleDeactivate,
+        $virtualCircuit: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data),
+        $onSuccess: [
+          VirtualCircuitDetailsActions.toggleDeactivate,
+          {
+            actionId: CoreServicesApi.GetVirtualCircuit.action.id,
+            behavior: "sync",
+            args: {
+              operation: "refresh",
+            },
+          },
+          VirtualCircuitDetailsActions.showActivateOrDeactivateSuccess,
+        ],
+      },
+    },
+    {
+      id: VirtualCircuitDetailsActions.navigateToFastConnectListing,
+      type: "NavigateAction",
+      href: "/networking/fast-connect",
+    },
+    {
+      id: VirtualCircuitDetailsActions.navigateToPartnerPortal,
+      type: "NavigateAction",
+      href: mauiExpression(
+        CoreServicesApi.GetFastConnectProviderService.response()?.data?.description,
+      ),
+      target: NavTargetType._externalUrl,
+    },
+    {
+      id: VirtualCircuitDetailsActions.navigateToMegaportPortalLogin,
+      type: "NavigateAction",
+      href: mauiExpression(
+        getProviderLoginURL(
+          getProviderName(CoreServicesApi.GetVirtualCircuit.response()?.data?.providerName),
+        ),
+      ),
+      target: NavTargetType._externalUrl,
+    },
+    {
+      id: VirtualCircuitDetailsActions.navigateToFastConnectTroubleshoot,
+      type: "NavigateAction",
+      href: mauiExpression($app.consoleState.makeUrl(HelpLink.FastConnectTroubleshootPage)),
+      target: NavTargetType._externalUrl,
+    },
+    CoreServicesApi.ListDrgAttachments.action.withProperties({
+      queryParams: {
+        drgId: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data?.gatewayId),
+        compartmentId: mauiExpression($app.consoleState?.compartmentId),
+        attachmentType: FastConnectType.VirtualCircuit,
+        networkId: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data?.id),
+      },
+      paginationOptions: {
+        pagination: "client",
+        preFetchRecords: "all",
+      },
+    }),
+    {
+      id: VirtualCircuitDetailsActions.shouldGetListDrgAttachments,
+      type: "ConditionalExecuteAction",
+      predicate: mauiExpression(!!CoreServicesApi.GetVirtualCircuit?.response()?.data?.id),
+      onTrue: [CoreServicesApi.ListDrgAttachments.action.id],
+    },
+    {
+      id: VirtualCircuitDetailsActions.toggleEditModal,
+      intentId: IntentId.EditVirtualCircuit,
+      type: "ConfigRendererAction",
+      args: {
+        $size: "medium",
+        $onCloseAction: VirtualCircuitDetailsActions.toggleEditModal,
+        $crossConnectOrCrossConnectGroupId: mauiExpression($app.route.match.params?.parentId),
+        $virtualCircuit: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data),
+        $isEdit: true,
+        $onSuccess: [
+          VirtualCircuitDetailsActions.toggleEditModal,
+          {
+            actionId: CoreServicesApi.GetVirtualCircuit.action.id,
+            behavior: "sync",
+            args: {
+              operation: "refresh",
+            },
+          },
+          VirtualCircuitDetailsActions.showUpdateSuccess,
+        ],
+      },
+    },
+    /* {
+      id: "virtual-circuit-details-provider-redirect",
+      type: "NavigateAction",
+      href: mauiExpression(
+        `/networking/fast-connect/provider/virtual-circuit/${$app.route.match.params.id}`,
+      ),
+      disabled: mauiExpression(!isProviderTenant($app.consoleState) || isProviderURL($app)),
+    },
+    {
+      id: "virtual-circuit-details-customer-redirect",
+      type: "NavigateAction",
+      href: mauiExpression(
+        `/networking/fast-connect/virtual-circuit/${$app.route.match.params.id}`,
+      ),
+      disabled: mauiExpression(isProviderTenant($app.consoleState) || !isProviderURL($app)),
+    }, */
+    {
+      id: VirtualCircuitDetailsActions.showActivateOrDeactivateSuccess,
+      type: "ToastNotificationAction",
+      notificationType: "success",
+      message: mauiExpression(
+        getToastDeactivateMessage(CoreServicesApi.GetVirtualCircuit?.response()?.data, t),
+      ),
+    },
+    {
+      id: VirtualCircuitDetailsActions.showUpdateSuccess,
+      type: "ToastNotificationAction",
+      notificationType: "success",
+      message: Messages.VirtualCircuit.edit.toast,
+    },
+    {
+      id: VirtualCircuitDetailsActions.showDeleteSuccess,
+      type: "ToastNotificationAction",
+      notificationType: "success",
+      message: Messages.VirtualCircuit.delete.toast,
+    },
+  ],
+  detailsActions: {
+    primary: {
+      variant: "preset",
+      label: Messages.VirtualCircuit.actions.edit,
+      actions: VirtualCircuitDetailsActions.toggleEditModal,
+      preset: "edit",
+      enabled: mauiExpression(
+        !disableVirtualCircuitUpdate(
+          CoreServicesApi.GetVirtualCircuit?.response()?.data?.lifecycleState,
+        ),
+      ),
+    },
+    secondary: [
+      {
+        variant: "preset",
+        label: mauiExpression(
+          getToggleDeactivateLabel(CoreServicesApi.GetVirtualCircuit?.response()?.data, t),
+        ),
+        actions: VirtualCircuitDetailsActions.toggleDeactivate,
+        preset: "edit",
+        show: mauiExpression(
+          whitelistEnableCustomerDeactivate($app) && !isProviderTenant($app.consoleState),
+        ),
+        enabled: mauiExpression(
+          !disableVirtualCircuitUpdate(
+            CoreServicesApi.GetVirtualCircuit?.response()?.data?.lifecycleState,
+          ),
+        ),
+      },
+      {
+        variant: "preset",
+        label: Messages.MoveResource.menuText,
+        actions: VirtualCircuitDetailsActions.toggleChangeCompartment,
+        preset: "move-resource",
+        show: mauiExpression(!isProviderTenant($app.consoleState)),
+        enabled: mauiExpression(
+          !disableVirtualCircuitUpdate(
+            CoreServicesApi.GetVirtualCircuit?.response()?.data?.lifecycleState,
+          ),
+        ),
+      },
+      {
+        variant: "tag",
+        resource: mauiExpression(CoreServicesApi.GetVirtualCircuit?.response()?.data),
+        taggableStates: [
+          VirtualCircuitLifecycleStateEnum.PendingProvider,
+          VirtualCircuitLifecycleStateEnum.Provisioned,
+          VirtualCircuitLifecycleStateEnum.Verifying,
+          VirtualCircuitLifecycleStateEnum.Terminated,
+          VirtualCircuitLifecycleStateEnum.Inactive,
+        ],
+        onTagsApplied: CoreServicesApi.GetVirtualCircuit.action.id,
+        updateTagsApi: {
+          endpoint: "/virtualCircuits/{$app.route.match.params.id}",
+          operationName: "updateVirtualCircuit",
+          serviceBasePath: CoreServicesApi.serviceBasePath({
+            region: mauiExpression($app.consoleState.regionName).ref,
+            secondLevelDomain: mauiExpression($app.consoleState.serviceDomainBase).ref,
+            dualStack: "",
+          }),
+          serviceName: "coreServicesApi",
+        },
+        label: Messages.maui.Tagging.addTags,
+        enabled: mauiExpression(
+          !disableVirtualCircuitUpdate(
+            CoreServicesApi.GetVirtualCircuit?.response()?.data?.lifecycleState,
+          ),
+        ),
+      },
+      {
+        variant: "preset",
+        label: Messages.actions.delete,
+        actions: VirtualCircuitDetailsActions.toggleDelete,
+        preset: "delete",
+        show: mauiExpression(!isProviderTenant($app.consoleState)),
+        enabled: mauiExpression(
+          !disableVirtualCircuitDelete(
+            CoreServicesApi.GetVirtualCircuit?.response()?.data?.lifecycleState,
+          ),
+        ),
+      },
+    ],
+  },
+  triggers: [
+    {
+      type: "OnLoadTrigger",
+      action: {
+        actionId: CoreServicesApi.GetVirtualCircuit.action.id,
+        behavior: "sync",
+      },
+    },
+    {
+      type: "OnLoadTrigger",
+      action: VirtualCircuitDetailsActions.shouldGetVirtualCircuitErrors,
+    },
+    {
+      type: "OnLoadTrigger",
+      action: CoreServicesApi.ListCrossConnectGroups.action.id,
+      disabled: mauiExpression(!isProviderTenant($app.consoleState)),
+    },
+    {
+      type: "OnLoadTrigger",
+      action: CoreServicesApi.ListCrossConnects.action.id,
+      disabled: mauiExpression(!isProviderTenant($app.consoleState)),
+    },
+    /* {
+      type: "OnLoadTrigger",
+      action: "virtual-circuit-details-provider-redirect",
+      disabled: mauiExpression(!isProviderTenant($app.consoleState) || isProviderURL($app)),
+    },
+    {
+      type: "OnLoadTrigger",
+      action: "virtual-circuit-details-customer-redirect",
+      disabled: mauiExpression(isProviderTenant($app.consoleState) || !isProviderURL($app)),
+    }, */
+    {
+      type: "TimerTrigger",
+      action: CoreServicesApi.GetVirtualCircuit.action.id,
+      interval: TimeInterval.md,
+    },
+  ],
+  apiClients,
 };
-export const shouldShowPartnerName = (data: VirtualCircuitDetail): boolean => {
-  const connectionType = getVirtualCircuitConnectionType(data?.serviceType);
-  return connectionType === ConnectionType.Provider;
-};
-export const shouldShowLifecycleHelp = (data: VirtualCircuitDetail): boolean =>
-  data?.lifecycleState === VirtualCircuitLifecycleStateEnum.Failed;
-export const getVirtualCircuitActive = (
-  data: VirtualCircuitDetail,
-  t: MauiRenderEngineRef["tFn"],
-): string =>
-  data?.bgpAdminState === "ENABLED"
-    ? t(MessagesKeys.VirtualCircuit.activate.activated)
-    : t(MessagesKeys.VirtualCircuit.activate.deactivated);
-
-export function showDrgRedundancyMessage(
-  drgRedundancyStatus: DrgRedundancyStatusStatusEnum,
-): boolean {
-  return [
-    DrgRedundancyStatusEnum.notRedundantMultipleVirtualCircuits,
-    DrgRedundancyStatusEnum.notRedundantMixConnections,
-    DrgRedundancyStatusEnum.notRedundantMultipleIpsecs,
-    DrgRedundancyStatusEnum.notRedundantSingleVirtualCircuit,
-    DrgRedundancyStatusEnum.notRedundantSingleIpsec,
-  ].includes(drgRedundancyStatus);
-}
-
-export const isPublicVC = (data: VirtualCircuitDetail, t: MauiRenderEngineRef["tFn"]): string =>
-  data?.type === VirtualCircuitTypeEnum.Public
-    ? t(MessagesKeys.VirtualCircuit.Type.public)
-    : t(MessagesKeys.VirtualCircuit.Type.private);
-
-export function getVlan(data: VirtualCircuitDetail, t: MauiRenderEngineRef["tFn"]): string {
-  const crossConnectMappings = data?.crossConnectMappings || [];
-  for (let i = 0; i < crossConnectMappings?.length; i++) {
-    if (crossConnectMappings[i]?.vlan) {
-      return String(crossConnectMappings[i].vlan);
-    }
-  }
-  return t(MessagesKeys.VirtualCircuit.vlanNotFound);
-}
-
-export const showVlan = (data: VirtualCircuitDetail) => {
-  const connectionType = getVirtualCircuitConnectionType(data?.serviceType);
-  return connectionType === ConnectionType.Colocated;
-};
-
-export const getRedundantType = (data: VirtualCircuitDetail, t: MauiRenderEngineRef["tFn"]) =>
-  getVirtualCircuitConnectionType(data?.serviceType) === ConnectionType.Provider
-    ? ""
-    : getRedundantTypeText(data?.virtualCircuitRedundancyMetadata?.configuredRedundancyLevel, t);
-export const getRedundantTypeText = (redundantType: string, t: MauiRenderEngineRef["tFn"]) => {
-  let statusText = "";
-  switch (redundantType) {
-    case RedundancyLevelEnum.Device:
-      statusText = t(MessagesKeys.FastConnect.redundancyType.device);
-      break;
-    case RedundancyLevelEnum.Pop:
-      statusText = t(MessagesKeys.FastConnect.redundancyType.pop);
-      break;
-    case RedundancyLevelEnum.Region:
-      statusText = t(MessagesKeys.FastConnect.redundancyType.region);
-      break;
-    case RedundancyLevelEnum.Non_Redundant:
-      statusText = t(MessagesKeys.FastConnect.redundancyType.nonRedundant);
-      break;
-    default:
-      statusText = t(MessagesKeys.FastConnect.redundancyType.pending);
-  }
-  return statusText;
-};
-
-export const getTrafficType = (data: VirtualCircuitDetail, t: MauiRenderEngineRef["tFn"]) =>
-  data?.isTransportMode
-    ? t(MessagesKeys.VirtualCircuit.form.ipsecTrafficTitle)
-    : t(MessagesKeys.VirtualCircuit.form.allTrafficTitle);
-
-export const getProvisionedBandwidth = (
-  data: VirtualCircuitDetail,
-  t: MauiRenderEngineRef["tFn"],
-) => {
-  const virtualCircuit = data;
-  const connectionType = virtualCircuit?.serviceType;
-  return virtualCircuit?.bandwidthShapeName?.concat(
-    connectionType === ConnectionType.Colocated &&
-      whitelistBandwidthPolicing &&
-      virtualCircuit?.isBandwidthPolicingEnabled
-      ? t(MessagesKeys.VirtualCircuit.label.policingEnabled)
-      : "",
-  );
-};
-export const getVbgpMd5Authentication = (
-  data: VirtualCircuitDetail,
-  t: MauiRenderEngineRef["tFn"],
-) => {
-  const virtualCircuit = data;
-  return isBgpMd5AuthenticationEnabled(virtualCircuit?.crossConnectMappings)
-    ? t(MessagesKeys.VirtualCircuit.label.bgpMd5AuthenticationEnabled)
-    : t(MessagesKeys.VirtualCircuit.label.bgpMd5AuthenticationNotEnabled);
-};
-
-export function isBgpMd5AuthenticationEnabled(
-  crossConnectMappings: Array<CrossConnectMapping>,
-): boolean {
-  return !!crossConnectMappings?.some(mapping => !!mapping.bgpMd5AuthKey);
-}
-
-export const getRouteFilteringName = (
-  routeFilteringName: string,
-  t: MauiRenderEngineRef["tFn"],
-): string => {
-  switch (routeFilteringName) {
-    case FastConnectProviderServiceRoutingPolicyEnum.marketAggregates:
-      return t(
-        MessagesKeys.VirtualCircuit.routeFilteringPolicies.publicVirtualCircuit.marketAggregates,
-      );
-    case FastConnectProviderServiceRoutingPolicyEnum.regionalAggregates:
-      return t(
-        MessagesKeys.VirtualCircuit.routeFilteringPolicies.publicVirtualCircuit.regionalAggregates,
-      );
-    case FastConnectProviderServiceRoutingPolicyEnum.globalAggregates:
-      return t(
-        MessagesKeys.VirtualCircuit.routeFilteringPolicies.publicVirtualCircuit.globalAggregates,
-      );
-    case FastConnectProviderServiceRoutingPolicyEnum.oracleServiceNetwork:
-      return t(
-        MessagesKeys.VirtualCircuit.routeFilteringPolicies.publicVirtualCircuit
-          .oracleServiceNetwork,
-      );
-    default:
-      return t(MessagesKeys.VirtualCircuit.notAvailable);
-  }
-};
-export const isPublicRouteFilteringEnabled = (
-  virtualCircuit: VirtualCircuitDetail,
-  $app: AppState,
-): boolean => {
-  const whitelistPublic = isRouteFilteringPublicEnabled($app);
-  return virtualCircuit?.type === VirtualCircuitTypeEnum.Public ? whitelistPublic : false;
-};
-
-export const getRouteFiltering = (
-  virtualCircuit: VirtualCircuitDetail,
-  t: MauiRenderEngineRef["tFn"],
-) =>
-  virtualCircuit?.routingPolicy === null
-    ? t(MessagesKeys.VirtualCircuit.noData)
-    : getRouteFilteringName(virtualCircuit?.routingPolicy?.[0].toString(), t);
-export const showDrg = (virtualCircuit: VirtualCircuitDetail) =>
-  virtualCircuit?.type === VirtualCircuitTypeEnum.Private;
-
-export const getMTU = (ipMtu: string, t: MauiRenderEngineRef["tFn"]) => {
-  switch (ipMtu?.toString()) {
-    case FastConnectIpMtuEnum.MTU_1500:
-      return t(MessagesKeys.VirtualCircuit.form.MTU_1500);
-    case FastConnectIpMtuEnum.MTU_9000:
-      return t(MessagesKeys.VirtualCircuit.form.MTU_9000);
-    default:
-      return t(MessagesKeys.VirtualCircuit.notAvailable);
-  }
-};
-export const getQosBandwidthReservationEnabled = (
-  virtualCircuit: VirtualCircuitDetail,
-  t: MauiRenderEngineRef["tFn"],
-) =>
-  virtualCircuit?.isQosBandwidthReservationEnabled
-    ? t(MessagesKeys.VirtualCircuit.label.enabled)
-    : t(MessagesKeys.VirtualCircuit.label.disabled);
-
-export const getDrgLinkHref = (id: string) => {
-  if (!id) return "";
-  return `/networking/drgs/${id}/virtual-circuits`;
-};
-
-export const isProviderATT = (providerService: FastConnectProviderService): boolean => {
-  if (providerService) {
-    return (
-      providerService?.providerName === "ATT-R1-TEST" || providerService?.providerName === "AT&T"
-    );
-  } else {
-    return false;
-  }
-};
-
-export const getCustomerIpv4 = (
-  crossConnectMapping: CrossConnectMapping,
-  t: MauiRenderEngineRef["tFn"],
-) => crossConnectMapping?.customerBgpPeeringIp || t(MessagesKeys.VirtualCircuit.notAvailable);
-
-export const getOracleIpv4 = (
-  crossConnectMapping: CrossConnectMapping,
-  t: MauiRenderEngineRef["tFn"],
-) => crossConnectMapping?.oracleBgpPeeringIp || t(MessagesKeys.VirtualCircuit.notAvailable);
-export const getCustomerIpv6 = (
-  crossConnectMapping: CrossConnectMapping,
-  t: MauiRenderEngineRef["tFn"],
-) => crossConnectMapping?.customerBgpPeeringIpv6 || t(MessagesKeys.VirtualCircuit.notAvailable);
-
-export const getOracleIpv6 = (
-  crossConnectMapping: CrossConnectMapping,
-  t: MauiRenderEngineRef["tFn"],
-) => crossConnectMapping?.oracleBgpPeeringIpv6 || t(MessagesKeys.VirtualCircuit.notAvailable);
-
-export const shouldShowCrossConnectMappings = (
-  type: string,
-  providerService: FastConnectProviderService,
-) => {
-  if (!(type && providerService)) {
-    return false;
-  }
-  if (
-    (type === VirtualCircuitTypeEnum.Private &&
-      providerService?.privatePeeringBgpManagement ===
-        FastConnectProviderServicePrivatePeeringBgpManagementEnum.CustomerManaged) ||
-    (type === VirtualCircuitTypeEnum.Public &&
-      providerService?.publicPeeringBgpManagement ===
-        FastConnectProviderServicePrivatePeeringBgpManagementEnum.CustomerManaged)
-  ) {
-    return true;
-  }
-  return false;
-};
-
-export const shouldShowCrossConnectMappingsProvider = (
-  type: string,
-  providerService: FastConnectProviderService,
-) => {
-  if (!(type && providerService)) {
-    return false;
-  }
-  if (
-    (type === VirtualCircuitTypeEnum.Private &&
-      providerService?.privatePeeringBgpManagement ===
-        FastConnectProviderServicePrivatePeeringBgpManagementEnum.ProviderManaged) ||
-    (type === VirtualCircuitTypeEnum.Public &&
-      providerService?.publicPeeringBgpManagement ===
-        FastConnectProviderServicePrivatePeeringBgpManagementEnum.ProviderManaged)
-  ) {
-    return true;
-  }
-  return false;
-};
-
-export const isProviderAzure = (providerService: FastConnectProviderService): boolean => {
-  if (providerService) {
-    return /(microsoft|azure)/i.test(providerService.providerName);
-  } else {
-    return false;
-  }
-};
-
-export const shouldShowCrossConnectIpv6Mappings = (
-  type: string,
-  providerService: FastConnectProviderService,
-): boolean => {
-  if (
-    shouldShowCrossConnectMappings(type, providerService) &&
-    providerService &&
-    !isProviderAzure(providerService)
-  ) {
-    return true;
-  }
-  return false;
-};
-
-export const shouldShowCrossConnectIpv6MappingsProvider = (
-  type: string,
-  providerService: FastConnectProviderService,
-): boolean => {
-  if (
-    shouldShowCrossConnectMappingsProvider(type, providerService) &&
-    providerService &&
-    !isProviderAzure(providerService)
-  ) {
-    return true;
-  }
-  return false;
-};
-
-export const enableIpv6 = (
-  virtualCircuit: VirtualCircuitDetail,
-  providerService: FastConnectProviderService,
-  $app: AppState,
-): boolean =>
-  !!(
-    whitelistIpv6($app) &&
-    shouldShowCrossConnectIpv6Mappings(
-      VirtualCircuitTypeEnum.Private,
-      getVirtualCircuitConnectionType(virtualCircuit?.serviceType) === ConnectionType.Provider
-        ? providerService
-        : (colocatedProvider as FastConnectProviderService),
-    )
-  );
-
-export const enableIpv6Provider = (
-  virtualCircuit: VirtualCircuitDetail,
-  providerService: FastConnectProviderService,
-  $app: AppState,
-): boolean =>
-  !!(
-    whitelistIpv6($app) &&
-    shouldShowCrossConnectIpv6MappingsProvider(
-      VirtualCircuitTypeEnum.Private,
-      getVirtualCircuitConnectionType(virtualCircuit?.serviceType) === ConnectionType.Provider
-        ? providerService
-        : (colocatedProvider as FastConnectProviderService),
-    )
-  );
-
-export const shouldShowBGPIpv6 = (crossConnectMapping: CrossConnectMapping): boolean =>
-  !!(crossConnectMapping?.customerBgpPeeringIpv6 || crossConnectMapping?.oracleBgpPeeringIpv6);
-
-// todo: remove if unused
-export const ociLogicalDeviceName1 = (
-  crossConnectMapping: CrossConnectMapping,
-  listCrossConnectMappings: CrossConnectMappingDetailsCollection,
-): string => {
-  const mappingArray = listCrossConnectMappings.items || [];
-  for (const mapping of mappingArray) {
-    if (
-      crossConnectMapping?.crossConnectOrCrossConnectGroupId ===
-      mapping.crossConnectOrCrossConnectGroupId
-    ) {
-      return mapping.ociLogicalDeviceName || "";
-    }
-  }
-  return "";
-};
-
-export const ociLogicalDeviceName = (
-  crossConnectMapping: CrossConnectMapping,
-  listCrossConnectMappings: CrossConnectMappingDetailsCollection,
-): string => {
-  let ociLogicalDeviceName = "";
-  if (listCrossConnectMappings?.items) {
-    for (let i = 0; i < (listCrossConnectMappings.items || []).length; i++) {
-      if (
-        crossConnectMapping?.crossConnectOrCrossConnectGroupId ===
-        (listCrossConnectMappings.items || [])[i].crossConnectOrCrossConnectGroupId
-      ) {
-        ociLogicalDeviceName = (listCrossConnectMappings.items || [])[i].ociLogicalDeviceName;
-        break;
-      }
-    }
-  }
-  return ociLogicalDeviceName;
-};
-
-export function shouldShowCustomerBgpAsn(virtualCircuit: VirtualCircuitDetail): boolean {
-  return !(
-    virtualCircuit?.customerAsn === null &&
-    virtualCircuit?.serviceType === VirtualCircuitServiceTypeEnum.Layer3
-  );
-}
-
-export const isPrivateVC = (virtualCircuitType: string): boolean =>
-  virtualCircuitType === VirtualCircuitTypeEnum.Private;
-
-export const isBfdEnabled = (
-  virtualCircuit: VirtualCircuitDetail,
-  t: MauiRenderEngineRef["tFn"],
-): string =>
-  virtualCircuit?.isBfdEnabled
-    ? t(MessagesKeys.VirtualCircuit.Bfd.enable)
-    : t(MessagesKeys.VirtualCircuit.Bfd.notEnable);
-
-export const isVCPartnerType = (virtualCircuit: VirtualCircuitDetail): boolean =>
-  virtualCircuit?.serviceType === VirtualCircuitServiceTypeEnum.Layer2 ||
-  virtualCircuit?.serviceType === VirtualCircuitServiceTypeEnum.Layer3;
-
-export const isProviderAzureOrPartner = (
-  providerService: FastConnectProviderService,
-  virtualCircuit: VirtualCircuitDetail,
-  t: MauiRenderEngineRef["tFn"],
-): string => {
-  if (providerService && isProviderAzure(providerService)) {
-    return t(MessagesKeys.VirtualCircuit.delete.azureMessage);
-  } else if (isVCPartnerType(virtualCircuit)) {
-    return t(MessagesKeys.VirtualCircuit.delete.serviceTypeMessage);
-  }
-  return "";
-};
-
-export const getNewActiveStatePayload = (currentBgpAdminState: string) => {
-  const bgpAdminState =
-    currentBgpAdminState === BgpAdminStateEnum.Disable
-      ? BgpAdminStateEnum.Enable
-      : BgpAdminStateEnum.Disable;
-  return {
-    bgpAdminState,
-  };
-};
-
-export const getToggleDeactivateLabel = (
-  virtualCircuit: VirtualCircuitDetail,
-  t: MauiRenderEngineRef["tFn"],
-): string => {
-  if (virtualCircuit?.bgpAdminState === "ENABLED") {
-    return t(MessagesKeys.VirtualCircuit.activate.deactivate);
-  }
-  return t(MessagesKeys.VirtualCircuit.activate.activate);
-};
-
-export const getToggleDeactivateModalTitle = (
-  virtualCircuit: VirtualCircuitDetail,
-  t: MauiRenderEngineRef["tFn"],
-): string => {
-  if (virtualCircuit?.bgpAdminState === "ENABLED") {
-    return t(MessagesKeys.VirtualCircuit.activate.titleDeactivate);
-  }
-  return t(MessagesKeys.VirtualCircuit.activate.titleActivate);
-};
-
-export const getToggleDeactivateModalQuestion = (
-  virtualCircuit: VirtualCircuitDetail,
-  t: MauiRenderEngineRef["tFn"],
-): string => {
-  if (virtualCircuit?.bgpAdminState === "ENABLED") {
-    return t(MessagesKeys.VirtualCircuit.activate.deactivateAction, [virtualCircuit?.displayName]);
-  }
-  return t(MessagesKeys.VirtualCircuit.activate.activateAction, [virtualCircuit?.displayName]);
-};
-
-export const getToastDeactivateMessage = (
-  virtualCircuit: VirtualCircuitDetail,
-  t: MauiRenderEngineRef["tFn"],
-): string => {
-  if (virtualCircuit?.bgpAdminState === "ENABLED") {
-    return t(MessagesKeys.VirtualCircuit.activate.virtualCircuitDeactivated);
-  }
-  return t(MessagesKeys.VirtualCircuit.activate.virtualCircuitActivated);
-};
-
-export function disableVirtualCircuitUpdate(
-  lifeCycleState: ApiVirtualCircuitLifeCycleState,
-): boolean {
-  return [
-    VirtualCircuitLifecycleStateEnum.Provisioning,
-    VirtualCircuitLifecycleStateEnum.Terminating,
-    VirtualCircuitLifecycleStateEnum.Failed,
-  ].includes(lifeCycleState);
-}
-
-export function disableVirtualCircuitDelete(
-  lifeCycleState: ApiVirtualCircuitLifeCycleState,
-): boolean {
-  return [VirtualCircuitLifecycleStateEnum.Terminating].includes(lifeCycleState);
-}
-
-export const getCcOrCcgHeading = (
-  crossConnects: DEFINITION_CoreServicesApi_CrossConnect[],
-  crossConnectGroups: DEFINITION_CoreServicesApi_CrossConnectGroup[],
-  ocid: string,
-) => {
-  const ccResult = crossConnects?.find(cc => cc.id === ocid);
-  if (ccResult) return ccResult?.displayName;
-  const ccgResult = crossConnectGroups?.find(ccg => ccg.id === ocid);
-  if (ccgResult) return ccgResult?.displayName;
-};
-
-export const isPublicVirtualCircuit = (data: VirtualCircuitDetail): boolean =>
-  data?.type === VirtualCircuitTypeEnum.Public;
-
-export const isVirtualCircuitProvisioned = (data: VirtualCircuitDetail): boolean =>
-  data?.lifecycleState === VirtualCircuitLifecycleStateEnum.Provisioned;
-
-export const isVirtualCircuitPendingProvider = (data: VirtualCircuitDetail): boolean =>
-  data?.lifecycleState === VirtualCircuitLifecycleStateEnum.PendingProvider;
-
-export const isVirtualCircuitProvisionFailed = (data: VirtualCircuitDetail): boolean =>
-  data?.lifecycleState === VirtualCircuitLifecycleStateEnum.Failed;
-
-export const isOneOfProvider = (data: VirtualCircuitDetail): boolean =>
-  getProviderName(data?.providerName) !== "";
-
-export const shouldShowNextStepInfo = (
-  $consoleState: ConsoleState,
-  data: VirtualCircuitDetail,
-): boolean =>
-  !isVirtualCircuitProvisioned(data) &&
-  whitelistProvisionForProvider(
-    $consoleState,
-    getProviderProvisionWhitelistName(data?.providerName),
-  ) &&
-  isOneOfProvider(data);
-
-export const isProviderMegaport = (providerName: string): boolean =>
-  providerName === ProviderNames.Megaport;
-
-export const isProviderColt = (providerName: string): boolean =>
-  providerName === ProviderNames.Colt;
-
-export const getProviderLoginURL = (providerName: string): string => {
-  if (isProviderMegaport(providerName)) {
-    return megaportLoginURL;
-  }
-  if (isProviderColt(providerName)) {
-    return coltLoginURL;
-  }
-  return "";
-};
-
-export const shouldShowOnCreationInfo = ($consoleState: ConsoleState, data: VirtualCircuitDetail) =>
-  (isVirtualCircuitPendingProvider(data) && !isOneOfProvider(data)) ||
-  (isVirtualCircuitPendingProvider(data) &&
-    isOneOfProvider(data) &&
-    !whitelistProvisionForProvider(
-      $consoleState,
-      getProviderProvisionWhitelistName(data?.providerName),
-    ));
-
-export const getOnCreationInfoInstructionText = (
-  data: VirtualCircuitDetail,
-  providerService: FastConnectProviderService,
-  t: MauiRenderEngineRef["tFn"],
-): string => {
-  if (isVirtualCircuitProvisionFailed(data)) {
-    return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.provisionFailed);
-  }
-  if (isProviderAzure(providerService)) {
-    return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.instructionForAzure);
-  }
-  return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.instruction);
-};
-export const isDrgNotRedundant = (
-  data: DEFINITION_CoreServicesApi_DrgRedundancyStatus,
-  $consoleState: ConsoleState,
-): boolean => {
-  const drgStatus = isRedundancyStatusEnabled($consoleState) && data;
-  return drgStatus && showDrgRedundancyMessage(drgStatus?.status);
-};
-
-export function getDrgRedundancyWarningMessage(
-  drgStatus: string,
-  t: MauiRenderEngineRef["tFn"],
-): string {
-  const helpLink = DrgRedundancyLinks[drgStatus];
-  switch (drgStatus) {
-    case DrgRedundancyStatusEnum.notRedundantMultipleVirtualCircuits:
-      return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.drgNoRedundancyMultipleVC, [
-        helpLink,
-      ]);
-    case DrgRedundancyStatusEnum.notRedundantMixConnections:
-      return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.drgNoRedundancyMIxConnections, [
-        helpLink,
-      ]);
-    case DrgRedundancyStatusEnum.notRedundantMultipleIpsecs:
-      return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.drgNoRedundancyMultipleIPSEC, [
-        helpLink,
-      ]);
-    case DrgRedundancyStatusEnum.notRedundantSingleVirtualCircuit:
-      return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.drgNoRedundancySingleVC, [helpLink]);
-    case DrgRedundancyStatusEnum.notRedundantSingleIpsec:
-      return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.drgNoRedundancySingleVPN, [
-        helpLink,
-      ]);
-    default:
-      return "";
-  }
-}
-
-export const getVirtualCircuitErrorsWarningTexts = (
-  virtualCircuitErrors: DEFINITION_CoreServicesApi_VirtualCircuitErrorDetails[],
-  t: MauiRenderEngineRef["tFn"],
-): Maui.AssistiveText[] => {
-  const virtualCircuitErrorWarningTexts: Maui.AssistiveText = [];
-  virtualCircuitErrors
-    ?.filter(error => error?.severityLevel === "WARNING")
-    .forEach((error, index) => {
-      virtualCircuitErrorWarningTexts.push({
-        variant: "text",
-        value: t(MessagesKeys.VirtualCircuit.errorLabels.errorCode, [error?.errorCode]),
-        show: !!error?.errorCode,
-      });
-      virtualCircuitErrorWarningTexts.push({
-        variant: "text",
-        value: t(MessagesKeys.VirtualCircuit.errorLabels.description, [error?.errorDescription]),
-        show: !!error?.errorDescription,
-      });
-      virtualCircuitErrorWarningTexts.push({
-        variant: "text",
-        value: t(MessagesKeys.VirtualCircuit.errorLabels.action, [error?.solution]),
-        show: !!error?.solution,
-      });
-      virtualCircuitErrorWarningTexts.push({
-        variant: "text",
-        value: t(MessagesKeys.VirtualCircuit.errorLabels.viewDocumentation, [
-          error?.ociResourcesLink,
-        ]),
-        show: !!error?.ociResourcesLink,
-      });
-      virtualCircuitErrorWarningTexts.push({
-        variant: "text",
-        value: "",
-        show: index < virtualCircuitErrors.length - 1,
-      });
-    });
-  return virtualCircuitErrorWarningTexts;
-};
-export const getVirtualCircuitErrorsCriticalTexts = (
-  virtualCircuitErrors: DEFINITION_CoreServicesApi_VirtualCircuitErrorDetails[],
-  t: MauiRenderEngineRef["tFn"],
-): Maui.AssistiveText[] => {
-  const virtualCircuitErrorCriticalTexts: Maui.AssistiveText = [];
-  virtualCircuitErrors
-    ?.filter(error => error?.severityLevel === "ERROR")
-    .forEach((error, index) => {
-      virtualCircuitErrorCriticalTexts.push({
-        variant: "text",
-        value: t(MessagesKeys.VirtualCircuit.errorLabels.errorCode, [error?.errorCode]),
-        show: !!error?.errorCode,
-      });
-      virtualCircuitErrorCriticalTexts.push({
-        variant: "text",
-        value: t(MessagesKeys.VirtualCircuit.errorLabels.description, [error?.errorDescription]),
-        show: !!error?.errorDescription,
-      });
-      virtualCircuitErrorCriticalTexts.push({
-        variant: "text",
-        value: t(MessagesKeys.VirtualCircuit.errorLabels.action, [error?.solution]),
-        show: !!error?.solution,
-      });
-      virtualCircuitErrorCriticalTexts.push({
-        variant: "text",
-        value: t(MessagesKeys.VirtualCircuit.errorLabels.viewDocumentation, [
-          error?.ociResourcesLink,
-        ]),
-        show: !!error?.ociResourcesLink,
-      });
-      virtualCircuitErrorCriticalTexts.push({
-        variant: "text",
-        value: "",
-        show: index < virtualCircuitErrors.length - 1,
-      });
-    });
-  return virtualCircuitErrorCriticalTexts;
-};
-
-export const shouldShowBgpFailedInfoBlock = (
-  virtualCircuitLifeCycleState: ApiVirtualCircuitLifecycleStateEnum,
-  bgpSessionState: ApiBgpSessionInfoBgpStateEnum,
-) =>
-  virtualCircuitLifeCycleState === VirtualCircuitLifecycleStateEnum.Provisioned &&
-  bgpSessionState === BgpSessionInfoBgpStateEnum.Down;
-
-export const getPartnerPortal = (
-  providerName: string,
-  urlName: string,
-  t: MauiRenderEngineRef["tFn"],
-): string => {
-  if (!urlName) {
-    return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.labelPartner, [providerName]);
-  }
-  return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.labelPartnerWithLink, [
-    urlName,
-    providerName,
-  ]);
-};
+export default virtualCircuitsDetails;
