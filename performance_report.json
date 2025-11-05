@@ -1,8 +1,767 @@
-PROMPT_COMMAND_COUNT=0
-precmd() {
-    PROMPT_COMMAND_COUNT=$((PROMPT_COMMAND_COUNT + 1))
-    if [ $PROMPT_COMMAND_COUNT -gt 10 ]; then
-        clear
-        PROMPT_COMMAND_COUNT=0
-    fi
+import { AppState, ConsoleState, MauiRenderEngineRef } from "@oci-maui/render-engine-types";
+
+import {
+  BgpSessionInfoBgpStateEnum as ApiBgpSessionInfoBgpStateEnum,
+  CrossConnectMapping,
+  CrossConnectMappingDetails,
+  CrossConnectMappingDetailsCollection,
+  DrgRedundancyStatusStatusEnum,
+  FastConnectProviderService,
+  VirtualCircuit,
+  VirtualCircuitLifecycleStateEnum as ApiVirtualCircuitLifeCycleState,
+  VirtualCircuitLifecycleStateEnum as ApiVirtualCircuitLifecycleStateEnum,
+  VirtualCircuitRedundancyMetadataConfiguredRedundancyLevelEnum,
+  VirtualCircuitRedundancyMetadataIpv4bgpSessionRedundancyStatusEnum,
+  VirtualCircuitRedundancyMetadataIpv6bgpSessionRedundancyStatusEnum,
+  VirtualCircuitServiceTypeEnum as ApiVirtualCircuitServiceTypeEnum,
+} from "@clients/CoreServicesApi";
+import {
+  DEFINITION_CoreServicesApi_CrossConnect,
+  DEFINITION_CoreServicesApi_CrossConnectGroup,
+  DEFINITION_CoreServicesApi_DrgRedundancyStatus,
+  DEFINITION_CoreServicesApi_VirtualCircuitErrorDetails,
+} from "../../../gen/clientUtils";
+
+import { MessagesKeys } from "@messages";
+
+import { getConsoleCapabilities, isRedundancyStatusEnabled } from "../common/capabilities";
+import {
+  colocatedProvider,
+  coltLoginURL,
+  megaportLoginURL,
+  ProviderNames,
+} from "../common/constants";
+import {
+  BgpAdminStateEnum,
+  BgpSessionInfoBgpStateEnum,
+  ConnectionType,
+  DrgRedundancyStatusEnum,
+  FastConnectCapabilities as WhitelistKeys,
+  FastConnectIpMtuEnum,
+  FastConnectProviderServicePrivatePeeringBgpManagementEnum,
+  FastConnectProviderServiceRoutingPolicyEnum,
+  RedundancyLevelEnum,
+  VirtualCircuitLifecycleStateEnum,
+  VirtualCircuitServiceTypeEnum,
+  VirtualCircuitTypeEnum,
+} from "../common/types";
+import { DrgRedundancyLinks } from "../common/url";
+import {
+  getProviderName,
+  getProviderProvisionWhitelistName,
+  whitelistProvisionForProvider,
+} from "../common/utils";
+
+export interface VirtualCircuitDetail extends Omit<VirtualCircuit, "timeCreated"> {
+  timeCreated?: Date | string;
+  virtualCircuitRedundancyMetadata?: {
+    configuredRedundancyLevel?: VirtualCircuitRedundancyMetadataConfiguredRedundancyLevelEnum;
+    ipv4bgpSessionRedundancyStatus?: VirtualCircuitRedundancyMetadataIpv4bgpSessionRedundancyStatusEnum;
+    ipv6bgpSessionRedundancyStatus?: VirtualCircuitRedundancyMetadataIpv6bgpSessionRedundancyStatusEnum;
+  };
+  isQosBandwidthReservationEnabled?: boolean;
 }
+export const getBgpIpv6SessionState = (data: VirtualCircuitDetail) => data?.bgpIpv6SessionState;
+
+export const getCrossConnectMappingBgpIpv6SessionState = (
+  crossConnectMapping: CrossConnectMappingDetails,
+) => crossConnectMapping?.ipv6BgpStatus;
+// Whitelist
+export function isRedundancyEnabled($app: AppState): boolean {
+  return !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.FCRedundancyEnabled];
+}
+export function isIPSecOverFCEnabled($app: AppState): boolean {
+  return !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.IPSecOverFC];
+}
+export const whitelistIpv6 = ($app: AppState): boolean =>
+  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.EnableIpv6];
+export const whitelistBandwidthPolicing = ($app: AppState): boolean =>
+  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.BandwidthPolicing];
+export const whitelistEnableCustomerDeactivate = ($app: AppState): boolean =>
+  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.EnableCustomerVCDeactivate];
+export const isRouteFilteringPublicEnabled = ($app: AppState): boolean =>
+  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.RouteFilteringPublicV2];
+
+export const isQoSBandwidthTemplateEnabled = ($app: AppState): boolean =>
+  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.FCQOSBandwidthTemplateEnabled];
+
+export const whitelistLLDP = ($app: AppState): boolean =>
+  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.EnableLLDP];
+
+export const whitelistBfd = ($app: AppState): boolean =>
+  !!getConsoleCapabilities($app.consoleState)[WhitelistKeys.EnableBfd];
+
+export function getVirtualCircuitConnectionType(
+  serviceType: ApiVirtualCircuitServiceTypeEnum,
+): ConnectionType {
+  return serviceType === VirtualCircuitServiceTypeEnum.Colocated
+    ? ConnectionType.Colocated
+    : ConnectionType.Provider;
+}
+
+export const getConnectionType = (
+  data: VirtualCircuitDetail,
+  t: MauiRenderEngineRef["tFn"],
+): string => {
+  const connectionType = getVirtualCircuitConnectionType(data?.serviceType);
+  return connectionType === ConnectionType.Provider
+    ? t(MessagesKeys.FastConnect.connectionType.partner)
+    : t(MessagesKeys.FastConnect.connectionType.colocated);
+};
+export const shouldShowPartnerName = (data: VirtualCircuitDetail): boolean => {
+  const connectionType = getVirtualCircuitConnectionType(data?.serviceType);
+  return connectionType === ConnectionType.Provider;
+};
+export const shouldShowLifecycleHelp = (data: VirtualCircuitDetail): boolean =>
+  data?.lifecycleState === VirtualCircuitLifecycleStateEnum.Failed;
+export const getVirtualCircuitActive = (
+  data: VirtualCircuitDetail,
+  t: MauiRenderEngineRef["tFn"],
+): string =>
+  data?.bgpAdminState === "ENABLED"
+    ? t(MessagesKeys.VirtualCircuit.activate.activated)
+    : t(MessagesKeys.VirtualCircuit.activate.deactivated);
+
+export function showDrgRedundancyMessage(
+  drgRedundancyStatus: DrgRedundancyStatusStatusEnum,
+): boolean {
+  return [
+    DrgRedundancyStatusEnum.notRedundantMultipleVirtualCircuits,
+    DrgRedundancyStatusEnum.notRedundantMixConnections,
+    DrgRedundancyStatusEnum.notRedundantMultipleIpsecs,
+    DrgRedundancyStatusEnum.notRedundantSingleVirtualCircuit,
+    DrgRedundancyStatusEnum.notRedundantSingleIpsec,
+  ].includes(drgRedundancyStatus);
+}
+
+export const isPublicVC = (data: VirtualCircuitDetail, t: MauiRenderEngineRef["tFn"]): string =>
+  data?.type === VirtualCircuitTypeEnum.Public
+    ? t(MessagesKeys.VirtualCircuit.Type.public)
+    : t(MessagesKeys.VirtualCircuit.Type.private);
+
+export function getVlan(data: VirtualCircuitDetail, t: MauiRenderEngineRef["tFn"]): string {
+  const crossConnectMappings = data?.crossConnectMappings || [];
+  for (let i = 0; i < crossConnectMappings?.length; i++) {
+    if (crossConnectMappings[i]?.vlan) {
+      return String(crossConnectMappings[i].vlan);
+    }
+  }
+  return t(MessagesKeys.VirtualCircuit.vlanNotFound);
+}
+
+export const showVlan = (data: VirtualCircuitDetail) => {
+  const connectionType = getVirtualCircuitConnectionType(data?.serviceType);
+  return connectionType === ConnectionType.Colocated;
+};
+
+export const getRedundantType = (data: VirtualCircuitDetail, t: MauiRenderEngineRef["tFn"]) =>
+  getVirtualCircuitConnectionType(data?.serviceType) === ConnectionType.Provider
+    ? ""
+    : getRedundantTypeText(data?.virtualCircuitRedundancyMetadata?.configuredRedundancyLevel, t);
+export const getRedundantTypeText = (redundantType: string, t: MauiRenderEngineRef["tFn"]) => {
+  let statusText = "";
+  switch (redundantType) {
+    case RedundancyLevelEnum.Device:
+      statusText = t(MessagesKeys.FastConnect.redundancyType.device);
+      break;
+    case RedundancyLevelEnum.Pop:
+      statusText = t(MessagesKeys.FastConnect.redundancyType.pop);
+      break;
+    case RedundancyLevelEnum.Region:
+      statusText = t(MessagesKeys.FastConnect.redundancyType.region);
+      break;
+    case RedundancyLevelEnum.Non_Redundant:
+      statusText = t(MessagesKeys.FastConnect.redundancyType.nonRedundant);
+      break;
+    default:
+      statusText = t(MessagesKeys.FastConnect.redundancyType.pending);
+  }
+  return statusText;
+};
+
+export const getTrafficType = (data: VirtualCircuitDetail, t: MauiRenderEngineRef["tFn"]) =>
+  data?.isTransportMode
+    ? t(MessagesKeys.VirtualCircuit.form.ipsecTrafficTitle)
+    : t(MessagesKeys.VirtualCircuit.form.allTrafficTitle);
+
+export const getProvisionedBandwidth = (
+  data: VirtualCircuitDetail,
+  t: MauiRenderEngineRef["tFn"],
+) => {
+  const virtualCircuit = data;
+  const connectionType = virtualCircuit?.serviceType;
+  return virtualCircuit?.bandwidthShapeName?.concat(
+    connectionType === ConnectionType.Colocated &&
+      whitelistBandwidthPolicing &&
+      virtualCircuit?.isBandwidthPolicingEnabled
+      ? t(MessagesKeys.VirtualCircuit.label.policingEnabled)
+      : "",
+  );
+};
+export const getVbgpMd5Authentication = (
+  data: VirtualCircuitDetail,
+  t: MauiRenderEngineRef["tFn"],
+) => {
+  const virtualCircuit = data;
+  return isBgpMd5AuthenticationEnabled(virtualCircuit?.crossConnectMappings)
+    ? t(MessagesKeys.VirtualCircuit.label.bgpMd5AuthenticationEnabled)
+    : t(MessagesKeys.VirtualCircuit.label.bgpMd5AuthenticationNotEnabled);
+};
+
+export function isBgpMd5AuthenticationEnabled(
+  crossConnectMappings: Array<CrossConnectMapping>,
+): boolean {
+  return !!crossConnectMappings?.some(mapping => !!mapping.bgpMd5AuthKey);
+}
+
+export const getRouteFilteringName = (
+  routeFilteringName: string,
+  t: MauiRenderEngineRef["tFn"],
+): string => {
+  switch (routeFilteringName) {
+    case FastConnectProviderServiceRoutingPolicyEnum.marketAggregates:
+      return t(
+        MessagesKeys.VirtualCircuit.routeFilteringPolicies.publicVirtualCircuit.marketAggregates,
+      );
+    case FastConnectProviderServiceRoutingPolicyEnum.regionalAggregates:
+      return t(
+        MessagesKeys.VirtualCircuit.routeFilteringPolicies.publicVirtualCircuit.regionalAggregates,
+      );
+    case FastConnectProviderServiceRoutingPolicyEnum.globalAggregates:
+      return t(
+        MessagesKeys.VirtualCircuit.routeFilteringPolicies.publicVirtualCircuit.globalAggregates,
+      );
+    case FastConnectProviderServiceRoutingPolicyEnum.oracleServiceNetwork:
+      return t(
+        MessagesKeys.VirtualCircuit.routeFilteringPolicies.publicVirtualCircuit
+          .oracleServiceNetwork,
+      );
+    default:
+      return t(MessagesKeys.VirtualCircuit.notAvailable);
+  }
+};
+export const isPublicRouteFilteringEnabled = (
+  virtualCircuit: VirtualCircuitDetail,
+  $app: AppState,
+): boolean => {
+  const whitelistPublic = isRouteFilteringPublicEnabled($app);
+  return virtualCircuit?.type === VirtualCircuitTypeEnum.Public ? whitelistPublic : false;
+};
+
+export const getRouteFiltering = (
+  virtualCircuit: VirtualCircuitDetail,
+  t: MauiRenderEngineRef["tFn"],
+) =>
+  virtualCircuit?.routingPolicy === null
+    ? t(MessagesKeys.VirtualCircuit.noData)
+    : getRouteFilteringName(virtualCircuit?.routingPolicy?.[0].toString(), t);
+export const showDrg = (virtualCircuit: VirtualCircuitDetail) =>
+  virtualCircuit?.type === VirtualCircuitTypeEnum.Private;
+
+export const getMTU = (ipMtu: string, t: MauiRenderEngineRef["tFn"]) => {
+  switch (ipMtu?.toString()) {
+    case FastConnectIpMtuEnum.MTU_1500:
+      return t(MessagesKeys.VirtualCircuit.form.MTU_1500);
+    case FastConnectIpMtuEnum.MTU_9000:
+      return t(MessagesKeys.VirtualCircuit.form.MTU_9000);
+    default:
+      return t(MessagesKeys.VirtualCircuit.notAvailable);
+  }
+};
+export const getQosBandwidthReservationEnabled = (
+  virtualCircuit: VirtualCircuitDetail,
+  t: MauiRenderEngineRef["tFn"],
+) =>
+  virtualCircuit?.isQosBandwidthReservationEnabled
+    ? t(MessagesKeys.VirtualCircuit.label.enabled)
+    : t(MessagesKeys.VirtualCircuit.label.disabled);
+
+export const getDrgLinkHref = (id: string) => {
+  if (!id) return "";
+  return `/networking/drgs/${id}/virtual-circuits`;
+};
+
+export const isProviderATT = (providerService: FastConnectProviderService): boolean => {
+  if (providerService) {
+    return (
+      providerService?.providerName === "ATT-R1-TEST" || providerService?.providerName === "AT&T"
+    );
+  } else {
+    return false;
+  }
+};
+
+export const getCustomerIpv4 = (
+  crossConnectMapping: CrossConnectMapping,
+  t: MauiRenderEngineRef["tFn"],
+) => crossConnectMapping?.customerBgpPeeringIp || t(MessagesKeys.VirtualCircuit.notAvailable);
+
+export const getOracleIpv4 = (
+  crossConnectMapping: CrossConnectMapping,
+  t: MauiRenderEngineRef["tFn"],
+) => crossConnectMapping?.oracleBgpPeeringIp || t(MessagesKeys.VirtualCircuit.notAvailable);
+export const getCustomerIpv6 = (
+  crossConnectMapping: CrossConnectMapping,
+  t: MauiRenderEngineRef["tFn"],
+) => crossConnectMapping?.customerBgpPeeringIpv6 || t(MessagesKeys.VirtualCircuit.notAvailable);
+
+export const getOracleIpv6 = (
+  crossConnectMapping: CrossConnectMapping,
+  t: MauiRenderEngineRef["tFn"],
+) => crossConnectMapping?.oracleBgpPeeringIpv6 || t(MessagesKeys.VirtualCircuit.notAvailable);
+
+export const shouldShowCrossConnectMappings = (
+  type: string,
+  providerService: FastConnectProviderService,
+) => {
+  if (!(type && providerService)) {
+    return false;
+  }
+  if (
+    (type === VirtualCircuitTypeEnum.Private &&
+      providerService?.privatePeeringBgpManagement ===
+        FastConnectProviderServicePrivatePeeringBgpManagementEnum.CustomerManaged) ||
+    (type === VirtualCircuitTypeEnum.Public &&
+      providerService?.publicPeeringBgpManagement ===
+        FastConnectProviderServicePrivatePeeringBgpManagementEnum.CustomerManaged)
+  ) {
+    return true;
+  }
+  return false;
+};
+
+export const shouldShowCrossConnectMappingsProvider = (
+  type: string,
+  providerService: FastConnectProviderService,
+) => {
+  if (!(type && providerService)) {
+    return false;
+  }
+  if (
+    (type === VirtualCircuitTypeEnum.Private &&
+      providerService?.privatePeeringBgpManagement ===
+        FastConnectProviderServicePrivatePeeringBgpManagementEnum.ProviderManaged) ||
+    (type === VirtualCircuitTypeEnum.Public &&
+      providerService?.publicPeeringBgpManagement ===
+        FastConnectProviderServicePrivatePeeringBgpManagementEnum.ProviderManaged)
+  ) {
+    return true;
+  }
+  return false;
+};
+
+export const isProviderAzure = (providerService: FastConnectProviderService): boolean => {
+  if (providerService) {
+    return /(microsoft|azure)/i.test(providerService.providerName);
+  } else {
+    return false;
+  }
+};
+
+export const shouldShowCrossConnectIpv6Mappings = (
+  type: string,
+  providerService: FastConnectProviderService,
+): boolean => {
+  if (
+    shouldShowCrossConnectMappings(type, providerService) &&
+    providerService &&
+    !isProviderAzure(providerService)
+  ) {
+    return true;
+  }
+  return false;
+};
+
+export const shouldShowCrossConnectIpv6MappingsProvider = (
+  type: string,
+  providerService: FastConnectProviderService,
+): boolean => {
+  if (
+    shouldShowCrossConnectMappingsProvider(type, providerService) &&
+    providerService &&
+    !isProviderAzure(providerService)
+  ) {
+    return true;
+  }
+  return false;
+};
+
+export const enableIpv6 = (
+  virtualCircuit: VirtualCircuitDetail,
+  providerService: FastConnectProviderService,
+  $app: AppState,
+): boolean =>
+  !!(
+    whitelistIpv6($app) &&
+    shouldShowCrossConnectIpv6Mappings(
+      VirtualCircuitTypeEnum.Private,
+      getVirtualCircuitConnectionType(virtualCircuit?.serviceType) === ConnectionType.Provider
+        ? providerService
+        : (colocatedProvider as FastConnectProviderService),
+    )
+  );
+
+export const enableIpv6Provider = (
+  virtualCircuit: VirtualCircuitDetail,
+  providerService: FastConnectProviderService,
+  $app: AppState,
+): boolean =>
+  !!(
+    whitelistIpv6($app) &&
+    shouldShowCrossConnectIpv6MappingsProvider(
+      VirtualCircuitTypeEnum.Private,
+      getVirtualCircuitConnectionType(virtualCircuit?.serviceType) === ConnectionType.Provider
+        ? providerService
+        : (colocatedProvider as FastConnectProviderService),
+    )
+  );
+
+export const shouldShowBGPIpv6 = (crossConnectMapping: CrossConnectMapping): boolean =>
+  !!(crossConnectMapping?.customerBgpPeeringIpv6 || crossConnectMapping?.oracleBgpPeeringIpv6);
+
+// todo: remove if unused
+export const ociLogicalDeviceName1 = (
+  crossConnectMapping: CrossConnectMapping,
+  listCrossConnectMappings: CrossConnectMappingDetailsCollection,
+): string => {
+  const mappingArray = listCrossConnectMappings.items || [];
+  for (const mapping of mappingArray) {
+    if (
+      crossConnectMapping?.crossConnectOrCrossConnectGroupId ===
+      mapping.crossConnectOrCrossConnectGroupId
+    ) {
+      return mapping.ociLogicalDeviceName || "";
+    }
+  }
+  return "";
+};
+
+export const ociLogicalDeviceName = (
+  crossConnectMapping: CrossConnectMapping,
+  listCrossConnectMappings: CrossConnectMappingDetailsCollection,
+): string => {
+  let ociLogicalDeviceName = "";
+  if (listCrossConnectMappings?.items) {
+    for (let i = 0; i < (listCrossConnectMappings.items || []).length; i++) {
+      if (
+        crossConnectMapping?.crossConnectOrCrossConnectGroupId ===
+        (listCrossConnectMappings.items || [])[i].crossConnectOrCrossConnectGroupId
+      ) {
+        ociLogicalDeviceName = (listCrossConnectMappings.items || [])[i].ociLogicalDeviceName;
+        break;
+      }
+    }
+  }
+  return ociLogicalDeviceName;
+};
+
+export function shouldShowCustomerBgpAsn(virtualCircuit: VirtualCircuitDetail): boolean {
+  return !(
+    virtualCircuit?.customerAsn === null &&
+    virtualCircuit?.serviceType === VirtualCircuitServiceTypeEnum.Layer3
+  );
+}
+
+export const isPrivateVC = (virtualCircuitType: string): boolean =>
+  virtualCircuitType === VirtualCircuitTypeEnum.Private;
+
+export const isBfdEnabled = (
+  virtualCircuit: VirtualCircuitDetail,
+  t: MauiRenderEngineRef["tFn"],
+): string =>
+  virtualCircuit?.isBfdEnabled
+    ? t(MessagesKeys.VirtualCircuit.Bfd.enable)
+    : t(MessagesKeys.VirtualCircuit.Bfd.notEnable);
+
+export const isVCPartnerType = (virtualCircuit: VirtualCircuitDetail): boolean =>
+  virtualCircuit?.serviceType === VirtualCircuitServiceTypeEnum.Layer2 ||
+  virtualCircuit?.serviceType === VirtualCircuitServiceTypeEnum.Layer3;
+
+export const isProviderAzureOrPartner = (
+  providerService: FastConnectProviderService,
+  virtualCircuit: VirtualCircuitDetail,
+  t: MauiRenderEngineRef["tFn"],
+): string => {
+  if (providerService && isProviderAzure(providerService)) {
+    return t(MessagesKeys.VirtualCircuit.delete.azureMessage);
+  } else if (isVCPartnerType(virtualCircuit)) {
+    return t(MessagesKeys.VirtualCircuit.delete.serviceTypeMessage);
+  }
+  return "";
+};
+
+export const getNewActiveStatePayload = (currentBgpAdminState: string) => {
+  const bgpAdminState =
+    currentBgpAdminState === BgpAdminStateEnum.Disable
+      ? BgpAdminStateEnum.Enable
+      : BgpAdminStateEnum.Disable;
+  return {
+    bgpAdminState,
+  };
+};
+
+export const getToggleDeactivateLabel = (
+  virtualCircuit: VirtualCircuitDetail,
+  t: MauiRenderEngineRef["tFn"],
+): string => {
+  if (virtualCircuit?.bgpAdminState === "ENABLED") {
+    return t(MessagesKeys.VirtualCircuit.activate.deactivate);
+  }
+  return t(MessagesKeys.VirtualCircuit.activate.activate);
+};
+
+export const getToggleDeactivateModalTitle = (
+  virtualCircuit: VirtualCircuitDetail,
+  t: MauiRenderEngineRef["tFn"],
+): string => {
+  if (virtualCircuit?.bgpAdminState === "ENABLED") {
+    return t(MessagesKeys.VirtualCircuit.activate.titleDeactivate);
+  }
+  return t(MessagesKeys.VirtualCircuit.activate.titleActivate);
+};
+
+export const getToggleDeactivateModalQuestion = (
+  virtualCircuit: VirtualCircuitDetail,
+  t: MauiRenderEngineRef["tFn"],
+): string => {
+  if (virtualCircuit?.bgpAdminState === "ENABLED") {
+    return t(MessagesKeys.VirtualCircuit.activate.deactivateAction, [virtualCircuit?.displayName]);
+  }
+  return t(MessagesKeys.VirtualCircuit.activate.activateAction, [virtualCircuit?.displayName]);
+};
+
+export const getToastDeactivateMessage = (
+  virtualCircuit: VirtualCircuitDetail,
+  t: MauiRenderEngineRef["tFn"],
+): string => {
+  if (virtualCircuit?.bgpAdminState === "ENABLED") {
+    return t(MessagesKeys.VirtualCircuit.activate.virtualCircuitDeactivated);
+  }
+  return t(MessagesKeys.VirtualCircuit.activate.virtualCircuitActivated);
+};
+
+export function disableVirtualCircuitUpdate(
+  lifeCycleState: ApiVirtualCircuitLifeCycleState,
+): boolean {
+  return [
+    VirtualCircuitLifecycleStateEnum.Provisioning,
+    VirtualCircuitLifecycleStateEnum.Terminating,
+    VirtualCircuitLifecycleStateEnum.Failed,
+  ].includes(lifeCycleState);
+}
+
+export function disableVirtualCircuitDelete(
+  lifeCycleState: ApiVirtualCircuitLifeCycleState,
+): boolean {
+  return [VirtualCircuitLifecycleStateEnum.Terminating].includes(lifeCycleState);
+}
+
+export const getCcOrCcgHeading = (
+  crossConnects: DEFINITION_CoreServicesApi_CrossConnect[],
+  crossConnectGroups: DEFINITION_CoreServicesApi_CrossConnectGroup[],
+  ocid: string,
+) => {
+  const ccResult = crossConnects?.find(cc => cc.id === ocid);
+  if (ccResult) return ccResult?.displayName;
+  const ccgResult = crossConnectGroups?.find(ccg => ccg.id === ocid);
+  if (ccgResult) return ccgResult?.displayName;
+};
+
+export const isPublicVirtualCircuit = (data: VirtualCircuitDetail): boolean =>
+  data?.type === VirtualCircuitTypeEnum.Public;
+
+export const isVirtualCircuitProvisioned = (data: VirtualCircuitDetail): boolean =>
+  data?.lifecycleState === VirtualCircuitLifecycleStateEnum.Provisioned;
+
+export const isVirtualCircuitPendingProvider = (data: VirtualCircuitDetail): boolean =>
+  data?.lifecycleState === VirtualCircuitLifecycleStateEnum.PendingProvider;
+
+export const isVirtualCircuitProvisionFailed = (data: VirtualCircuitDetail): boolean =>
+  data?.lifecycleState === VirtualCircuitLifecycleStateEnum.Failed;
+
+export const isOneOfProvider = (data: VirtualCircuitDetail): boolean =>
+  getProviderName(data?.providerName) !== "";
+
+export const shouldShowNextStepInfo = (
+  $consoleState: ConsoleState,
+  data: VirtualCircuitDetail,
+): boolean =>
+  !isVirtualCircuitProvisioned(data) &&
+  whitelistProvisionForProvider(
+    $consoleState,
+    getProviderProvisionWhitelistName(data?.providerName),
+  ) &&
+  isOneOfProvider(data);
+
+export const isProviderMegaport = (providerName: string): boolean =>
+  providerName === ProviderNames.Megaport;
+
+export const isProviderColt = (providerName: string): boolean =>
+  providerName === ProviderNames.Colt;
+
+export const getProviderLoginURL = (providerName: string): string => {
+  if (isProviderMegaport(providerName)) {
+    return megaportLoginURL;
+  }
+  if (isProviderColt(providerName)) {
+    return coltLoginURL;
+  }
+  return "";
+};
+
+export const shouldShowOnCreationInfo = ($consoleState: ConsoleState, data: VirtualCircuitDetail) =>
+  (isVirtualCircuitPendingProvider(data) && !isOneOfProvider(data)) ||
+  (isVirtualCircuitPendingProvider(data) &&
+    isOneOfProvider(data) &&
+    !whitelistProvisionForProvider(
+      $consoleState,
+      getProviderProvisionWhitelistName(data?.providerName),
+    ));
+
+export const getOnCreationInfoInstructionText = (
+  data: VirtualCircuitDetail,
+  providerService: FastConnectProviderService,
+  t: MauiRenderEngineRef["tFn"],
+): string => {
+  if (isVirtualCircuitProvisionFailed(data)) {
+    return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.provisionFailed);
+  }
+  if (isProviderAzure(providerService)) {
+    return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.instructionForAzure);
+  }
+  return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.instruction);
+};
+export const isDrgNotRedundant = (
+  data: DEFINITION_CoreServicesApi_DrgRedundancyStatus,
+  $consoleState: ConsoleState,
+): boolean => {
+  const drgStatus = isRedundancyStatusEnabled($consoleState) && data;
+  return drgStatus && showDrgRedundancyMessage(drgStatus?.status);
+};
+
+export function getDrgRedundancyWarningMessage(
+  drgStatus: string,
+  t: MauiRenderEngineRef["tFn"],
+): string {
+  const helpLink = DrgRedundancyLinks[drgStatus];
+  switch (drgStatus) {
+    case DrgRedundancyStatusEnum.notRedundantMultipleVirtualCircuits:
+      return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.drgNoRedundancyMultipleVC, [
+        helpLink,
+      ]);
+    case DrgRedundancyStatusEnum.notRedundantMixConnections:
+      return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.drgNoRedundancyMIxConnections, [
+        helpLink,
+      ]);
+    case DrgRedundancyStatusEnum.notRedundantMultipleIpsecs:
+      return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.drgNoRedundancyMultipleIPSEC, [
+        helpLink,
+      ]);
+    case DrgRedundancyStatusEnum.notRedundantSingleVirtualCircuit:
+      return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.drgNoRedundancySingleVC, [helpLink]);
+    case DrgRedundancyStatusEnum.notRedundantSingleIpsec:
+      return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.drgNoRedundancySingleVPN, [
+        helpLink,
+      ]);
+    default:
+      return "";
+  }
+}
+
+export const getVirtualCircuitErrorsWarningTexts = (
+  virtualCircuitErrors: DEFINITION_CoreServicesApi_VirtualCircuitErrorDetails[],
+  t: MauiRenderEngineRef["tFn"],
+): Maui.AssistiveText[] => {
+  const virtualCircuitErrorWarningTexts: Maui.AssistiveText = [];
+  virtualCircuitErrors
+    ?.filter(error => error?.severityLevel === "WARNING")
+    .forEach((error, index) => {
+      virtualCircuitErrorWarningTexts.push({
+        variant: "text",
+        value: t(MessagesKeys.VirtualCircuit.errorLabels.errorCode, [error?.errorCode]),
+        show: !!error?.errorCode,
+      });
+      virtualCircuitErrorWarningTexts.push({
+        variant: "text",
+        value: t(MessagesKeys.VirtualCircuit.errorLabels.description, [error?.errorDescription]),
+        show: !!error?.errorDescription,
+      });
+      virtualCircuitErrorWarningTexts.push({
+        variant: "text",
+        value: t(MessagesKeys.VirtualCircuit.errorLabels.action, [error?.solution]),
+        show: !!error?.solution,
+      });
+      virtualCircuitErrorWarningTexts.push({
+        variant: "text",
+        value: t(MessagesKeys.VirtualCircuit.errorLabels.viewDocumentation, [
+          error?.ociResourcesLink,
+        ]),
+        show: !!error?.ociResourcesLink,
+      });
+      virtualCircuitErrorWarningTexts.push({
+        variant: "text",
+        value: "",
+        show: index < virtualCircuitErrors.length - 1,
+      });
+    });
+  return virtualCircuitErrorWarningTexts;
+};
+export const getVirtualCircuitErrorsCriticalTexts = (
+  virtualCircuitErrors: DEFINITION_CoreServicesApi_VirtualCircuitErrorDetails[],
+  t: MauiRenderEngineRef["tFn"],
+): Maui.AssistiveText[] => {
+  const virtualCircuitErrorCriticalTexts: Maui.AssistiveText = [];
+  virtualCircuitErrors
+    ?.filter(error => error?.severityLevel === "ERROR")
+    .forEach((error, index) => {
+      virtualCircuitErrorCriticalTexts.push({
+        variant: "text",
+        value: t(MessagesKeys.VirtualCircuit.errorLabels.errorCode, [error?.errorCode]),
+        show: !!error?.errorCode,
+      });
+      virtualCircuitErrorCriticalTexts.push({
+        variant: "text",
+        value: t(MessagesKeys.VirtualCircuit.errorLabels.description, [error?.errorDescription]),
+        show: !!error?.errorDescription,
+      });
+      virtualCircuitErrorCriticalTexts.push({
+        variant: "text",
+        value: t(MessagesKeys.VirtualCircuit.errorLabels.action, [error?.solution]),
+        show: !!error?.solution,
+      });
+      virtualCircuitErrorCriticalTexts.push({
+        variant: "text",
+        value: t(MessagesKeys.VirtualCircuit.errorLabels.viewDocumentation, [
+          error?.ociResourcesLink,
+        ]),
+        show: !!error?.ociResourcesLink,
+      });
+      virtualCircuitErrorCriticalTexts.push({
+        variant: "text",
+        value: "",
+        show: index < virtualCircuitErrors.length - 1,
+      });
+    });
+  return virtualCircuitErrorCriticalTexts;
+};
+
+export const shouldShowBgpFailedInfoBlock = (
+  virtualCircuitLifeCycleState: ApiVirtualCircuitLifecycleStateEnum,
+  bgpSessionState: ApiBgpSessionInfoBgpStateEnum,
+) =>
+  virtualCircuitLifeCycleState === VirtualCircuitLifecycleStateEnum.Provisioned &&
+  bgpSessionState === BgpSessionInfoBgpStateEnum.Down;
+
+export const getPartnerPortal = (
+  providerName: string,
+  urlName: string,
+  t: MauiRenderEngineRef["tFn"],
+): string => {
+  if (!urlName) {
+    return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.labelPartner, [providerName]);
+  }
+  return t(MessagesKeys.VirtualCircuit.OnCreationInfoBlock.labelPartnerWithLink, [
+    urlName,
+    providerName,
+  ]);
+};
