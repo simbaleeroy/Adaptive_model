@@ -1,765 +1,297 @@
+Configuration:
+  default:
+    scope: REGION
+    drgId: ocid1.drg.oc1.eu-paris-1.aaaaaaaapuvtp2lafq7nixuy4i3pw6idskjydz3xc762wsds4j7pzhdv3oua
 
-[-] Total operations skipped because of a missing configuration value: 424
-╭────────────────────────────────────────┬────────────────────────────────────────┬────────────────────╮
-│ Parameter                              │ Operation Dependencies                 │ # of Dependencies  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ action                                 │ InstanceAction                         │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ assetId                                │ CreateVolumeBackupPolicyAssignment     │ 2                  │
-│                                        │ GetVolumeBackupPolicyAssetAssignment   │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ availabilityDomain                     │ CreateBareMetalCluster                 │ 12                 │
-│                                        │ CreateComputeCapacityReservation       │                    │
-│                                        │ CreateComputeCluster                   │                    │
-│                                        │ CreateDedicatedVmHost                  │                    │
-│                                        │ CreateHostReservation                  │                    │
-│                                        │ CreateVolumeGroup                      │                    │
-│                                        │ LaunchInstance                         │                    │
-│                                        │ ListBlockVolumeReplicas                │                    │
-│                                        │ ListBootVolumeAttachments              │                    │
-│                                        │ ListBootVolumeReplicas                 │                    │
-│                                        │ ListBootVolumes                        │                    │
-│                                        │ ListVolumeGroupReplicas                │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ backendSetName                         │ AttachLoadBalancer                     │ 2                  │
-│                                        │ DetachLoadBalancer                     │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ bareMetalClusterId                     │ CreateHostReservation                  │ 3                  │
-│                                        │ DeleteBareMetalCluster                 │                    │
-│                                        │ GetBareMetalCluster                    │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ batchSize                              │ BulkMigration                          │ 2                  │
-│                                        │ RollbackDrgMigration                   │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ blockVolumeReplicaId                   │ GetBlockVolumeReplica                  │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ bootVolumeAttachmentId                 │ DetachBootVolume                       │ 2                  │
-│                                        │ GetBootVolumeAttachment                │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ bootVolumeBackupId                     │ ChangeBootVolumeBackupCompartment      │ 5                  │
-│                                        │ CopyBootVolumeBackup                   │                    │
-│                                        │ DeleteBootVolumeBackup                 │                    │
-│                                        │ GetBootVolumeBackup                    │                    │
-│                                        │ UpdateBootVolumeBackup                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ bootVolumeId                           │ AttachBootVolume                       │ 9                  │
-│                                        │ ChangeBootVolumeCompartment            │                    │
-│                                        │ CreateBootVolumeBackup                 │                    │
-│                                        │ DeleteBootVolume                       │                    │
-│                                        │ DeleteBootVolumeKmsKey                 │                    │
-│                                        │ GetBootVolume                          │                    │
-│                                        │ GetBootVolumeKmsKey                    │                    │
-│                                        │ UpdateBootVolume                       │                    │
-│                                        │ UpdateBootVolumeKmsKey                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ bootVolumeReplicaId                    │ GetBootVolumeReplica                   │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ byoipRangeId                           │ AddPublicIpPoolCapacity                │ 9                  │
-│                                        │ AdvertiseByoipRange                    │                    │
-│                                        │ ChangeByoipRangeCompartment            │                    │
-│                                        │ DeleteByoipRange                       │                    │
-│                                        │ GetByoipRange                          │                    │
-│                                        │ ListByoipAllocatedRanges               │                    │
-│                                        │ UpdateByoipRange                       │                    │
-│                                        │ ValidateByoipRange                     │                    │
-│                                        │ WithdrawByoipRange                     │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ capacityReservationId                  │ ChangeComputeCapacityReservationCompar │ 5                  │
-│                                        │ tment                                  │                    │
-│                                        │ DeleteComputeCapacityReservation       │                    │
-│                                        │ GetComputeCapacityReservation          │                    │
-│                                        │ ListComputeCapacityReservationInstance │                    │
-│                                        │ s                                      │                    │
-│                                        │ UpdateComputeCapacityReservation       │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ captureFilterId                        │ ChangeCaptureFilterCompartment         │ 5                  │
-│                                        │ CreateVtap                             │                    │
-│                                        │ DeleteCaptureFilter                    │                    │
-│                                        │ GetCaptureFilter                       │                    │
-│                                        │ UpdateCaptureFilter                    │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ cidrBlock                              │ AddPublicIpPoolCapacity                │ 7                  │
-│                                        │ AddVcnCidr                             │                    │
-│                                        │ CreateByoipRange                       │                    │
-│                                        │ CreateSubnet                           │                    │
-│                                        │ CreateVlan                             │                    │
-│                                        │ RemovePublicIpPoolCapacity             │                    │
-│                                        │ RemoveVcnCidr                          │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ clusterNetworkId                       │ ChangeClusterNetworkCompartment        │ 5                  │
-│                                        │ GetClusterNetwork                      │                    │
-│                                        │ ListClusterNetworkInstances            │                    │
-│                                        │ TerminateClusterNetwork                │                    │
-│                                        │ UpdateClusterNetwork                   │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ computeClusterId                       │ ChangeComputeClusterCompartment        │ 4                  │
-│                                        │ DeleteComputeCluster                   │                    │
-│                                        │ GetComputeCluster                      │                    │
-│                                        │ UpdateComputeCluster                   │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ computeGlobalImageCapabilitySchemaId   │ GetComputeGlobalImageCapabilitySchema  │ 3                  │
-│                                        │ GetComputeGlobalImageCapabilitySchemaV │                    │
-│                                        │ ersion                                 │                    │
-│                                        │ ListComputeGlobalImageCapabilitySchema │                    │
-│                                        │ Versions                               │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ computeGlobalImageCapabilitySchemaVers │ CreateComputeImageCapabilitySchema     │ 2                  │
-│ ionName                                │                                        │                    │
-│                                        │ GetComputeGlobalImageCapabilitySchemaV │                    │
-│                                        │ ersion                                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ computeImageCapabilitySchemaId         │ ChangeComputeImageCapabilitySchemaComp │ 9                  │
-│                                        │ artment                                │                    │
-│                                        │ CreateComputeImageCapabilitySchemaShap │                    │
-│                                        │ eGroup                                 │                    │
-│                                        │ DeleteComputeImageCapabilitySchema     │                    │
-│                                        │ DeleteComputeImageCapabilitySchemaShap │                    │
-│                                        │ eGroup                                 │                    │
-│                                        │ GetComputeImageCapabilitySchema        │                    │
-│                                        │ GetComputeImageCapabilitySchemaShapeGr │                    │
-│                                        │ oup                                    │                    │
-│                                        │ ListComputeImageCapabilitySchemaShapeG │                    │
-│                                        │ roups                                  │                    │
-│                                        │ UpdateComputeImageCapabilitySchema     │                    │
-│                                        │ UpdateComputeImageCapabilitySchemaShap │                    │
-│                                        │ eGroup                                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ computeImageCapabilitySchemaShapeGroup │ DeleteComputeImageCapabilitySchemaShap │ 3                  │
-│ Name                                   │ eGroup                                 │                    │
-│                                        │ GetComputeImageCapabilitySchemaShapeGr │                    │
-│                                        │ oup                                    │                    │
-│                                        │ UpdateComputeImageCapabilitySchemaShap │                    │
-│                                        │ eGroup                                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ cpeDeviceShapeId                       │ GetCpeDeviceShape                      │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ cpeId                                  │ ChangeCpeCompartment                   │ 6                  │
-│                                        │ CreateIPSecConnection                  │                    │
-│                                        │ DeleteCpe                              │                    │
-│                                        │ GetCpe                                 │                    │
-│                                        │ GetCpeDeviceConfigContent              │                    │
-│                                        │ UpdateCpe                              │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ createVnicDetails                      │ AttachVnic                             │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ davId                                  │ AttachDav                              │ 5                  │
-│                                        │ DeleteDav                              │                    │
-│                                        │ DetachDav                              │                    │
-│                                        │ GetDav                                 │                    │
-│                                        │ UpdateDav                              │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ dedicatedVmHostId                      │ ChangeDedicatedVmHostCompartment       │ 5                  │
-│                                        │ DeleteDedicatedVmHost                  │                    │
-│                                        │ GetDedicatedVmHost                     │                    │
-│                                        │ ListDedicatedVmHostInstances           │                    │
-│                                        │ UpdateDedicatedVmHost                  │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ dedicatedVmHostShape                   │ CreateDedicatedVmHost                  │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ destination                            │ CreateFlowLogConfig                    │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ destinationCompartmentId               │ ChangeInternalGenericGatewayCompartmen │ 1                  │
-│                                        │ t                                      │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ destinationDrgType                     │ MigrateDrg                             │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ destinationNicIndex                    │ AttachVnicToDestinationSmartNic        │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ destinationRegion                      │ CopyBootVolumeBackup                   │ 3                  │
-│                                        │ CopyVolumeBackup                       │                    │
-│                                        │ CopyVolumeGroupBackup                  │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ destinationSubstrateIp                 │ AttachVnicToDestinationSmartNic        │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ destinationType                        │ ExportImage                            │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ dhcpId                                 │ ChangeDhcpOptionsCompartment           │ 4                  │
-│                                        │ DeleteDhcpOptions                      │                    │
-│                                        │ GetDhcpOptions                         │                    │
-│                                        │ UpdateDhcpOptions                      │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ distributionType                       │ CreateDrgRouteDistribution             │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ drgRouteDistributionId                 │ AddDrgRouteDistributionStatements      │ 7                  │
-│                                        │ DeleteDrgRouteDistribution             │                    │
-│                                        │ GetDrgRouteDistribution                │                    │
-│                                        │ ListDrgRouteDistributionStatements     │                    │
-│                                        │ RemoveDrgRouteDistributionStatements   │                    │
-│                                        │ UpdateDrgRouteDistribution             │                    │
-│                                        │ UpdateDrgRouteDistributionStatements   │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ egressIP                               │ CreateInternalDrg                      │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ egressSecurityRules                    │ CreateSecurityList                     │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ egressSecurityRules.destination        │ CreateSecurityList                     │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ endpointServiceId                      │ CreatePrivateEndpoint                  │ 9                  │
-│                                        │ DeleteEndpointService                  │                    │
-│                                        │ GetEndpointService                     │                    │
-│                                        │ GetEndpointServiceNextHop              │                    │
-│                                        │ GetPrivateEndpointAssociation          │                    │
-│                                        │ ListNextHops                           │                    │
-│                                        │ ListPrivateEndpointAssociations        │                    │
-│                                        │ UpdateEndpointService                  │                    │
-│                                        │ UpdateEndpointServiceNextHop           │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ filterType                             │ CreateCaptureFilter                    │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ flowLogConfigAttachmentId              │ DeleteFlowLogConfigAttachment          │ 3                  │
-│                                        │ GetFlowLogConfigAttachment             │                    │
-│                                        │ UpdateFlowLogConfigAttachment          │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ flowLogConfigId                        │ CreateFlowLogConfigAttachment          │ 4                  │
-│                                        │ DeleteFlowLogConfig                    │                    │
-│                                        │ GetFlowLogConfig                       │                    │
-│                                        │ UpdateFlowLogConfig                    │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ flowLogType                            │ CreateFlowLogConfig                    │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ gatewayHeaderData                      │ CreateInternalGenericGateway           │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ gatewayId                              │ CreateInternalGenericGateway           │ 2                  │
-│                                        │ GetInternalGenericGatewayByGatewayId   │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ gatewayType                            │ CreateInternalGenericGateway           │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ hostInstanceId                         │ AttachDav                              │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ hostReservationId                      │ DeleteHostReservation                  │ 2                  │
-│                                        │ GetHostReservation                     │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ id                                     │ CreateInternalDrg                      │ 2                  │
-│                                        │ CreateInternalDrgAttachment            │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ igId                                   │ ChangeInternetGatewayCompartment       │ 4                  │
-│                                        │ DeleteInternetGateway                  │                    │
-│                                        │ GetInternetGateway                     │                    │
-│                                        │ UpdateInternetGateway                  │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ imageId                                │ AddImageShapeCompatibilityEntry        │ 10                 │
-│                                        │ ChangeImageCompartment                 │                    │
-│                                        │ CreateComputeImageCapabilitySchema     │                    │
-│                                        │ DeleteImage                            │                    │
-│                                        │ ExportImage                            │                    │
-│                                        │ GetImage                               │                    │
-│                                        │ GetImageShapeCompatibilityEntry        │                    │
-│                                        │ ListImageShapeCompatibilityEntries     │                    │
-│                                        │ RemoveImageShapeCompatibilityEntry     │                    │
-│                                        │ UpdateImage                            │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ ingressIP                              │ CreateInternalDrg                      │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ ingressSecurityRules                   │ CreateSecurityList                     │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ ingressSecurityRules.protocol          │ CreateSecurityList                     │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ ingressSecurityRules.source            │ CreateSecurityList                     │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ instanceConfigurationId                │ ChangeInstanceConfigurationCompartment │ 6                  │
-│                                        │ CreateInstancePool                     │                    │
-│                                        │ DeleteInstanceConfiguration            │                    │
-│                                        │ GetInstanceConfiguration               │                    │
-│                                        │ LaunchInstanceConfiguration            │                    │
-│                                        │ UpdateInstanceConfiguration            │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ instanceConsoleConnectionId            │ DeleteInstanceConsoleConnection        │ 3                  │
-│                                        │ GetInstanceConsoleConnection           │                    │
-│                                        │ UpdateInstanceConsoleConnection        │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ instanceConsoleHistoryId               │ DeleteConsoleHistory                   │ 4                  │
-│                                        │ GetConsoleHistory                      │                    │
-│                                        │ GetConsoleHistoryContent               │                    │
-│                                        │ UpdateConsoleHistory                   │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ instanceId                             │ AcceptShieldedIntegrityPolicy          │ 21                 │
-│                                        │ AttachBootVolume                       │                    │
-│                                        │ AttachInstancePoolInstance             │                    │
-│                                        │ CaptureConsoleHistory                  │                    │
-│                                        │ ChangeInstanceCompartment              │                    │
-│                                        │ CreateInstanceConsoleConnection        │                    │
-│                                        │ CreateInstanceScreenshot               │                    │
-│                                        │ DetachInstancePoolInstance             │                    │
-│                                        │ GetInstance                            │                    │
-│                                        │ GetInstanceDefaultCredentials          │                    │
-│                                        │ GetInstanceHealth                      │                    │
-│                                        │ GetInstancePoolInstance                │                    │
-│                                        │ GetInstanceScreenshot                  │                    │
-│                                        │ GetInstanceScreenshotContent           │                    │
-│                                        │ GetMeasuredBootReport                  │                    │
-│                                        │ GetWindowsInstanceInitialCredentials   │                    │
-│                                        │ InstanceAction                         │                    │
-│                                        │ ListInstanceDevices                    │                    │
-│                                        │ ListInstanceScreenshots                │                    │
-│                                        │ TerminateInstance                      │                    │
-│                                        │ UpdateInstance                         │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ instancePoolId                         │ AttachInstancePoolInstance             │ 16                 │
-│                                        │ AttachLoadBalancer                     │                    │
-│                                        │ ChangeInstancePoolCompartment          │                    │
-│                                        │ DetachInstancePoolInstance             │                    │
-│                                        │ DetachLoadBalancer                     │                    │
-│                                        │ GetInstancePool                        │                    │
-│                                        │ GetInstancePoolInstance                │                    │
-│                                        │ GetInstancePoolLoadBalancerAttachment  │                    │
-│                                        │ ListInstancePoolInstances              │                    │
-│                                        │ ResetInstancePool                      │                    │
-│                                        │ SoftresetInstancePool                  │                    │
-│                                        │ SoftstopInstancePool                   │                    │
-│                                        │ StartInstancePool                      │                    │
-│                                        │ StopInstancePool                       │                    │
-│                                        │ TerminateInstancePool                  │                    │
-│                                        │ UpdateInstancePool                     │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ instancePoolLoadBalancerAttachmentId   │ GetInstancePoolLoadBalancerAttachment  │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ instancePools                          │ CreateClusterNetwork                   │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ instancePools.instanceConfigurationId  │ CreateClusterNetwork                   │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ instancePools.size                     │ CreateClusterNetwork                   │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ instanceScreenshotId                   │ GetInstanceScreenshot                  │ 2                  │
-│                                        │ GetInstanceScreenshotContent           │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ instanceType                           │ LaunchInstanceConfiguration            │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ internalDnsRecordId                    │ DeleteInternalDnsRecord                │ 3                  │
-│                                        │ GetInternalDnsRecord                   │                    │
-│                                        │ UpdateInternalDnsRecord                │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ internalDrgAttachmentId                │ DeleteInternalDrgAttachment            │ 3                  │
-│                                        │ GetInternalDrgAttachment               │                    │
-│                                        │ UpdateInternalDrgAttachment            │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ internalDrgId                          │ ChangeInternalDrgCompartment           │ 5                  │
-│                                        │ DeleteInternalDrg                      │                    │
-│                                        │ GetInternalDrg                         │                    │
-│                                        │ MigrateDrg                             │                    │
-│                                        │ UpdateInternalDrg                      │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ internalGenericGatewayId               │ ChangeInternalGenericGatewayCompartmen │ 4                  │
-│                                        │ t                                      │                    │
-│                                        │ DeleteInternalGenericGateway           │                    │
-│                                        │ GetInternalGenericGateway              │                    │
-│                                        │ UpdateInternalGenericGateway           │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ internalHostedZoneId                   │ CreateInternalDnsRecord                │ 2                  │
-│                                        │ ListInternalDnsRecords                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ internalPublicIpId                     │ DeleteInternalPublicIp                 │ 3                  │
-│                                        │ GetInternalPublicIp                    │                    │
-│                                        │ UpdateInternalPublicIp                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ internalSubnetId                       │ GetInternalSubnet                      │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ internalVnicId                         │ AttachVnicToDestinationSmartNic        │ 9                  │
-│                                        │ CreateInternalVnicAttachment           │                    │
-│                                        │ DeleteInternalVnic                     │                    │
-│                                        │ DeleteInternalVnicAttachment           │                    │
-│                                        │ DetachVnicFromDestinationSmartNic      │                    │
-│                                        │ DetachVnicFromSourceSmartNic           │                    │
-│                                        │ GetInternalVnic                        │                    │
-│                                        │ GetInternalVnicAttachment              │                    │
-│                                        │ UpdateInternalVnic                     │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ ipAddress                              │ CreateCpe                              │ 2                  │
-│                                        │ GetPublicIpByIpAddress                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ ipscId                                 │ ChangeIPSecConnectionCompartment       │ 23                 │
-│                                        │ CreateIpsecConnectionTunnel            │                    │
-│                                        │ DeleteIPSecConnection                  │                    │
-│                                        │ DeleteIpsecConnectionTunnel            │                    │
-│                                        │ GetIPSecConnection                     │                    │
-│                                        │ GetIPSecConnectionDeviceConfig         │                    │
-│                                        │ GetIPSecConnectionDeviceStatus         │                    │
-│                                        │ GetIPSecConnectionMigrationStatus      │                    │
-│                                        │ GetIPSecConnectionTunnel               │                    │
-│                                        │ GetIPSecConnectionTunnelError          │                    │
-│                                        │ GetIPSecConnectionTunnelSharedSecret   │                    │
-│                                        │ GetIpsecCpeDeviceConfigContent         │                    │
-│                                        │ GetTunnelCpeDeviceConfig               │                    │
-│                                        │ GetTunnelCpeDeviceConfigContent        │                    │
-│                                        │ ListIPSecConnectionTunnelRoutes        │                    │
-│                                        │ ListIPSecConnectionTunnelSecurityAssoc │                    │
-│                                        │ iations                                │                    │
-│                                        │ ListIPSecConnectionTunnels             │                    │
-│                                        │ MigrateIPSecConnection                 │                    │
-│                                        │ RollbackIPSecConnection                │                    │
-│                                        │ UpdateIPSecConnection                  │                    │
-│                                        │ UpdateIPSecConnectionTunnel            │                    │
-│                                        │ UpdateIPSecConnectionTunnelSharedSecre │                    │
-│                                        │ t                                      │                    │
-│                                        │ UpdateTunnelCpeDeviceConfig            │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ ipv6Id                                 │ DeleteIpv6                             │ 3                  │
-│                                        │ GetIpv6                                │                    │
-│                                        │ UpdateIpv6                             │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ isEnabled                              │ CreateInternetGateway                  │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ lifetime                               │ CreateInternalPublicIp                 │ 2                  │
-│                                        │ CreatePublicIp                         │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ listingId                              │ CreateAppCatalogSubscription           │ 6                  │
-│                                        │ DeleteAppCatalogSubscription           │                    │
-│                                        │ GetAppCatalogListing                   │                    │
-│                                        │ GetAppCatalogListingAgreements         │                    │
-│                                        │ GetAppCatalogListingResourceVersion    │                    │
-│                                        │ ListAppCatalogListingResourceVersions  │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ listingResourceVersion                 │ CreateAppCatalogSubscription           │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ loadBalancerId                         │ AttachLoadBalancer                     │ 2                  │
-│                                        │ DetachLoadBalancer                     │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ localPeeringGatewayId                  │ ChangeLocalPeeringGatewayCompartment   │ 5                  │
-│                                        │ ConnectLocalPeeringGateways            │                    │
-│                                        │ DeleteLocalPeeringGateway              │                    │
-│                                        │ GetLocalPeeringGateway                 │                    │
-│                                        │ UpdateLocalPeeringGateway              │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ matchCriteria.matchType                │ AddDrgRouteDistributionStatements      │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ metadataList                           │ UpdateInternalVnicMetadata             │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ migrationSessionId                     │ AttachVnicToDestinationSmartNic        │ 3                  │
-│                                        │ DetachVnicFromDestinationSmartNic      │                    │
-│                                        │ DetachVnicFromSourceSmartNic           │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ mplsLabel                              │ CreateInternalDrgAttachment            │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ name                                   │ CreateInternalDnsRecord                │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ natGatewayId                           │ ChangeNatGatewayCompartment            │ 4                  │
-│                                        │ DeleteNatGateway                       │                    │
-│                                        │ GetNatGateway                          │                    │
-│                                        │ UpdateNatGateway                       │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ networkSecurityGroupId                 │ AddNetworkSecurityGroupSecurityRules   │ 9                  │
-│                                        │ ChangeNetworkSecurityGroupCompartment  │                    │
-│                                        │ DeleteNetworkSecurityGroup             │                    │
-│                                        │ GetNetworkSecurityGroup                │                    │
-│                                        │ ListNetworkSecurityGroupSecurityRules  │                    │
-│                                        │ ListNetworkSecurityGroupVnics          │                    │
-│                                        │ RemoveNetworkSecurityGroupSecurityRule │                    │
-│                                        │ s                                      │                    │
-│                                        │ UpdateNetworkSecurityGroup             │                    │
-│                                        │ UpdateNetworkSecurityGroupSecurityRule │                    │
-│                                        │ s                                      │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ newCidrBlock                           │ ModifyVcnCidr                          │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ nicIndex                               │ CreateDav                              │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ options                                │ CreateDhcpOptions                      │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ oracleTermsOfUseLink                   │ CreateAppCatalogSubscription           │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ originalCidrBlock                      │ ModifyVcnCidr                          │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ peerRpcRouteTarget                     │ SetDrgPeeringConnection                │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ placementConfiguration                 │ CreateClusterNetwork                   │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ placementConfigurations                │ CreateInstancePool                     │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ placementConfigurations.availabilityDo │ CreateInstancePool                     │ 1                  │
-│ main                                   │                                        │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ placementConfigurations.primarySubnetI │ CreateInstancePool                     │ 1                  │
-│ d                                      │                                        │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ policyAssignmentId                     │ DeleteVolumeBackupPolicyAssignment     │ 2                  │
-│                                        │ GetVolumeBackupPolicyAssignment        │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ policyId                               │ CreateVolumeBackupPolicyAssignment     │ 4                  │
-│                                        │ DeleteVolumeBackupPolicy               │                    │
-│                                        │ GetVolumeBackupPolicy                  │                    │
-│                                        │ UpdateVolumeBackupPolicy               │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ port                                   │ AttachLoadBalancer                     │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ privateAccessGatewayId                 │ DeletePrivateAccessGateway             │ 3                  │
-│                                        │ GetPrivateAccessGateway                │                    │
-│                                        │ UpdatePrivateAccessGateway             │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ privateDnsRecordSetId                  │ GetPrivateDnsRecordSet                 │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ privateEndpointId                      │ ChangePrivateEndpointCompartment       │ 17                 │
-│                                        │ CreateScanProxy                        │                    │
-│                                        │ DeletePrivateEndpoint                  │                    │
-│                                        │ DeleteReverseConnectionNatIp           │                    │
-│                                        │ DeleteScanProxy                        │                    │
-│                                        │ DisableReverseConnections              │                    │
-│                                        │ EnableReverseConnections               │                    │
-│                                        │ GetCreateReverseConnectionNatIp        │                    │
-│                                        │ GetPrivateEndpoint                     │                    │
-│                                        │ GetPrivateEndpointAssociation          │                    │
-│                                        │ GetReverseConnectionNatIp              │                    │
-│                                        │ GetScanProxy                           │                    │
-│                                        │ ListReverseConnectionNatIps            │                    │
-│                                        │ ListScanProxies                        │                    │
-│                                        │ ModifyReverseConnections               │                    │
-│                                        │ UpdatePrivateEndpoint                  │                    │
-│                                        │ UpdateScanProxy                        │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ privateIpId                            │ CreatePrivateIpNextHop                 │ 8                  │
-│                                        │ DeletePrivateIp                        │                    │
-│                                        │ DeletePrivateIpNextHop                 │                    │
-│                                        │ GetPrivateIp                           │                    │
-│                                        │ GetPrivateIpNextHop                    │                    │
-│                                        │ GetPublicIpByPrivateIpId               │                    │
-│                                        │ UpdatePrivateIp                        │                    │
-│                                        │ UpdatePrivateIpNextHop                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ publicIpId                             │ ChangePublicIpCompartment              │ 4                  │
-│                                        │ DeletePublicIp                         │                    │
-│                                        │ GetPublicIp                            │                    │
-│                                        │ UpdatePublicIp                         │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ publicIpPoolId                         │ AddPublicIpPoolCapacity                │ 6                  │
-│                                        │ ChangePublicIpPoolCompartment          │                    │
-│                                        │ DeletePublicIpPool                     │                    │
-│                                        │ GetPublicIpPool                        │                    │
-│                                        │ RemovePublicIpPoolCapacity             │                    │
-│                                        │ UpdatePublicIpPool                     │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ publicKey                              │ CreateInstanceConsoleConnection        │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ regionId                               │ GetDrgMigrationCountRegion             │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ resourceVersion                        │ DeleteAppCatalogSubscription           │ 3                  │
-│                                        │ GetAppCatalogListingAgreements         │                    │
-│                                        │ GetAppCatalogListingResourceVersion    │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ reverseConnectionCustomerIp            │ DeleteReverseConnectionNatIp           │ 3                  │
-│                                        │ GetCreateReverseConnectionNatIp        │                    │
-│                                        │ GetReverseConnectionNatIp              │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ routeRules                             │ CreateRouteTable                       │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ routeRules.networkEntityId             │ CreateRouteTable                       │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ routeTarget                            │ CreateInternalDrgAttachment            │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ rtId                                   │ AddAdditionalRouteRules                │ 7                  │
-│                                        │ ChangeRouteTableCompartment            │                    │
-│                                        │ DeleteRouteTable                       │                    │
-│                                        │ GetRouteTable                          │                    │
-│                                        │ ListAdditionalRouteRules               │                    │
-│                                        │ RemoveAdditionalRouteRules             │                    │
-│                                        │ UpdateRouteTable                       │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ scanListenerInfo                       │ CreateScanProxy                        │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ scanListenerType                       │ CreateScanProxy                        │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ scanProxyId                            │ DeleteScanProxy                        │ 3                  │
-│                                        │ GetScanProxy                           │                    │
-│                                        │ UpdateScanProxy                        │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ schemaData                             │ CreateComputeImageCapabilitySchema     │ 2                  │
-│                                        │ CreateComputeImageCapabilitySchemaShap │                    │
-│                                        │ eGroup                                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ securityListId                         │ ChangeSecurityListCompartment          │ 4                  │
-│                                        │ DeleteSecurityList                     │                    │
-│                                        │ GetSecurityList                        │                    │
-│                                        │ UpdateSecurityList                     │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ serviceGatewayId                       │ AttachServiceId                        │ 6                  │
-│                                        │ ChangeServiceGatewayCompartment        │                    │
-│                                        │ DeleteServiceGateway                   │                    │
-│                                        │ DetachServiceId                        │                    │
-│                                        │ GetServiceGateway                      │                    │
-│                                        │ UpdateServiceGateway                   │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ serviceId                              │ AttachServiceId                        │ 3                  │
-│                                        │ DetachServiceId                        │                    │
-│                                        │ GetService                             │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ serviceIp                              │ GetEndpointServiceNextHop              │ 2                  │
-│                                        │ UpdateEndpointServiceNextHop           │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ serviceIps                             │ CreateEndpointService                  │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ serviceIps.serviceIp                   │ CreateEndpointService                  │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ serviceVnicId                          │ CreateVnicWorker                       │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ services                               │ CreateServiceGateway                   │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ services.serviceId                     │ CreateServiceGateway                   │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ shape                                  │ LaunchInstance                         │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ shapeCounts                            │ CreateHostReservation                  │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ shapeCounts.count                      │ CreateHostReservation                  │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ shapeCounts.shape                      │ CreateHostReservation                  │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ shapeName                              │ AddImageShapeCompatibilityEntry        │ 3                  │
-│                                        │ GetImageShapeCompatibilityEntry        │                    │
-│                                        │ RemoveImageShapeCompatibilityEntry     │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ shapes                                 │ CreateComputeImageCapabilitySchemaShap │ 1                  │
-│                                        │ eGroup                                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ shapes.shapeName                       │ CreateComputeImageCapabilitySchemaShap │ 1                  │
-│                                        │ eGroup                                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ signature                              │ CreateAppCatalogSubscription           │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ size                                   │ CreateInstancePool                     │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ sourceDetails                          │ CreateBootVolume                       │ 2                  │
-│                                        │ CreateVolumeGroup                      │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ sourceId                               │ CreateVtap                             │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ statements                             │ AddDrgRouteDistributionStatements      │ 2                  │
-│                                        │ UpdateDrgRouteDistributionStatements   │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ statements.action                      │ AddDrgRouteDistributionStatements      │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ statements.id                          │ UpdateDrgRouteDistributionStatements   │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ statements.matchCriteria               │ AddDrgRouteDistributionStatements      │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ statements.priority                    │ AddDrgRouteDistributionStatements      │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ staticRoutes                           │ CreateIPSecConnection                  │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ subnetId                               │ ChangeSubnetCompartment                │ 8                  │
-│                                        │ CreatePrivateEndpoint                  │                    │
-│                                        │ DeleteSubnet                           │                    │
-│                                        │ GetSubnet                              │                    │
-│                                        │ GetSubnetTopology                      │                    │
-│                                        │ ListInternalVnics                      │                    │
-│                                        │ ListSubnetPrivateIPAddresses           │                    │
-│                                        │ UpdateSubnet                           │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ substrateIp                            │ ListInternalVnicAttachments            │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ targetEntityId                         │ CreateFlowLogConfigAttachment          │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ targetEntityType                       │ CreateFlowLogConfigAttachment          │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ targets                                │ CreatePrivateIpNextHop                 │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ timeRetrieved                          │ CreateAppCatalogSubscription           │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ tunnelId                               │ DeleteIpsecConnectionTunnel            │ 11                 │
-│                                        │ GetIPSecConnectionTunnel               │                    │
-│                                        │ GetIPSecConnectionTunnelError          │                    │
-│                                        │ GetIPSecConnectionTunnelSharedSecret   │                    │
-│                                        │ GetTunnelCpeDeviceConfig               │                    │
-│                                        │ GetTunnelCpeDeviceConfigContent        │                    │
-│                                        │ ListIPSecConnectionTunnelRoutes        │                    │
-│                                        │ ListIPSecConnectionTunnelSecurityAssoc │                    │
-│                                        │ iations                                │                    │
-│                                        │ UpdateIPSecConnectionTunnel            │                    │
-│                                        │ UpdateIPSecConnectionTunnelSharedSecre │                    │
-│                                        │ t                                      │                    │
-│                                        │ UpdateTunnelCpeDeviceConfig            │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ value                                  │ CreateInternalDnsRecord                │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ vcnId                                  │ AddIpv6VcnCidr                         │ 25                 │
-│                                        │ AddVcnCidr                             │                    │
-│                                        │ ChangeVcnCompartment                   │                    │
-│                                        │ CreateDhcpOptions                      │                    │
-│                                        │ CreateInternalDrgAttachment            │                    │
-│                                        │ CreateInternalGenericGateway           │                    │
-│                                        │ CreateInternetGateway                  │                    │
-│                                        │ CreateLocalPeeringGateway              │                    │
-│                                        │ CreateNatGateway                       │                    │
-│                                        │ CreateNetworkSecurityGroup             │                    │
-│                                        │ CreatePrivateAccessGateway             │                    │
-│                                        │ CreateRouteTable                       │                    │
-│                                        │ CreateSecurityList                     │                    │
-│                                        │ CreateServiceGateway                   │                    │
-│                                        │ CreateSubnet                           │                    │
-│                                        │ CreateVlan                             │                    │
-│                                        │ CreateVtap                             │                    │
-│                                        │ DeleteVcn                              │                    │
-│                                        │ GetVcn                                 │                    │
-│                                        │ GetVcnDnsResolverAssociation           │                    │
-│                                        │ GetVcnTopology                         │                    │
-│                                        │ ListReverseConnectionNatIpCidrs        │                    │
-│                                        │ ModifyVcnCidr                          │                    │
-│                                        │ RemoveVcnCidr                          │                    │
-│                                        │ UpdateVcn                              │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ vlanId                                 │ ChangeVlanCompartment                  │ 4                  │
-│                                        │ DeleteVlan                             │                    │
-│                                        │ GetVlan                                │                    │
-│                                        │ UpdateVlan                             │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ vnicAttachmentId                       │ DetachVnic                             │ 2                  │
-│                                        │ GetVnicAttachment                      │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ vnicId                                 │ GetVnic                                │ 5                  │
-│                                        │ ListSubnetPrivateIPAddresses           │                    │
-│                                        │ UpdateInternalVnicMetadata             │                    │
-│                                        │ UpdateVnic                             │                    │
-│                                        │ UpdateVnicShape                        │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ vnicSelection                          │ AttachLoadBalancer                     │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ vnicShape                              │ UpdateVnicShape                        │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ vnicWorkerId                           │ AttachVnicWorker                       │ 9                  │
-│                                        │ DeleteVnicWorker                       │                    │
-│                                        │ DetachVnicWorker                       │                    │
-│                                        │ DisableVnicWorker                      │                    │
-│                                        │ DrainVnicWorker                        │                    │
-│                                        │ EnableVnicWorker                       │                    │
-│                                        │ GetVnicWorker                          │                    │
-│                                        │ UndrainVnicWorker                      │                    │
-│                                        │ UpdateVnicWorker                       │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ volumeAttachmentId                     │ DetachVolume                           │ 3                  │
-│                                        │ GetVolumeAttachment                    │                    │
-│                                        │ UpdateVolumeAttachment                 │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ volumeBackupId                         │ ChangeVolumeBackupCompartment          │ 5                  │
-│                                        │ CopyVolumeBackup                       │                    │
-│                                        │ DeleteVolumeBackup                     │                    │
-│                                        │ GetVolumeBackup                        │                    │
-│                                        │ UpdateVolumeBackup                     │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ volumeGroupBackupId                    │ ChangeVolumeGroupBackupCompartment     │ 5                  │
-│                                        │ CopyVolumeGroupBackup                  │                    │
-│                                        │ DeleteVolumeGroupBackup                │                    │
-│                                        │ GetVolumeGroupBackup                   │                    │
-│                                        │ UpdateVolumeGroupBackup                │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ volumeGroupId                          │ ChangeVolumeGroupCompartment           │ 5                  │
-│                                        │ CreateVolumeGroupBackup                │                    │
-│                                        │ DeleteVolumeGroup                      │                    │
-│                                        │ GetVolumeGroup                         │                    │
-│                                        │ UpdateVolumeGroup                      │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ volumeGroupReplicaId                   │ GetVolumeGroupReplica                  │ 1                  │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ volumeId                               │ AttachVolume                           │ 10                 │
-│                                        │ ChangeVolumeCompartment                │                    │
-│                                        │ CreateVolumeBackup                     │                    │
-│                                        │ DeleteVolume                           │                    │
-│                                        │ DeleteVolumeKmsKey                     │                    │
-│                                        │ GetVolume                              │                    │
-│                                        │ GetVolumeHealth                        │                    │
-│                                        │ GetVolumeKmsKey                        │                    │
-│                                        │ UpdateVolume                           │                    │
-│                                        │ UpdateVolumeKmsKey                     │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ vtapId                                 │ ChangeVtapCompartment                  │ 4                  │
-│                                        │ DeleteVtap                             │                    │
-│                                        │ GetVtap                                │                    │
-│                                        │ UpdateVtap                             │                    │
-├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────┤
-│ workerInstanceId                       │ AttachVnicWorker                       │ 1                  │
-╰────────────────────────────────────────┴────────────────────────────────────────┴────────────────────╯
+    remotePeeringConnectionId: ocid1.remotepeeringconnection.oc1.eu-paris-1.aaaaaaaaa6wo67ovxudrauq4z2up7olc6vpsfjuluv2mqgfyeb5l3zjaynha
+    peerRegionName: eu-paris-1
+    type: PUBLIC
+    userName: catalina_test_user
+    targetRegion: eu-paris-1
+    drgRouteTableId: ocid1.drgroutetable.oc1.eu-paris-1.aaaaaaaav6zycgiyqyj7qottrjwbmomr6zae57oorh6qb4pa7rfxaoewpjga
+    deviceName: catalina_test_device
+    isRerouteEnabled: false
+    crossConnectGroupId: ocid1.crossconnectgroup.oc1.eu-paris-1.aaaaaaaavvx2vcgl3gpvfale3ec2wgonqfpve6nxicgyupjw34wwnui2vtwq
+    crossConnectId: ocid1.crossconnect.oc1.eu-paris-1.aaaaaaaaaue3huev3d6tomfxqocf2tmjnb3riy24e2jmp2fxbhpuopibxwwq
+    locationName: Telehouse-Voltaire
+    peerId: ocid1.remotepeeringconnection.oc1.eu-paris-1.aaaaaaaahwi5dc53pt2g3p2rvufqv7wzqwkjwjw3xjefdf7uijscx2aj4rba
+    peerTenancyId: ocid1.tenancy.oc1..aaaaaaaaz57ogn6opozybhlx4er6n3jga4cc7bizkj3ah422s3owsetwpnwa
+    peeringStateOfOtherRegion: Initiated
+    portSpeedShapeName: "1 Gbps"
+    virtualCircuitId: ocid1.virtualcircuit.oc1.eu-paris-1.aaaaaaaaq6su7thwulwg4zzqwbyilorpf3yy4zmprhcdoa6wdierupo3pztq
+    resourceId: ocid1.crossconnect.oc1.eu-paris-1.aaaaaaaaaue3huev3d6tomfxqocf2tmjnb3riy24e2jmp2fxbhpuopibxwwq # need to confirm on this
+    publicPrefixes:
+      - cidrBlock: "206.209.218.0/24"
+    transportAttachmentId: ocid1.drgattachment.oc1.eu-paris-1.aaaaaaaaonglxuyhkk2jno2vswvvy6hg5vhjwkh6tth4hs33kwbylwsavvza
+    providerServiceId: ocid1.providerservice.oc1.eu-paris-1.aaaaaaaatnk5oxpae3qytk6obxfv5udjwszzsvsa4gusjbukqbef66ou6mhq
+    providerServiceKeyName: 9e09248c-f1aa-4127-a2cb-f4485fc664b2
+    drgAttachmentId: ocid1.drgattachment.oc1.eu-paris-1.aaaaaaaawfak2kwhsdmsxcgtop4ydcq43j2uwkdjfzmys3zthjiskxijqy3a
+
+IgnoredOperations:
+  - AddVirtualWanConnectionInternal
+  - ChangeClientVpnCompartment
+  - ChangeFlexTunnelCompartment
+  - ChangeVirtualWanCompartment
+  - ChangeVirtualWanConnectionCompartment
+  - CreateC3ServiceNotification
+  - CreateClientVpn
+  - CreateClientVpnUser
+  - CreateFlexTunnel
+  - CreateVirtualWanConnection
+  - DeleteClientVpn
+  - DeleteClientVpnUser
+  - DeleteFlexTunnel
+  - DeleteVirtualWan
+  - DeleteVirtualWanConnection
+  - DeleteVirtualWanConnectionInternal
+  - GetAristaCrossConnectStatus
+  - GetAristaDeviceConfig
+  - GetClientVpn
+  - GetClientVpnProfile
+  - GetClientVpnStatus
+  - GetClientVpnUser
+  - GetClientVpnUserProfile
+  - GetFastConnectProviderService
+  - GetFlexTunnel
+  - GetFlexTunnelBgpStatus
+  - GetVirtualWan
+  - GetVirtualWanConnection
+  - ListAllowedPeerRegionsForRemotePeering
+  - ListClientVpnUsers
+  - ListCrossConnectLocations
+  - ListCrossconnectPortSpeedShapes
+  - ListFastConnectProviderServices
+  - ListFastConnectProviderVirtualCircuitBandwidthShapes
+  - ListFlexTunnelRoutes
+  - ListFlexTunnels
+  - ListVirtualCircuitBandwidthShapes
+  - ListVirtualWanConnectionsInternal
+  - PollNcpJob
+  - StartVpnMonitor
+  - UpdateClientVpn
+  - UpdateClientVpnUser
+  - UpdateEdgePopDeviceAuthInternal
+  - UpdateFlexTunnel
+  - UpdateRemotePeeringConnectionInternal
+  - UpdateVirtualWan
+  - UpdateVirtualWanConnection
+  - UpdateVirtualWanConnectionInternal
+  # Instance and Compute Parameters
+  - action
+  - availabilityDomain
+  - instanceId
+  - instanceType
+  - instanceConfigurationId
+  - instancePoolId
+  - instancePoolLoadBalancerAttachmentId
+  - instancePools
+  - instancePools.instanceConfigurationId
+  - instancePools.size
+  - instanceConsoleConnectionId
+  - instanceConsoleHistoryId
+  - instanceScreenshotId
+  - shape
+  - shapeName
+  - shapeCounts
+  - shapeCounts.count
+  - shapeCounts.shape
+  - dedicatedVmHostId
+  - dedicatedVmHostShape
+  - hostReservationId
+  - hostInstanceId
+  - bareMetalClusterId
+  - computeClusterId
+  - clusterNetworkId
+  - capacityReservationId
+
+  # Volume Parameters
+  - volumeId
+  - volumeAttachmentId
+  - volumeBackupId
+  - volumeGroupId
+  - volumeGroupBackupId
+  - volumeGroupReplicaId
+  - bootVolumeId
+  - bootVolumeAttachmentId
+  - bootVolumeBackupId
+  - bootVolumeReplicaId
+  - blockVolumeReplicaId
+  - assetId
+  - policyId
+  - policyAssignmentId
+  - sourceDetails
+
+  # Network Parameters
+  - vcnId
+  - subnetId
+  - vlanId
+  - cidrBlock
+  - newCidrBlock
+  - originalCidrBlock
+  - ipAddress
+  - ipv6Id
+  - privateIpId
+  - publicIpId
+  - publicIpPoolId
+  - internalPublicIpId
+  - internalSubnetId
+  - internalVnicId
+  - internalDnsRecordId
+  - internalHostedZoneId
+  - internalDrgId
+  - internalDrgAttachmentId
+  - internalGenericGatewayId
+
+  # Gateway Parameters
+  - igId
+  - natGatewayId
+  - serviceGatewayId
+  - localPeeringGatewayId
+  - privateAccessGatewayId
+  - gatewayId
+  - gatewayType
+  - gatewayHeaderData
+  - isEnabled
+
+  # Security Parameters
+  - securityListId
+  - networkSecurityGroupId
+  - ingressSecurityRules
+  - ingressSecurityRules.protocol
+  - ingressSecurityRules.source
+  - egressSecurityRules
+  - egressSecurityRules.destination
+
+  # Route Parameters
+  - rtId
+  - routeRules
+  - routeRules.networkEntityId
+  - routeTarget
+  - drgRouteDistributionId
+  - distributionType
+  - statements
+  - statements.action
+  - statements.id
+  - statements.matchCriteria
+  - statements.priority
+  - matchCriteria.matchType
+
+  # VPN and Connection Parameters
+  - cpeId
+  - cpeDeviceShapeId
+  - ipscId
+  - tunnelId
+  - staticRoutes
+  - peerRpcRouteTarget
+  - destinationDrgType
+  - destinationCompartmentId
+  - destinationRegion
+  - destinationType
+  - destination
+  - destinationNicIndex
+  - destinationSubstrateIp
+
+  # Load Balancer Parameters
+  - loadBalancerId
+  - backendSetName
+  - port
+  - vnicSelection
+
+  # Service Parameters
+  - serviceId
+  - serviceIp
+  - serviceIps
+  - serviceIps.serviceIp
+  - services
+  - services.serviceId
+  - endpointServiceId
+  - privateEndpointId
+  - privateDnsRecordSetId
+
+  # Flow Log Parameters
+  - flowLogConfigId
+  - flowLogConfigAttachmentId
+  - flowLogType
+  - filterType
+  - captureFilterId
+  - sourceId
+  - targetEntityId
+  - targetEntityType
+
+  # VTAP Parameters
+  - vtapId
+
+  # DHCP Parameters
+  - dhcpId
+  - options
+
+  # DNS Parameters
+  - name
+  - value
+
+  # Image Parameters
+  - imageId
+  - computeImageCapabilitySchemaId
+  - computeImageCapabilitySchemaShapeGroupName
+  - computeGlobalImageCapabilitySchemaId
+  - computeGlobalImageCapabilitySchemaVersionName
+  - schemaData
+  - shapes
+  - shapes.shapeName
+
+  # App Catalog Parameters
+  - listingId
+  - listingResourceVersion
+  - resourceVersion
+  - signature
+  - oracleTermsOfUseLink
+  - timeRetrieved
+
+  # BYOIP Parameters
+  - byoipRangeId
+
+  # DAV Parameters
+  - davId
+  - nicIndex
+
+  # VNIC Parameters
+  - vnicId
+  - vnicAttachmentId
+  - vnicShape
+  - vnicWorkerId
+  - serviceVnicId
+  - createVnicDetails
+  - metadataList
+
+  # Worker Parameters
+  - workerInstanceId
+
+  # Migration Parameters
+  - migrationSessionId
+  - batchSize
+  - mplsLabel
+  - ingressIP
+  - egressIP
+  - id
+
+  # Scan Proxy Parameters
+  - scanProxyId
+  - scanListenerInfo
+  - scanListenerType
+
+  # Reverse Connection Parameters
+  - reverseConnectionCustomerIp
+
+  # Placement Parameters
+  - placementConfiguration
+  - placementConfigurations
+  - placementConfigurations.availabilityDomain
+  - placementConfigurations.primarySubnetId
+
+  # Other Parameters
+  - lifetime
+  - regionId
+  - substrateIp
+  - targets
+  - size
+  - publicKey
