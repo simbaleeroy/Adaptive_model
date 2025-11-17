@@ -1,6 +1,3 @@
-defaultValue: mauiExpression(
-            $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ===
-              VirtualCircuitTypeEnum.Internet
-              ? 102
-              : undefined,
-          ),
+$crossConnectOrCrossConnectGroupId &&
+          ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+            $virtualCircuit?.type) !== VirtualCircuitTypeEnum.Internet,
