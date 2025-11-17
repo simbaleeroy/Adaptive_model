@@ -1,6 +1,6 @@
- defaultValue: mauiExpression(
-            ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-              $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet
+defaultValue: mauiExpression(
+            $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ===
+              VirtualCircuitTypeEnum.Internet
               ? 102
-              : $virtualCircuit?.crossConnectMappings?.[0]?.vlan,
+              : undefined,
           ),
