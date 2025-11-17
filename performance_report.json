@@ -1,6 +1,3 @@
- IgwOracleBgpIp = "igwOracleBgpIp",
-  IgwRemoteBgpIp = "igwRemoteBgpIp",
-  IgwOracleBgpIpv6 = "igwOracleBgpIpv6",
-  IgwRemoteBgpIpv6 = "igwRemoteBgpIpv6",
-  IgwPeerName = "igwPeerName",
-  IgwPeerType = "igwPeerType",
+export const shouldShowIgwFields = (type: string): boolean => {
+  return type === VirtualCircuitTypeEnum.Internet;
+};
