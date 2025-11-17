@@ -1,13 +1,6 @@
- {
-              label: Messages.VirtualCircuit.form.virtualCircuitInternetTitle,
-              value: VirtualCircuitTypeEnum.Internet,
-              description: Messages.VirtualCircuit.form.virtualCircuitInternetBody,
-              disabled: mauiExpression(
-                isInternetDisable(
-                  $user?.forms?.[$formId]?.$formFields?.[
-                    VirtualCircuitFieldNames.ProviderServiceId
-                  ],
-                  CoreServicesApi.ListFastConnectProviderServices?.response()?.data,
-                ),
-              ),
-            },
+ defaultValue: mauiExpression(
+            ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+              $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet
+              ? 102
+              : $virtualCircuit?.crossConnectMappings?.[0]?.vlan,
+          ),
