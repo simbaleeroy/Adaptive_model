@@ -1,3 +1,19 @@
-export const shouldShowIgwFields = (type: string): boolean => {
-  return type === VirtualCircuitTypeEnum.Internet;
+
+export const isInternetDisable = (
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean => {
+  if (!providerServiceId || !Array.isArray(vcList)) {
+    return false; // do not disable if providerServiceId is empty or vcList invalid
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false; // do not disable if provider not found
+  }
+
+  const supportedTypes = providerService.supportedVirtualCircuitTypes || [];
+
+  return !supportedTypes.includes("INTERNET");
 };
