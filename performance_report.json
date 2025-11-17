@@ -1,11 +1,13 @@
  {
-          label: Messages.VirtualCircuit.form.virtualCircuitInternetTitle,
-          value: VirtualCircuitTypeEnum.Internet,
-          description: Messages.VirtualCircuit.form.virtualCircuitInternetBody,
-          disabled: mauiExpression(
-            isInternetDisable(
-              $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.ProviderServiceId],
-              CoreServicesApi.ListFastConnectProviderServices?.response()?.data,
-            ),
-          ),
-        },
+              label: Messages.VirtualCircuit.form.virtualCircuitInternetTitle,
+              value: VirtualCircuitTypeEnum.Internet,
+              description: Messages.VirtualCircuit.form.virtualCircuitInternetBody,
+              disabled: mauiExpression(
+                isInternetDisable(
+                  $user?.forms?.[$formId]?.$formFields?.[
+                    VirtualCircuitFieldNames.ProviderServiceId
+                  ],
+                  CoreServicesApi.ListFastConnectProviderServices?.response()?.data,
+                ),
+              ),
+            },
