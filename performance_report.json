@@ -1,3 +1,4 @@
-$crossConnectOrCrossConnectGroupId &&
-          ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-            $virtualCircuit?.type) !== VirtualCircuitTypeEnum.Internet,
+disabled: mauiExpression(
+            ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+              $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet,
+          ),
