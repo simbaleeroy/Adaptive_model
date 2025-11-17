@@ -1,19 +1,155 @@
-
-export const isInternetDisable = (
-  providerServiceId: string,
-  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
-): boolean => {
-  if (!providerServiceId || !Array.isArray(vcList)) {
-    return false; // do not disable if providerServiceId is empty or vcList invalid
-  }
-
-  const providerService = vcList.find(vc => vc.id === providerServiceId);
-
-  if (!providerService) {
-    return false; // do not disable if provider not found
-  }
-
-  const supportedTypes = providerService.supportedVirtualCircuitTypes || [];
-
-  return !supportedTypes.includes("INTERNET");
-};
+    /* IGW IP addresses section for Internet circuit */
+    {
+      type: "ConditionalRender",
+      predicate: mauiExpression(
+        !isProviderTenant($app.consoleState) &&
+          shouldShowIgwFields(
+            $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+              $virtualCircuit?.type,
+          ),
+      ),
+      content: [
+        {
+          type: "FieldSet",
+          legend: Messages.VirtualCircuit.form.igwIpAddresses,
+          content: [
+            {
+              type: "TextInput",
+              name: VirtualCircuitFieldNames.IgwOracleBgpIp,
+              label: Messages.VirtualCircuit.form.igwOracleIpv4,
+              hint: Messages.VirtualCircuit.form.oracleIpHint,
+              validators: [
+                {
+                  type: "required",
+                  message: Messages.VirtualCircuit.form.ipMissingError,
+                },
+                {
+                  type: "max-length",
+                  maxLength: validationRules.ipMaxLength,
+                  message: Messages.VirtualCircuit.form.ipLengthError(
+                    String(validationRules.ipMinLength),
+                    String(validationRules.ipMaxLength),
+                  ),
+                },
+                {
+                  type: "custom",
+                  isValid: mauiExpression(
+                    isValidIpv4CidrAddress(
+                      $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.IgwOracleBgpIp],
+                    ),
+                  ),
+                  message: Messages.VirtualCircuit.form.ipInvalidError,
+                },
+              ],
+            },
+            {
+              type: "TextInput",
+              name: VirtualCircuitFieldNames.IgwRemoteBgpIp,
+              label: Messages.VirtualCircuit.form.igwRemoteIpv4,
+              hint: Messages.VirtualCircuit.form.customerIpHint,
+              validators: [
+                {
+                  type: "required",
+                  message: Messages.VirtualCircuit.form.ipMissingError,
+                },
+                {
+                  type: "max-length",
+                  maxLength: validationRules.ipMaxLength,
+                  message: Messages.VirtualCircuit.form.ipLengthError(
+                    String(validationRules.ipMinLength),
+                    String(validationRules.ipMaxLength),
+                  ),
+                },
+                {
+                  type: "custom",
+                  isValid: mauiExpression(
+                    isValidIpv4CidrAddress(
+                      $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.IgwRemoteBgpIp],
+                    ),
+                  ),
+                  message: Messages.VirtualCircuit.form.ipInvalidError,
+                },
+              ],
+            },
+            {
+              type: "TextInput",
+              name: VirtualCircuitFieldNames.IgwOracleBgpIpv6,
+              label: Messages.VirtualCircuit.form.igwOracleIpv6,
+              hint: Messages.VirtualCircuit.form.ipv6Hint,
+              validators: [
+                {
+                  type: "max-length",
+                  maxLength: validationRules.ipMaxLength,
+                  message: Messages.VirtualCircuit.form.ipLengthError(
+                    String(validationRules.ipMinLength),
+                    String(validationRules.ipMaxLength),
+                  ),
+                },
+                {
+                  type: "custom",
+                  isValid: mauiExpression(
+                    isValidIpv6CidrAddress(
+                      $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.IgwOracleBgpIpv6],
+                    ),
+                  ),
+                  message: Messages.VirtualCircuit.form.ipInvalidError,
+                },
+              ],
+              optional: true,
+            },
+            {
+              type: "TextInput",
+              name: VirtualCircuitFieldNames.IgwRemoteBgpIpv6,
+              label: Messages.VirtualCircuit.form.igwRemoteIpv6,
+              hint: Messages.VirtualCircuit.form.ipv6Hint,
+              validators: [
+                {
+                  type: "max-length",
+                  maxLength: validationRules.ipMaxLength,
+                  message: Messages.VirtualCircuit.form.ipLengthError(
+                    String(validationRules.ipMinLength),
+                    String(validationRules.ipMaxLength),
+                  ),
+                },
+                {
+                  type: "custom",
+                  isValid: mauiExpression(
+                    isValidIpv6CidrAddress(
+                      $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.IgwRemoteBgpIpv6],
+                    ),
+                  ),
+                  message: Messages.VirtualCircuit.form.ipInvalidError,
+                },
+              ],
+              optional: true,
+            },
+            {
+              type: "TextInput",
+              name: VirtualCircuitFieldNames.IgwPeerName,
+              label: Messages.VirtualCircuit.form.igwPeerName,
+              validators: [
+                {
+                  type: "required",
+                  message: Messages.VirtualCircuit.form.ipMissingError,
+                },
+              ],
+            },
+            {
+              type: "Select",
+              name: VirtualCircuitFieldNames.IgwPeerType,
+              label: Messages.VirtualCircuit.form.igwPeerType,
+              options: [
+                { label: "TRANSIT", value: "TRANSIT" },
+                { label: "PEER", value: "PEER" },
+              ],
+              validators: [
+                {
+                  type: "required",
+                  message: Messages.VirtualCircuit.form.ipMissingError,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
