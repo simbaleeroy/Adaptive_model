@@ -1,29 +1,37 @@
- // Add IGW fields to freeformTags for Internet type
-  const finalFreeformTags = { ...freeformTags };
-  if (type === VirtualCircuitTypeEnum.Internet) {
-    const igwOracleBgpIp = data[VirtualCircuitFieldNames.IgwOracleBgpIp];
-    const igwRemoteBgpIp = data[VirtualCircuitFieldNames.IgwRemoteBgpIp];
-    const igwOracleBgpIpv6 = data[VirtualCircuitFieldNames.IgwOracleBgpIpv6];
-    const igwRemoteBgpIpv6 = data[VirtualCircuitFieldNames.IgwRemoteBgpIpv6];
-    const igwPeerName = data[VirtualCircuitFieldNames.IgwPeerName];
-    const igwPeerType = data[VirtualCircuitFieldNames.IgwPeerType];
-    
-    if (igwOracleBgpIp) {
-      finalFreeformTags[VirtualCircuitFieldNames.IgwOracleBgpIp] = igwOracleBgpIp;
+Full Payload: {
+  "displayName": "Internet virtual circuit",
+  "isBandwidthPolicingEnabled": false,
+  "routingPolicy": [
+    "MARKET_LEVEL"
+  ],
+  "type": "PUBLIC",
+  "compartmentId": "ocid1.tenancy.region1..aaaaaaaad46j2d5jusqi5qulhdeghpe2rz7hsae2rt5ddtgwyjlbl7jdy5qq",
+  "isBfdEnabled": false,
+  "isTransportMode": false,
+  "bandwidthShapeName": "100 Mbps",
+  "customerAsn": 1,
+  "crossConnectMappings": [
+    {
+      "crossConnectOrCrossConnectGroupId": "ocid1.crossconnect.region1.sea.aaaaaaaaldtndwcjtazp6cpkx4mlfa6pdcx3reem47rkhi7ozvhbtwuukp5q",
+      "vlan": 102,
+      "customerBgpPeeringIp": "10.0.0.21/30",
+      "oracleBgpPeeringIp": "10.0.0.21/30",
+      "igwOracleBgpIp": "3.3.3.1/30",
+      "igwRemoteBgpIp": "3.3.3.2/30",
+      "igwOracleBgpIpv6": "2001::0/128",
+      "igwRemoteBgpIpv6": "2001::1/128",
+      "igwPeerName": "test",
+      "igwPeerType": "TRANSIT"
     }
-    if (igwRemoteBgpIp) {
-      finalFreeformTags[VirtualCircuitFieldNames.IgwRemoteBgpIp] = igwRemoteBgpIp;
-    }
-    if (igwOracleBgpIpv6) {
-      finalFreeformTags[VirtualCircuitFieldNames.IgwOracleBgpIpv6] = igwOracleBgpIpv6;
-    }
-    if (igwRemoteBgpIpv6) {
-      finalFreeformTags[VirtualCircuitFieldNames.IgwRemoteBgpIpv6] = igwRemoteBgpIpv6;
-    }
-    if (igwPeerName) {
-      finalFreeformTags[VirtualCircuitFieldNames.IgwPeerName] = igwPeerName;
-    }
-    if (igwPeerType) {
-      finalFreeformTags[VirtualCircuitFieldNames.IgwPeerType] = igwPeerType;
-    }
-  }
+  ],
+  "freeformTags": {
+    "igwOracleBgpIp": "3.3.3.1/30",
+    "igwRemoteBgpIp": "3.3.3.2/30",
+    "igwOracleBgpIpv6": "2001::0/128",
+    "igwRemoteBgpIpv6": "2001::1/128",
+    "igwPeerName": "test",
+    "igwPeerType": "TRANSIT"
+  },
+  "definedTags": {},
+  "publicPrefixes": []
+}
