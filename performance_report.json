@@ -1,4 +1,29 @@
-predicate: mauiExpression(
-        $virtualCircuit?.providerServiceId ||
-          $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.ProviderServiceId],
-      ),
+ // Add IGW fields to freeformTags for Internet type
+  const finalFreeformTags = { ...freeformTags };
+  if (type === VirtualCircuitTypeEnum.Internet) {
+    const igwOracleBgpIp = data[VirtualCircuitFieldNames.IgwOracleBgpIp];
+    const igwRemoteBgpIp = data[VirtualCircuitFieldNames.IgwRemoteBgpIp];
+    const igwOracleBgpIpv6 = data[VirtualCircuitFieldNames.IgwOracleBgpIpv6];
+    const igwRemoteBgpIpv6 = data[VirtualCircuitFieldNames.IgwRemoteBgpIpv6];
+    const igwPeerName = data[VirtualCircuitFieldNames.IgwPeerName];
+    const igwPeerType = data[VirtualCircuitFieldNames.IgwPeerType];
+    
+    if (igwOracleBgpIp) {
+      finalFreeformTags[VirtualCircuitFieldNames.IgwOracleBgpIp] = igwOracleBgpIp;
+    }
+    if (igwRemoteBgpIp) {
+      finalFreeformTags[VirtualCircuitFieldNames.IgwRemoteBgpIp] = igwRemoteBgpIp;
+    }
+    if (igwOracleBgpIpv6) {
+      finalFreeformTags[VirtualCircuitFieldNames.IgwOracleBgpIpv6] = igwOracleBgpIpv6;
+    }
+    if (igwRemoteBgpIpv6) {
+      finalFreeformTags[VirtualCircuitFieldNames.IgwRemoteBgpIpv6] = igwRemoteBgpIpv6;
+    }
+    if (igwPeerName) {
+      finalFreeformTags[VirtualCircuitFieldNames.IgwPeerName] = igwPeerName;
+    }
+    if (igwPeerType) {
+      finalFreeformTags[VirtualCircuitFieldNames.IgwPeerType] = igwPeerType;
+    }
+  }
