@@ -1,3 +1,4 @@
-export const isInternetType = (type: string): boolean => {
-  return type === VirtualCircuitTypeEnum.Internet || type === "PUBLIC_INTERNET";
-};
+!isInternetType(
+            $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+              $virtualCircuit?.type,
+          ),
