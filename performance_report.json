@@ -1,12 +1,15 @@
-// Add crossConnectOrCrossConnectGroupId and vlan to payload if showing
-      // For Internet type, always include crossConnectOrCrossConnectGroupId even if VLAN input is not shown
-      if (vlanInputShowing || type === VirtualCircuitTypeEnum.Internet) {
-        mapping[VirtualCircuitFieldNames.CrossConnectOrCrossConnectGroupId] =
-          crossConnectOrCrossConnectGroupId;
-        if (vlanInputShowing) {
-          mapping[VirtualCircuitFieldNames.Vlan] = vlan;
-        } else if (type === VirtualCircuitTypeEnum.Internet) {
-          // Hardcode VLAN to 102 for Internet type
-          mapping[VirtualCircuitFieldNames.Vlan] = 102;
-        }
+ // Add IGW fields for Internet type
+      if (type === VirtualCircuitTypeEnum.Internet && i === 0) {
+        mapping[VirtualCircuitFieldNames.IgwOracleBgpIp] =
+          data[VirtualCircuitFieldNames.IgwOracleBgpIp] || undefined;
+        mapping[VirtualCircuitFieldNames.IgwRemoteBgpIp] =
+          data[VirtualCircuitFieldNames.IgwRemoteBgpIp] || undefined;
+        mapping[VirtualCircuitFieldNames.IgwOracleBgpIpv6] =
+          data[VirtualCircuitFieldNames.IgwOracleBgpIpv6] || undefined;
+        mapping[VirtualCircuitFieldNames.IgwRemoteBgpIpv6] =
+          data[VirtualCircuitFieldNames.IgwRemoteBgpIpv6] || undefined;
+        mapping[VirtualCircuitFieldNames.IgwPeerName] =
+          data[VirtualCircuitFieldNames.IgwPeerName] || undefined;
+        mapping[VirtualCircuitFieldNames.IgwPeerType] =
+          data[VirtualCircuitFieldNames.IgwPeerType] || undefined;
       }
