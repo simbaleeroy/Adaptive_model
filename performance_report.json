@@ -1,27 +1,28 @@
-Form providerServiceId: undefined virtualcircuit.ts:1195:1
-Full Payload: {
-  "displayName": "Internet virtual circuit",
-  "isBandwidthPolicingEnabled": false,
-  "type": "INTERNET",
-  "compartmentId": "ocid1.tenancy.region1..aaaaaaaad46j2d5jusqi5qulhdeghpe2rz7hsae2rt5ddtgwyjlbl7jdy5qq",
-  "isBfdEnabled": false,
-  "isTransportMode": false,
-  "bandwidthShapeName": "100 Mbps",
-  "customerAsn": 1,
-  "crossConnectMappings": [
-    {
-      "crossConnectOrCrossConnectGroupId": "ocid1.crossconnect.region1.sea.aaaaaaaaldtndwcjtazp6cpkx4mlfa6pdcx3reem47rkhi7ozvhbtwuukp5q",
-      "vlan": 102,
-      "customerBgpPeeringIp": "10.0.0.21/30",
-      "oracleBgpPeeringIp": "10.0.1.21/30",
-      "igwOracleBgpIp": "3.3.3.1/30",
-      "igwRemoteBgpIp": "3.3.3.2/30",
-      "igwOracleBgpIpv6": "2001::0/128",
-      "igwRemoteBgpIpv6": "2001::1/128",
-      "igwPeerName": "test",
-      "igwPeerType": "TRANSIT"
-    }
-  ],
-  "freeformTags": {},
-  "definedTags": {}
-}
+{
+      type: "ConditionalRender",
+      predicate: mauiExpression(!$isEdit && !isProviderTenant($app.consoleState)),
+      content: [
+        {
+          type: "Select",
+          name: VirtualCircuitFieldNames.ProviderServiceId,
+          label: Messages.FastConnect.create.partner,
+          placeholder: Messages.VirtualCircuit.form.selectAValue,
+          options: mauiExpression(
+            getProviderServiceOptions(
+              CoreServicesApi.ListFastConnectProviderServices?.response()?.data,
+            ),
+          ),
+          defaultValue: mauiExpression(
+            $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.ProviderServiceId] ||
+              CoreServicesApi.ListFastConnectProviderServices?.response()?.data?.[0]?.id,
+          ),
+          validators: [
+            {
+              type: "required",
+              message: Messages.FastConnect.create.partnerError,
+            },
+          ],
+          onChangeAction: [VirtualCircuitDetailsActions.shouldGetFastConnectProviderService],
+        },
+      ],
+    },
