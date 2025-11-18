@@ -1,15 +1,6 @@
- // Add IGW fields for Internet type
-      if (type === VirtualCircuitTypeEnum.Internet && i === 0) {
-        mapping[VirtualCircuitFieldNames.IgwOracleBgpIp] =
-          data[VirtualCircuitFieldNames.IgwOracleBgpIp] || undefined;
-        mapping[VirtualCircuitFieldNames.IgwRemoteBgpIp] =
-          data[VirtualCircuitFieldNames.IgwRemoteBgpIp] || undefined;
-        mapping[VirtualCircuitFieldNames.IgwOracleBgpIpv6] =
-          data[VirtualCircuitFieldNames.IgwOracleBgpIpv6] || undefined;
-        mapping[VirtualCircuitFieldNames.IgwRemoteBgpIpv6] =
-          data[VirtualCircuitFieldNames.IgwRemoteBgpIpv6] || undefined;
-        mapping[VirtualCircuitFieldNames.IgwPeerName] =
-          data[VirtualCircuitFieldNames.IgwPeerName] || undefined;
-        mapping[VirtualCircuitFieldNames.IgwPeerType] =
-          data[VirtualCircuitFieldNames.IgwPeerType] || undefined;
-      }
+ // Debug: Log the payload being sent to API
+  console.log("=== CreateVirtualCircuit Payload ===");
+  console.log("Type:", subFormValues[VirtualCircuitFieldNames.Type]);
+  console.log("Full Payload:", JSON.stringify(createVirtualCircuitDetails, null, 2));
+  console.log("====================================");
+  
