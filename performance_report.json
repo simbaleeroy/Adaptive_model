@@ -1,7 +1,2 @@
- ((($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-              $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet) ||
-            shouldShowIpFields(
-              $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-                $virtualCircuit?.type,
-              $user?.providerService,
-            )),
+ ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+            $virtualCircuit?.type) !== VirtualCircuitTypeEnum.Internet &&
