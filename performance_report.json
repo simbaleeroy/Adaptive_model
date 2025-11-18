@@ -1,4 +1,5 @@
-disabled: mauiExpression(
-            ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-              $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet,
-          ),
+ // Hardcode VLAN to 102 for Internet type
+    const vlanString: string =
+      type === VirtualCircuitTypeEnum.Internet
+        ? "102"
+        : data[VirtualCircuitFieldNames.Vlan] || undefined;
