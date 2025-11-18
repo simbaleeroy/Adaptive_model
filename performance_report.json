@@ -1,3 +1,4 @@
+
 import { apiClients } from "@shared/api";
 
 import { VirtualCircuit } from "@clients/CoreServicesApi";
@@ -544,73 +545,50 @@ const VirtualCircuitSubForm: Template["content"]["1.0.6"] = {
         },
       ],
     },
-    /* VLAN - Only show for Direct VCs */
+    /* VLAN - Only show for Direct VCs (exclude Internet type) */
     {
       type: "ConditionalRender",
       predicate: mauiExpression(
-        $isEdit
+        ($isEdit
           ? $virtualCircuit?.type &&
               !$virtualCircuit?.providerServiceId &&
               !isProviderTenant($app.consoleState)
-          : $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type],
+          : $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type]) &&
+          ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+            $virtualCircuit?.type) !== VirtualCircuitTypeEnum.Internet,
       ),
       content: [
         {
-          type: "ConditionalRender",
-          predicate: mauiExpression(
-            ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-              $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet,
-          ),
-          content: [
+          type: "NumberInput",
+          name: VirtualCircuitFieldNames.Vlan,
+          label: Messages.VirtualCircuit.form.vlan,
+          min: validationRules.vlanMinValue,
+          max: validationRules.vlanMaxValue,
+          validators: [
             {
-              type: "TextInput",
-              name: VirtualCircuitFieldNames.Vlan,
-              label: Messages.VirtualCircuit.form.vlan,
-              value: "102",
-              readOnly: true,
+              type: "required",
+              message: Messages.VirtualCircuit.form.vlanError,
             },
-          ],
-        },
-        {
-          type: "ConditionalRender",
-          predicate: mauiExpression(
-            ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-              $virtualCircuit?.type) !== VirtualCircuitTypeEnum.Internet,
-          ),
-          content: [
             {
-              type: "NumberInput",
-              name: VirtualCircuitFieldNames.Vlan,
-              label: Messages.VirtualCircuit.form.vlan,
+              type: "min",
               min: validationRules.vlanMinValue,
+              message: Messages.VirtualCircuit.form.vlanValueError(
+                String(validationRules.vlanMinValue),
+                String(validationRules.vlanMaxValue),
+              ),
+            },
+            {
+              type: "max",
               max: validationRules.vlanMaxValue,
-              validators: [
-                {
-                  type: "required",
-                  message: Messages.VirtualCircuit.form.vlanError,
-                },
-                {
-                  type: "min",
-                  min: validationRules.vlanMinValue,
-                  message: Messages.VirtualCircuit.form.vlanValueError(
-                    String(validationRules.vlanMinValue),
-                    String(validationRules.vlanMaxValue),
-                  ),
-                },
-                {
-                  type: "max",
-                  max: validationRules.vlanMaxValue,
-                  message: Messages.VirtualCircuit.form.vlanValueError(
-                    String(validationRules.vlanMinValue),
-                    String(validationRules.vlanMaxValue),
-                  ),
-                },
-              ],
-              defaultValue: mauiExpression(
-                $virtualCircuit?.crossConnectMappings?.[0]?.vlan,
+              message: Messages.VirtualCircuit.form.vlanValueError(
+                String(validationRules.vlanMinValue),
+                String(validationRules.vlanMaxValue),
               ),
             },
           ],
+          defaultValue: mauiExpression(
+            $virtualCircuit?.crossConnectMappings?.[0]?.vlan,
+          ),
         },
       ],
     },
@@ -619,8 +597,8 @@ const VirtualCircuitSubForm: Template["content"]["1.0.6"] = {
       type: "ConditionalRender",
       predicate: mauiExpression(
         !isProviderTenant($app.consoleState) &&
-         ((($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-              $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet) ||
+          (($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+              $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet ||
             shouldShowIpFields(
               $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
                 $virtualCircuit?.type,
@@ -1537,70 +1515,13 @@ const VirtualCircuitSubForm: Template["content"]["1.0.6"] = {
             {
               type: "ConditionalRender",
               predicate: mauiExpression(
-                $isEdit
-                  ? $virtualCircuit?.type && !$virtualCircuit?.providerServiceId
-                  : $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type],
-              ),
-              content: [
-                {
-                  type: "ConditionalRender",
-                  predicate: mauiExpression(
-                    ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-                      $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet,
+                (($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+                    $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet) ||
+                  shouldShowIpFields(
+                    $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+                      $virtualCircuit?.type,
+                    $user?.providerService,
                   ),
-                  content: [
-                    {
-                      type: "TextInput",
-                      name: VirtualCircuitFieldNames.VlanRcc2,
-                      label: Messages.VirtualCircuit.form.vlan,
-                      value: "102",
-                      readOnly: true,
-                    },
-                  ],
-                },
-                {
-                  type: "ConditionalRender",
-                  predicate: mauiExpression(
-                    ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-                      $virtualCircuit?.type) !== VirtualCircuitTypeEnum.Internet,
-                  ),
-                  content: [
-                    {
-                      type: "NumberInput",
-                      name: VirtualCircuitFieldNames.VlanRcc2,
-                      label: Messages.VirtualCircuit.form.vlan,
-                      min: validationRules.vlanMinValue,
-                      max: validationRules.vlanMaxValue,
-                      validators: [
-                        {
-                          type: "required",
-                          message: Messages.VirtualCircuit.form.vlanError,
-                        },
-                        {
-                          type: "max",
-                          max: validationRules.vlanMaxValue,
-                          message: Messages.VirtualCircuit.form.vlanValueError(
-                            String(validationRules.vlanMinValue),
-                            String(validationRules.vlanMaxValue),
-                          ),
-                        },
-                      ],
-                      defaultValue: mauiExpression(
-                        $virtualCircuit?.crossConnectMappings?.[1]?.vlan,
-                      ),
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              type: "ConditionalRender",
-              predicate: mauiExpression(
-                shouldShowIpFields(
-                  $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-                    $virtualCircuit?.type,
-                  $user?.providerService,
-                ),
               ),
               content: [
                 {
@@ -2047,61 +1968,6 @@ const VirtualCircuitSubForm: Template["content"]["1.0.6"] = {
                         ),
                       ),
                       message: Messages.Partner.form.duplicateCcOrCcgError,
-                    },
-                  ],
-                },
-                {
-                  type: "ConditionalRender",
-                  predicate: mauiExpression(
-                    ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-                      $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet,
-                  ),
-                  content: [
-                    {
-                      type: "TextInput",
-                      name: VirtualCircuitFieldNames.Vlan,
-                      label: Messages.VirtualCircuit.form.vlan,
-                      value: "102",
-                      readOnly: true,
-                    },
-                  ],
-                },
-                {
-                  type: "ConditionalRender",
-                  predicate: mauiExpression(
-                    ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-                      $virtualCircuit?.type) !== VirtualCircuitTypeEnum.Internet,
-                  ),
-                  content: [
-                    {
-                      type: "NumberInput",
-                      name: VirtualCircuitFieldNames.Vlan,
-                      label: Messages.VirtualCircuit.form.vlan,
-                      validators: [
-                        {
-                          type: "required",
-                          message: Messages.VirtualCircuit.form.vlanError,
-                        },
-                        {
-                          type: "min",
-                          min: validationRules.vlanMinValue,
-                          message: Messages.VirtualCircuit.form.vlanValueError(
-                            String(validationRules.vlanMinValue),
-                            String(validationRules.vlanMaxValue),
-                          ),
-                        },
-                        {
-                          type: "max",
-                          max: validationRules.vlanMaxValue,
-                          message: Messages.VirtualCircuit.form.vlanValueError(
-                            String(validationRules.vlanMinValue),
-                            String(validationRules.vlanMaxValue),
-                          ),
-                        },
-                      ],
-                      defaultValue: mauiExpression(
-                        $virtualCircuit.crossConnectMappings?.[fieldArray?.index]?.vlan,
-                      ),
                     },
                   ],
                 },
