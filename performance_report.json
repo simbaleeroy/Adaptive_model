@@ -1,2 +1,4 @@
-($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-                          $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet ||
+ predicate: mauiExpression(
+                ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+                  $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet ||
+                  $user?.providerService?.requiredTotalCrossConnects === 2,
