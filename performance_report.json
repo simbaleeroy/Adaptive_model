@@ -1,23 +1,10 @@
-Full Payload: {
-  "isBandwidthPolicingEnabled": false,
-  "routingPolicy": [
-    "MARKET_LEVEL"
-  ],
-  "type": "PUBLIC",
-  "compartmentId": "ocid1.tenancy.region1..aaaaaaaad46j2d5jusqi5qulhdeghpe2rz7hsae2rt5ddtgwyjlbl7jdy5qq",
-  "ipMtu": "MTU_1500",
-  "isBfdEnabled": false,
-  "isTransportMode": false,
-  "bandwidthShapeName": "100 Mbps",
-  "customerAsn": 1,
-  "crossConnectMappings": [
-    {
-      "crossConnectOrCrossConnectGroupId": "ocid1.crossconnect.region1.sea.aaaaaaaaldtndwcjtazp6cpkx4mlfa6pdcx3reem47rkhi7ozvhbtwuukp5q",
-      "vlan": 101
-    }
-  ],
-  "freeformTags": {
-    "tagKey1": "tagValue1"
-  },
-  "definedTags": {},
-  "publicPrefixes": []
+ defaultValue: mauiExpression(
+                $virtualCircuit?.gatewayId ||
+                  $user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.GatewayId] ||
+                  (
+                    ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+                      $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet
+                      ? CoreServicesApi.ListDrgs?.response()?.data?.[0]?.id
+                      : undefined
+                  ),
+              ),
