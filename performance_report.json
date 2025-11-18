@@ -1,37 +1,2934 @@
-Full Payload: {
-  "displayName": "Internet virtual circuit",
-  "isBandwidthPolicingEnabled": false,
-  "routingPolicy": [
-    "MARKET_LEVEL"
-  ],
-  "type": "PUBLIC",
-  "compartmentId": "ocid1.tenancy.region1..aaaaaaaad46j2d5jusqi5qulhdeghpe2rz7hsae2rt5ddtgwyjlbl7jdy5qq",
-  "isBfdEnabled": false,
-  "isTransportMode": false,
-  "bandwidthShapeName": "100 Mbps",
-  "customerAsn": 1,
-  "crossConnectMappings": [
+import { BulkQueryResponse } from "@oci-maui/gateway-types";
+import {
+  AppState,
+  BreadCrumbItem,
+  Compartment,
+  ConsoleState,
+  MauiRenderEngineRef,
+  toMauiExpressionResultFunction,
+  UserState,
+} from "@oci-maui/render-engine-types";
+
+import {
+  CrossConnect,
+  CrossConnectGroup,
+  CrossConnectMapping,
+  DrgAttachment,
+  FastConnectProviderService,
+  VirtualCircuit,
+  VirtualCircuitLifecycleStateEnum as ApiVirtualCircuitLifecycleStateEnum,
+  VirtualCircuitServiceTypeEnum as ApiVirtualCircuitServiceTypeEnum,
+} from "@clients/CoreServicesApi";
+import {
+  CoreServicesApi,
+  DEFINITION_CoreServicesApi_CrossConnect,
+  DEFINITION_CoreServicesApi_CrossConnectGroup,
+  DEFINITION_CoreServicesApi_CrossConnectPortSpeedShape,
+  DEFINITION_CoreServicesApi_Drg,
+  DEFINITION_CoreServicesApi_DrgAttachment,
+  DEFINITION_CoreServicesApi_FastConnectProviderService,
+  DEFINITION_CoreServicesApi_QosBandwidthReservationTemplateShape,
+  DEFINITION_CoreServicesApi_VirtualCircuit,
+  DEFINITION_CoreServicesApi_VirtualCircuitAssociatedTunnelDetails,
+  DEFINITION_CoreServicesApi_VirtualCircuitBandwidthShape,
+} from "../../../gen/clientUtils";
+
+import Messages, { MessagesKeys } from "@messages";
+
+import { VirtualCircuitDetailsActions } from "../common/actions";
+import { isProviderTenant } from "../common/capabilities";
+import {
+  colocatedDefaults,
+  RouterProximityType,
+  stringRcc2,
+  unprotectedTrafficAllowed,
+} from "../common/constants";
+import { IntentId } from "../common/id";
+import {
+  ActionResult,
+  BgpSessionInfoBgpStateEnum,
+  ConnectionType,
+  CrossConnectGroupLifecycleStateEnum,
+  CrossConnectLifecycleStateEnum,
+  DrgAttachmentLifecycleState,
+  FastConnectProviderServiceCustomerAsnManagementEnum,
+  FastConnectProviderServiceManagementEnum,
+  FastConnectProviderServicePrivatePeeringBgpManagementEnum,
+  FastConnectProviderServicePublicPeeringBgpManagementEnum,
+  FastConnectProviderServiceRoutingPolicyEnum,
+  FastConnectProviderServiceSupportedVirtualCircuitTypesEnum,
+  FastConnectProviderServiceTypeEnum,
+  FastConnectType,
+  FormValues,
+  lifecycleStatusType,
+  MauiDataActionResult,
+  MauiTranslate,
+  SelectOption,
+  TerraformResourceTypes,
+  TransportTrafficType,
+  UiCrossConnect,
+  UiCrossConnectGroup,
+  VirtualCircuitLifecycleStateEnum,
+  VirtualCircuitServiceTypeEnum,
+  VirtualCircuitTypeEnum,
+} from "../common/types";
+import {
+  getChangedProperties,
+  getCurrentCreateFlowType,
+  getDataFromKey,
+  getIndexedFieldName,
+  getMakePluginUrl,
+} from "../common/utils";
+import { getVirtualCircuitsResponse } from "../listing";
+import {
+  isIPSecOverFCEnabled,
+  isPrivateVC,
+  isProviderATT,
+  transformPublicPrefixes,
+  whitelistBandwidthPolicing,
+  whitelistBfd,
+} from "../virtual-circuit";
+
+import { VCTypeEnum } from "./createFC";
+import { CrossConnectFieldNames, CrossConnectType } from "./crossconnects";
+
+export function getVirtualCircuitBreadcrumbs(
+  path: string,
+  crossConnectId: string,
+  t: MauiTranslate,
+  isProviderTenant: boolean,
+  isNewIa?: boolean,
+  isCustomerConnectivityOverviewPageEnabled?: boolean,
+): BreadCrumbItem[] {
+  const subpath = ["cross-connect-group/", "cross-connect/"].find(key => path.includes(key));
+  const providerPath = isProviderTenant ? "provider/" : "";
+  let breadCrumbItems: BreadCrumbItem[] = [
     {
-      "crossConnectOrCrossConnectGroupId": "ocid1.crossconnect.region1.sea.aaaaaaaaldtndwcjtazp6cpkx4mlfa6pdcx3reem47rkhi7ozvhbtwuukp5q",
-      "vlan": 102,
-      "customerBgpPeeringIp": "10.0.0.21/30",
-      "oracleBgpPeeringIp": "10.0.0.21/30",
-      "igwOracleBgpIp": "3.3.3.1/30",
-      "igwRemoteBgpIp": "3.3.3.2/30",
-      "igwOracleBgpIpv6": "2001::0/128",
-      "igwRemoteBgpIpv6": "2001::1/128",
-      "igwPeerName": "test",
-      "igwPeerType": "TRANSIT"
-    }
-  ],
-  "freeformTags": {
-    "igwOracleBgpIp": "3.3.3.1/30",
-    "igwRemoteBgpIp": "3.3.3.2/30",
-    "igwOracleBgpIpv6": "2001::0/128",
-    "igwRemoteBgpIpv6": "2001::1/128",
-    "igwPeerName": "test",
-    "igwPeerType": "TRANSIT"
-  },
-  "definedTags": {},
-  "publicPrefixes": []
+      id: "networking-title",
+      label: t(MessagesKeys.breadcrumb.networking),
+      href: "/networking",
+    },
+    {
+      id: "fast-connect",
+      label: t(MessagesKeys.breadcrumb.fastConnect),
+      href: `/networking/fast-connect/${providerPath}`,
+    },
+    // Show VC subresource breadcrumb if comes from cross connect
+    ...(subpath
+      ? [
+          {
+            id: "virtual-circuits",
+            label: t(MessagesKeys.breadcrumb.virtualCircuits),
+            href: `/networking/fast-connect/${providerPath}${subpath}${crossConnectId}/virtual-circuits`,
+          },
+        ]
+      : []),
+    {
+      id: "virtual-circuit",
+      label: t(MessagesKeys.breadcrumb.connectionDetails),
+      current: "page",
+    },
+  ];
+  if (isNewIa) {
+    breadCrumbItems = [
+      ...breadCrumbItems.slice(0, 1),
+      {
+        id: "customer-connectivity",
+        label: t(MessagesKeys.breadcrumb.customerConnectivity),
+        href: isCustomerConnectivityOverviewPageEnabled
+          ? "/networking/customer-connectivity"
+          : undefined,
+      },
+      ...breadCrumbItems.slice(1),
+    ];
+  }
+  return breadCrumbItems;
 }
+
+export function getVirtualCircuitConnectionType(
+  serviceType: ApiVirtualCircuitServiceTypeEnum,
+): ConnectionType {
+  return serviceType && serviceType === VirtualCircuitServiceTypeEnum.Colocated
+    ? ConnectionType.Colocated
+    : ConnectionType.Provider;
+}
+
+export function disableVirtualCircuitUpdate(
+  lifeCycleState: ApiVirtualCircuitLifecycleStateEnum,
+): boolean {
+  return ["PROVISIONING", "TERMINATING", "FAILED"].includes(lifeCycleState);
+}
+
+export function disableVirtualCircuitDelete(
+  lifeCycleState: ApiVirtualCircuitLifecycleStateEnum,
+): boolean {
+  return [
+    "TERMINATING",
+    // "FAILED"
+  ].includes(lifeCycleState);
+}
+export const virtualCircuitLifecycleMap = (t: MauiRenderEngineRef["tFn"]) => [
+  {
+    lifecycle: VirtualCircuitLifecycleStateEnum.Provisioning,
+    label: t(MessagesKeys.FastConnect.lifecycleState.provisioning),
+    status: lifecycleStatusType.Warning,
+  },
+  {
+    lifecycle: VirtualCircuitLifecycleStateEnum.Provisioned,
+    label: t(MessagesKeys.FastConnect.lifecycleState.provisioned),
+    status: lifecycleStatusType.Success,
+  },
+  {
+    lifecycle: VirtualCircuitLifecycleStateEnum.Inactive,
+    label: t(MessagesKeys.FastConnect.lifecycleState.inactive),
+    status: lifecycleStatusType.Muted,
+  },
+  {
+    lifecycle: VirtualCircuitLifecycleStateEnum.Terminating,
+    label: t(MessagesKeys.FastConnect.lifecycleState.terminating),
+    status: lifecycleStatusType.Warning,
+  },
+  {
+    lifecycle: VirtualCircuitLifecycleStateEnum.Terminated,
+    label: t(MessagesKeys.FastConnect.lifecycleState.terminated),
+    status: lifecycleStatusType.Muted,
+  },
+  {
+    lifecycle: VirtualCircuitLifecycleStateEnum.PendingProvider,
+    label: t(MessagesKeys.FastConnect.lifecycleState.pendingPartner),
+    status: lifecycleStatusType.Warning,
+  },
+  {
+    lifecycle: VirtualCircuitLifecycleStateEnum.Verifying,
+    label: t(MessagesKeys.FastConnect.lifecycleState.verifying),
+    status: lifecycleStatusType.Warning,
+  },
+  {
+    lifecycle: VirtualCircuitLifecycleStateEnum.Failed,
+    label: t(MessagesKeys.FastConnect.lifecycleState.failed),
+    status: lifecycleStatusType.Warning,
+  },
+];
+
+export const BgpSessionLifecycleStateMap = (t: MauiRenderEngineRef["tFn"]) => [
+  {
+    lifecycle: BgpSessionInfoBgpStateEnum.Up,
+    label: t(MessagesKeys.Bgp.lifecycleState.up),
+    status: lifecycleStatusType.Success,
+  },
+  {
+    lifecycle: BgpSessionInfoBgpStateEnum.Down,
+    label: t(MessagesKeys.Bgp.lifecycleState.down),
+    status: lifecycleStatusType.Muted,
+  },
+];
+
+export const getDrgLinkHref = (drgId: string) => {
+  if (!drgId) return "";
+  return `/networking/drgs/${drgId}`;
+};
+
+export const getDrgAttachmentLinkHref = (drgId: string, attachmentId: string) => {
+  if (!drgId || !attachmentId) return "";
+  return `/networking/drgs/${drgId}/drg-attachment/${attachmentId}`;
+};
+
+export const getDrgAttachmentLifeCycleStateColor = (state: string): string => {
+  switch (state) {
+    case DrgAttachmentLifecycleState.Attaching:
+    case DrgAttachmentLifecycleState.Detaching:
+      return "warning";
+    case DrgAttachmentLifecycleState.Detached:
+    case DrgAttachmentLifecycleState.Updating:
+      return "mute";
+    case DrgAttachmentLifecycleState.Attached:
+      return "active";
+    default:
+      return "mute";
+  }
+};
+
+export const getDrgAttachmentLifeCycleState = (
+  lifeCycleState: string,
+  t: MauiTranslate,
+): string => {
+  let statusText: string;
+  switch (lifeCycleState) {
+    case DrgAttachmentLifecycleState.Attaching:
+      statusText = MessagesKeys.DrgAttachmentList.statusLabels.attaching;
+      break;
+    case DrgAttachmentLifecycleState.Detaching:
+      statusText = MessagesKeys.DrgAttachmentList.statusLabels.detaching;
+      break;
+    case DrgAttachmentLifecycleState.Detached:
+      statusText = MessagesKeys.DrgAttachmentList.statusLabels.detached;
+      break;
+    case DrgAttachmentLifecycleState.Updating:
+      statusText = MessagesKeys.DrgAttachmentList.statusLabels.updating;
+      break;
+    case DrgAttachmentLifecycleState.Attached:
+      statusText = MessagesKeys.DrgAttachmentList.statusLabels.attached;
+      break;
+    default:
+      statusText = MessagesKeys.FastConnect.lifecycleState.unknown;
+  }
+  return t(statusText);
+};
+
+export const getDrgRouteTableLinkHref = (drgId: string, drgRouteTableId: string) => {
+  if (!drgId || !drgRouteTableId) return "";
+  return `/networking/drgs/${drgId}/drg-route-table/${drgRouteTableId}`;
+};
+
+export const drgDisplayNameFilter = (drg: DEFINITION_CoreServicesApi_Drg) =>
+  toMauiExpressionResultFunction(() => drg.displayName);
+
+export const drgRouteTableNameFilter = (drg: DEFINITION_CoreServicesApi_Drg[]) =>
+  toMauiExpressionResultFunction(
+    (item: DrgAttachment) =>
+      drg?.find(drgRouteTable => item?.drgRouteTableId === drgRouteTable.id)?.displayName,
+  );
+
+export const getFilteredVCFromBulkResponse = (
+  VirtualCircuitBulkRes: BulkQueryResponse<DEFINITION_CoreServicesApi_VirtualCircuit>,
+  ListDrgAttachmentsBulkRes: BulkQueryResponse<DEFINITION_CoreServicesApi_DrgAttachment[]>,
+) => {
+  const VCsResponse = {
+    response: {
+      data:
+        VirtualCircuitBulkRes?.aggregatedResults?.map(virtualCircuit => ({
+          ...virtualCircuit,
+          uiType: FastConnectType.VirtualCircuit,
+        })) || [],
+    },
+    error: VirtualCircuitBulkRes?.error,
+    loading: VirtualCircuitBulkRes?.loading || ListDrgAttachmentsBulkRes?.loading,
+    refreshing: false,
+  };
+  return VCsResponse;
+};
+
+export const getVirtualCircuitList = (
+  isRedundantVC: boolean,
+  VirtualCircuitBulkRes: BulkQueryResponse<DEFINITION_CoreServicesApi_VirtualCircuit>,
+  ListDrgAttachmentsBulkRes: BulkQueryResponse<DEFINITION_CoreServicesApi_DrgAttachment[]>,
+  ListVirtualCircuits: typeof CoreServicesApi.ListVirtualCircuits.datasource,
+  fastConnectId: string,
+) => {
+  if (isRedundantVC) {
+    return getFilteredVCFromBulkResponse(VirtualCircuitBulkRes, ListDrgAttachmentsBulkRes);
+  }
+  return getVirtualCircuitsResponse(ListVirtualCircuits, fastConnectId);
+};
+
+export const getFilteredVirtualCircuitIds = (
+  response: BulkQueryResponse<DEFINITION_CoreServicesApi_DrgAttachment[]>,
+  id: string,
+) => {
+  const virtualCircuitIds = response?.aggregatedResults
+    ?.flat()
+    ?.filter(
+      result =>
+        result?.networkDetails?.type === FastConnectType.VirtualCircuit &&
+        result?.networkDetails?.id !== id,
+    )
+    .map(res => res?.networkDetails?.id);
+  return virtualCircuitIds;
+};
+
+export const getAssociatedVirtualCircuitPath = (
+  fastConnectId: string,
+  row: VirtualCircuit | CrossConnect | CrossConnectGroup,
+  isRedundantVC: boolean,
+  parentId?: string,
+) => {
+  /**
+   * redundantVCFromCrossConnectGroupSubVC: redundant VirtualCircuit path from CrossConnectGroup subresource VirtualCircuit details subresource
+   * redundantVCFromCrossConnectSubVC: redundant VirtualCircuit path from CrossConnect subresource VirtualCircuit details subresource
+   * crossConnectGroupSubVC: VirtualCircuit path from CrossConnectGroup subresource
+   * crossConnectSubVC: VirtualCircuit path from CrossConnect subresource
+   * virtualCircuitSubVC: redundant VirtualCircuit from virtualCircuit subresourcedirectly
+   * */
+  const basePaths = {
+    redundantVCFromCrossConnectGroupSubVC: `/networking/fast-connect/cross-connect-group/${parentId}/virtual-circuit/${row?.id}`,
+    redundantVCFromCrossConnectSubVC: `/networking/fast-connect/cross-connect/${parentId}/virtual-circuit/${row?.id}`,
+    crossConnectGroupSubVC: `/networking/fast-connect/cross-connect-group/${fastConnectId}/virtual-circuit/${row?.id}`,
+    crossConnectSubVC: `/networking/fast-connect/cross-connect/${fastConnectId}/virtual-circuit/${row?.id}`,
+    virtualCircuitSubVC: `/networking/fast-connect/virtual-circuit/${row?.id}`,
+  };
+  let path: string;
+
+  if (isRedundantVC && parentId?.includes("crossconnectgroup")) {
+    path = basePaths.redundantVCFromCrossConnectGroupSubVC;
+  } else if (isRedundantVC && parentId?.includes("crossconnect")) {
+    path = basePaths.redundantVCFromCrossConnectSubVC;
+  } else if (fastConnectId?.includes("crossconnectgroup")) {
+    path = basePaths.crossConnectGroupSubVC;
+  } else if (fastConnectId?.includes("crossconnect")) {
+    path = basePaths.crossConnectSubVC;
+  } else {
+    path = basePaths.virtualCircuitSubVC;
+  }
+
+  return path;
+};
+
+export const getAssociatedVirtualCircuitLink = (
+  fastConnectId: string,
+  row: VirtualCircuit | CrossConnect | CrossConnectGroup,
+  $consoleState: ConsoleState,
+  isRedundantVC: boolean,
+  parentId?: string,
+) => {
+  const path = getAssociatedVirtualCircuitPath(fastConnectId, row, isRedundantVC, parentId);
+  return getMakePluginUrl($consoleState, path);
+};
+export enum VirtualCircuitFieldNames {
+  isBandwidthPolicingEnabled = "isBandwidthPolicingEnabled",
+  AdditionalCrossConnect = "additional-cross-connect",
+  BandwidthShapeName = "bandwidthShapeName",
+  RoutingPolicy = "routingPolicy",
+  BgpMd5AuthKey = "bgpMd5AuthKey",
+  BgpMd5AuthKeyRcc2 = "bgpMd5AuthKeyRcc2",
+  BgpMd5AuthKeyEnabled = "bgpMd5AuthKeyEnabled",
+  BgpMd5AuthKeyEnabledRcc2 = "bgpMd5AuthKeyEnabledRcc2",
+  CompartmentId = "compartmentId",
+  CompartmentIdForCrossConnect = "compartmentIdForCrossConnect",
+  CrossConnectMappings = "crossConnectMappings",
+  CrossConnectOrCrossConnectGroupId = "crossConnectOrCrossConnectGroupId",
+  CrossConnectOrCrossConnectGroupIdRcc2 = "crossConnectOrCrossConnectGroupIdRcc2",
+  CrossConnectOrCrossConnectGroup = "crossConnectOrCrossConnectGroup",
+  CustomerBgpAsn = "customerAsn",
+  CustomerBgpPeeringIp = "customerBgpPeeringIp",
+  CustomerBgpPeeringIpRcc2 = "customerBgpPeeringIpRcc2",
+  CustomerBgpPeeringIpv6 = "customerBgpPeeringIpv6",
+  CustomerBgpPeeringIpv6Rcc2 = "customerBgpPeeringIpv6Rcc2",
+  DisplayName = "displayName",
+  GatewayId = "gatewayId",
+  GatewayCompartment = "gatewayCompartment",
+  Ipv6Enabled = "ipv6Enabled",
+  Ipv6EnabledRcc2 = "ipv6EnabledRcc2",
+  IsBfdEnabled = "isBfdEnabled",
+  BgpAdminState = "bgpAdminState",
+  OracleBgpPeeringIp = "oracleBgpPeeringIp",
+  OracleBgpPeeringIpRcc2 = "oracleBgpPeeringIpRcc2",
+  OracleBgpPeeringIpv6 = "oracleBgpPeeringIpv6",
+  OracleBgpPeeringIpv6Rcc2 = "oracleBgpPeeringIpv6Rcc2",
+  ProviderService = "providerService",
+  ProviderServiceId = "providerServiceId",
+  ProviderServiceKeyName = "providerServiceKeyName",
+  ProviderServiceKeyNameRcc2 = "providerServiceKeyNameRcc2",
+  PublicPrefixes = "publicPrefixes",
+  FreeformTags = "freeformTags",
+  DefinedTags = "definedTags",
+  Tags = "tags",
+  Type = "type",
+  IsTransportMode = "isTransportMode",
+  VirtualCircuitSubForm = "virtualCircuitSubForm",
+  VirtualCircuitSubForm2 = "virtualCircuitSubForm2",
+  Vlan = "vlan",
+  VlanRcc2 = "vlanRcc2",
+  MTU = "ipMtu",
+  isQosBandwidthReservationEnabled = "isQosBandwidthReservationEnabled",
+  qosBandwidthReservationTemplateShapeName = "qosBandwidthReservationTemplateShapeName",
+  ReferenceComment = "referenceComment",
+  ProviderState = "providerState",
+  IgwOracleBgpIp = "igwOracleBgpIp",
+  IgwRemoteBgpIp = "igwRemoteBgpIp",
+  IgwOracleBgpIpv6 = "igwOracleBgpIpv6",
+  IgwRemoteBgpIpv6 = "igwRemoteBgpIpv6",
+  IgwPeerName = "igwPeerName",
+  IgwPeerType = "igwPeerType",
+}
+
+export enum MegaportLoginFieldNames {
+  ApiKey = "apiKey",
+  ApiKeySecret = "apiKeySecret",
+}
+
+export interface EditVirtualCircuitForm {
+  // eslint-disable-next-line
+  [key: string]: any; // Todo remove once types are fixed
+  [VirtualCircuitFieldNames.DisplayName]: string;
+  [VirtualCircuitFieldNames.Type]: string;
+  [VirtualCircuitFieldNames.GatewayCompartment]: Compartment;
+  [VirtualCircuitFieldNames.GatewayId]: string;
+  [VirtualCircuitFieldNames.isBandwidthPolicingEnabled]: boolean;
+  [VirtualCircuitFieldNames.PublicPrefixes]: string; // TODO: check if its string[]
+  [VirtualCircuitFieldNames.CustomerBgpPeeringIp]: string;
+  [VirtualCircuitFieldNames.OracleBgpPeeringIp]: string;
+  [VirtualCircuitFieldNames.Ipv6Enabled]: boolean;
+  [VirtualCircuitFieldNames.CustomerBgpPeeringIpv6]: string;
+  [VirtualCircuitFieldNames.OracleBgpPeeringIpv6]: string;
+  [VirtualCircuitFieldNames.BgpMd5AuthKeyEnabled]: boolean;
+  [VirtualCircuitFieldNames.AdditionalCrossConnect]: string;
+  [VirtualCircuitFieldNames.Ipv6EnabledRcc2]: boolean;
+  [VirtualCircuitFieldNames.BgpMd5AuthKeyEnabledRcc2]: boolean;
+  [VirtualCircuitFieldNames.IsBfdEnabled]: boolean;
+  [VirtualCircuitFieldNames.isQosBandwidthReservationEnabled]: boolean;
+  [VirtualCircuitFieldNames.qosBandwidthReservationTemplateShapeName]: string;
+  [VirtualCircuitFieldNames.CompartmentIdForCrossConnect]: Compartment;
+}
+
+export interface AddVirtualCircuitForm {
+  // eslint-disable-next-line
+  [key: string]: any; // fallback for any extra fields
+
+  [VirtualCircuitFieldNames.DisplayName]?: string;
+  [VirtualCircuitFieldNames.Type]?: string;
+  [VirtualCircuitFieldNames.GatewayCompartment]?: Compartment;
+  [VirtualCircuitFieldNames.GatewayId]?: string;
+  [VirtualCircuitFieldNames.isBandwidthPolicingEnabled]?: boolean;
+  [VirtualCircuitFieldNames.PublicPrefixes]?: string; // or string[]
+  [VirtualCircuitFieldNames.CustomerBgpPeeringIp]?: string; // could be indexed like 0,1
+  [VirtualCircuitFieldNames.OracleBgpPeeringIp]?: string; // could be indexed like 0,1
+  [VirtualCircuitFieldNames.Ipv6Enabled]?: boolean;
+  [VirtualCircuitFieldNames.CustomerBgpPeeringIpv6]?: string;
+  [VirtualCircuitFieldNames.OracleBgpPeeringIpv6]?: string;
+  [VirtualCircuitFieldNames.BgpMd5AuthKeyEnabled]?: boolean;
+  [VirtualCircuitFieldNames.BgpMd5AuthKey]?: string; // for indexed BGP MD5 keys
+  [VirtualCircuitFieldNames.AdditionalCrossConnect]?: string;
+  [VirtualCircuitFieldNames.Ipv6EnabledRcc2]?: boolean;
+  [VirtualCircuitFieldNames.BgpMd5AuthKeyEnabledRcc2]?: boolean;
+  [VirtualCircuitFieldNames.IsBfdEnabled]?: boolean;
+  [VirtualCircuitFieldNames.isQosBandwidthReservationEnabled]?: boolean;
+  [VirtualCircuitFieldNames.qosBandwidthReservationTemplateShapeName]?: string;
+  [VirtualCircuitFieldNames.CompartmentIdForCrossConnect]?: Compartment;
+  [VirtualCircuitFieldNames.Vlan]?: number;
+  [VirtualCircuitFieldNames.MTU]?: string;
+  [VirtualCircuitFieldNames.ProviderServiceId]?: string;
+  [VirtualCircuitFieldNames.ProviderServiceKeyName]?: string;
+  [VirtualCircuitFieldNames.RoutingPolicy]?: string;
+  [VirtualCircuitFieldNames.IsTransportMode]?: string;
+  [VirtualCircuitFieldNames.CustomerBgpAsn]?: number;
+  [VirtualCircuitFieldNames.CrossConnectMappings]?: any;
+  [VirtualCircuitFieldNames.CrossConnectOrCrossConnectGroupId]?: string;
+  [VirtualCircuitFieldNames.CrossConnectOrCrossConnectGroupIdRcc2]?: string;
+  [VirtualCircuitFieldNames.CrossConnectOrCrossConnectGroup]?: string;
+  [VirtualCircuitFieldNames.OracleBgpPeeringIpRcc2]?: string;
+  [VirtualCircuitFieldNames.CustomerBgpPeeringIpRcc2]?: string;
+  [VirtualCircuitFieldNames.OracleBgpPeeringIpv6Rcc2]?: string;
+  [VirtualCircuitFieldNames.CustomerBgpPeeringIpv6Rcc2]?: string;
+  [VirtualCircuitFieldNames.FreeformTags]?: Record<string, string>;
+  [VirtualCircuitFieldNames.DefinedTags]?: Record<string, Record<string, string>>;
+  [VirtualCircuitFieldNames.Tags]?: Record<string, string>;
+}
+
+export interface AddVirtualCircuitStep1Form {
+  // eslint-disable-next-line
+  [key: string]: any; // fallback for any extra fields
+  // Connection type selection: "l1" (partner) or "l2" (Direct)
+  connectionTypeSelect: "l1" | "l2";
+
+  // Redundancy level selection
+  // For "l1": "r1" | "r2", for "l2": "r2" | "r3" | "r4" (based on location count)
+  redundancyLevelSelect: string;
+}
+
+export interface AddVirtualCircuitStep2Form {
+  // eslint-disable-next-line
+  [key: string]: any; // fallback for any extra fields
+
+  // Tracks the current create flow type: type1 | type2 | type3 | type4 | type5
+  flowType: "type1" | "type2" | "type3" | "type4" | "type5";
+}
+
+export interface AddVirtualCircuitReviewForm {
+  // eslint-disable-next-line
+  [key: string]: any; // fallback for any extra fields
+
+  // Tracks the current create flow type: type1 | type2 | type3 | type4 | type5
+  flowType?: "type1" | "type2" | "type3" | "type4" | "type5";
+}
+
+export interface AddVirtualCircuitProgressPanel {
+  // eslint-disable-next-line
+  [key: string]: any; // fallback for any extra fields
+
+  // Tracks the current flow type for determining which groups to show
+  flowType?: "type1" | "type2" | "type3" | "type4" | "type5";
+}
+
+export interface CreateWizard {
+  // eslint-disable-next-line
+  [key: string]: any; // fallback for any extra fields
+}
+
+export const shouldShowTransportMode = ($app: AppState, virtualCircuitType: string) =>
+  isIPSecOverFCEnabled($app) && isPrivateVC(virtualCircuitType);
+
+export const getInitialVirtualCircuitType = (
+  isRedundancyEnabled: boolean,
+  virtualCircuitType: string,
+  providerService: DEFINITION_CoreServicesApi_FastConnectProviderService,
+) => {
+  if (isRedundancyEnabled) {
+    return undefined;
+  }
+  if (virtualCircuitType) {
+    return virtualCircuitType;
+  }
+  return getVirtualCircuitTypeInitialSelection(providerService?.supportedVirtualCircuitTypes);
+};
+
+export const getVirtualCircuitTypeOptions = (
+  supportedTypes: string[],
+  t: MauiTranslate,
+  isLoadingOrError: boolean = false,
+) => [
+  {
+    description: t(MessagesKeys.VirtualCircuit.form.virtualCircuitPrivateBody),
+    disabled:
+      isLoadingOrError ||
+      (supportedTypes && !supportedTypes.includes(VirtualCircuitTypeEnum.Private)),
+    label: t(MessagesKeys.VirtualCircuit.form.virtualCircuitPrivateTitle),
+    value: VirtualCircuitTypeEnum.Private,
+  },
+  {
+    description: t(MessagesKeys.VirtualCircuit.form.virtualCircuitPublicBody),
+    disabled:
+      isLoadingOrError ||
+      (supportedTypes && !supportedTypes.includes(VirtualCircuitTypeEnum.Public)),
+    label: t(MessagesKeys.VirtualCircuit.form.virtualCircuitPublicTitle),
+    value: VirtualCircuitTypeEnum.Public,
+  },
+  {
+    description: t(MessagesKeys.VirtualCircuit.form.virtualCircuitInternetBody),
+    disabled: isLoadingOrError,
+    label: t(MessagesKeys.VirtualCircuit.form.virtualCircuitInternetTitle),
+    value: VirtualCircuitTypeEnum.Internet,
+  },
+];
+
+export const getVirtualCircuitTypeInitialSelection = (supportedTypes: string[]) => {
+  if (!supportedTypes) {
+    return;
+  }
+
+  const includesPrivate = supportedTypes.includes(VirtualCircuitTypeEnum.Private);
+  const includesPublic = supportedTypes.includes(VirtualCircuitTypeEnum.Public);
+  const includesInternet = supportedTypes.includes(VirtualCircuitTypeEnum.Internet);
+  if (!includesPrivate && !includesPublic && !includesInternet) {
+    return;
+  }
+  if (includesPrivate && includesPublic && includesInternet) {
+    return VirtualCircuitTypeEnum.Private;
+  }
+  if (includesPrivate) {
+    return VirtualCircuitTypeEnum.Private;
+  }
+  if (includesPublic) {
+    return VirtualCircuitTypeEnum.Public;
+  }
+  if (includesInternet) {
+    return VirtualCircuitTypeEnum.Internet;
+  }
+};
+
+export const getInitialVirtualCircuitIsTransportMode = (
+  virtualCircuit: VirtualCircuit | undefined,
+) =>
+  virtualCircuit?.isTransportMode
+    ? TransportTrafficType.ipsecTraffic
+    : TransportTrafficType.allTraffic;
+
+export const shouldDisableDrgDropdown = (
+  isEditForm: boolean,
+  associatedTunnels: DEFINITION_CoreServicesApi_VirtualCircuitAssociatedTunnelDetails[],
+) => isEditForm && associatedTunnels?.length > 0;
+
+export const getDrgSelectPlaceHolder = (
+  drgs: DEFINITION_CoreServicesApi_Drg[],
+  t: MauiTranslate,
+  selectedCompartmentName?: string,
+) => {
+  if (!!drgs && drgs?.length > 0) {
+    return t(MessagesKeys.VirtualCircuit.form.selectAValue);
+  }
+  return t(MessagesKeys.VirtualCircuit.form.drgNoneAvailable, selectedCompartmentName);
+};
+
+export const getDrgLabel = (
+  drgs: DEFINITION_CoreServicesApi_Drg[],
+  value: string,
+): string | undefined => {
+  if (!Array.isArray(drgs) || !value) {
+    return undefined;
+  }
+
+  const match = drgs.find(drg => drg.id === value);
+  return match?.displayName;
+};
+
+export const getDrgOptions = (drgs: DEFINITION_CoreServicesApi_Drg[]) =>
+  drgs?.map(drg => {
+    const { displayName, id } = drg;
+    return { label: displayName, value: id };
+  });
+
+export const getProviderServiceLabel = (
+  services: DEFINITION_CoreServicesApi_FastConnectProviderService[],
+  providerServiceId: string,
+): string | undefined => {
+  if (!Array.isArray(services) || !providerServiceId) {
+    return undefined;
+  }
+
+  const service = services.find(s => s.id === providerServiceId);
+  return service ? `${service.providerName}: ${service.providerServiceName}` : undefined;
+};
+
+export const getProviderServiceOptions = (
+  services: DEFINITION_CoreServicesApi_FastConnectProviderService[],
+) =>
+  services
+    ?.map(service => {
+      const { id, providerName, providerServiceName } = service;
+      return {
+        label: `${providerName}: ${providerServiceName}`,
+        value: id,
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+export const getProvisionedBandwidthOptions = (
+  bandwidthShapes: DEFINITION_CoreServicesApi_VirtualCircuitBandwidthShape[],
+) =>
+  bandwidthShapes
+    ?.sort((a, b) => a.bandwidthInMbps - b.bandwidthInMbps)
+    .map(({ name, bandwidthInMbps }) => ({
+      label: name,
+      // value: bandwidthInMbps,
+      value: name,
+    }));
+
+export const shouldShowGatewayElements = (type: string): boolean =>
+  type && type === VirtualCircuitTypeEnum.Private;
+
+export const colocatedProvider = {
+  // @ts-ignore
+  description: null,
+  // @ts-ignore
+  id: null,
+  privatePeeringBgpManagement:
+    FastConnectProviderServicePrivatePeeringBgpManagementEnum.CustomerManaged,
+  // @ts-ignore
+  providerName: null,
+  // @ts-ignore
+  providerServiceName: null,
+  publicPeeringBgpManagement:
+    FastConnectProviderServicePrivatePeeringBgpManagementEnum.OracleManaged,
+  supportedVirtualCircuitTypes: [
+    FastConnectProviderServiceSupportedVirtualCircuitTypesEnum.Private,
+    FastConnectProviderServiceSupportedVirtualCircuitTypesEnum.Public,
+    FastConnectProviderServiceSupportedVirtualCircuitTypesEnum.Internet,
+  ],
+  customerAsnManagement: FastConnectProviderServicePrivatePeeringBgpManagementEnum.CustomerManaged,
+  providerServiceKeyManagement:
+    FastConnectProviderServicePrivatePeeringBgpManagementEnum.OracleManaged,
+  bandwithShapeManagement:
+    FastConnectProviderServicePrivatePeeringBgpManagementEnum.CustomerManaged,
+  requiredTotalCrossConnects: colocatedDefaults.requiredTotalCrossConnects,
+  type: FastConnectProviderServiceTypeEnum.Layer2,
+};
+
+export const updateDefaultProviderService = (
+  providerServiceRes: DEFINITION_CoreServicesApi_FastConnectProviderService,
+) => {
+  const providerService = providerServiceRes || colocatedProvider;
+  if (!providerService?.supportedVirtualCircuitTypes) {
+    providerService.supportedVirtualCircuitTypes = [
+      VirtualCircuitTypeEnum.Private,
+      VirtualCircuitTypeEnum.Public,
+      VirtualCircuitTypeEnum.Internet
+    ];
+  }
+  return providerService as DEFINITION_CoreServicesApi_FastConnectProviderService;
+};
+
+export const shouldShowBandwidthShapeSelectById = (
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean => {
+  if (!providerServiceId || !Array.isArray(vcList)) {
+    return false;
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false;
+  }
+
+  return shouldShowBandwidthShapeSelect(providerService);
+};
+
+export const shouldShowBandwidthShapeSelect = (
+  providerService: DEFINITION_CoreServicesApi_FastConnectProviderService = colocatedProvider as DEFINITION_CoreServicesApi_FastConnectProviderService,
+): boolean =>
+  providerService &&
+  providerService.bandwithShapeManagement ===
+    FastConnectProviderServicePrivatePeeringBgpManagementEnum.CustomerManaged;
+
+export const getBandwidthOptions = (
+  bandwidthShapes: DEFINITION_CoreServicesApi_VirtualCircuitBandwidthShape[],
+) =>
+  bandwidthShapes
+    ?.sort((shape1, shape2) => (shape1.bandwidthInMbps < shape2.bandwidthInMbps ? -1 : 1))
+    .map(shape => {
+      const { name } = shape;
+      return { label: name, value: name };
+    });
+
+export function getAggregateBandwidthShape(
+  crossConnects: DEFINITION_CoreServicesApi_CrossConnect[] | undefined,
+  portSpeedShapes: DEFINITION_CoreServicesApi_CrossConnectPortSpeedShape[],
+): { name: string; bandwidthInMbps: number } {
+  if (!crossConnects || crossConnects.length === 0 || crossConnects.includes(undefined)) {
+    return undefined;
+  }
+  let sum = 0;
+  for (const crossConnect of crossConnects) {
+    const shape = portSpeedShapes?.find(shape => shape.name === crossConnect.portSpeedShapeName);
+    if (shape === undefined) {
+      return undefined;
+    }
+    if (crossConnect.lifecycleState === CrossConnectLifecycleStateEnum.Provisioned) {
+      sum = sum + shape.portSpeedInGbps;
+    }
+  }
+  return { name: sum.toString().concat(" Gbps"), bandwidthInMbps: sum * 1000 };
+}
+
+export function getMaxBandwidthShape(
+  crossConnects: DEFINITION_CoreServicesApi_CrossConnect[] | undefined,
+  portSpeedShapes: DEFINITION_CoreServicesApi_CrossConnectPortSpeedShape[],
+  providerServiceId: string,
+) {
+  const defaultProviderMaxBandwidth = { bandwidthInMbps: 100000, name: "100 Gbps" };
+
+  return providerServiceId
+    ? defaultProviderMaxBandwidth
+    : getAggregateBandwidthShape(crossConnects, portSpeedShapes);
+}
+
+export const getFilteredBandwidthOptions = (
+  bandwidthShapes: DEFINITION_CoreServicesApi_VirtualCircuitBandwidthShape[],
+  crossConnect: DEFINITION_CoreServicesApi_CrossConnect | undefined,
+  crossConnects: DEFINITION_CoreServicesApi_CrossConnect[] | undefined,
+  portSpeedShapes?: DEFINITION_CoreServicesApi_CrossConnectPortSpeedShape[],
+  providerServiceId?: string,
+) => {
+  const crossConnectList = crossConnect ? [crossConnect] : crossConnects;
+  const maxBandwidthInMbps = getMaxBandwidthShape(
+    crossConnectList,
+    portSpeedShapes,
+    providerServiceId,
+  )?.bandwidthInMbps;
+
+  return maxBandwidthInMbps
+    ? getBandwidthOptions(
+        bandwidthShapes?.filter(shape => shape.bandwidthInMbps <= maxBandwidthInMbps),
+      )
+    : [];
+};
+
+export const getDefaultBandwidth = (
+  defaultBandwidthInMbps: string,
+  bandwidthShapes: DEFINITION_CoreServicesApi_VirtualCircuitBandwidthShape[],
+  crossConnect: DEFINITION_CoreServicesApi_CrossConnect | undefined,
+  crossConnects: DEFINITION_CoreServicesApi_CrossConnect[] | undefined,
+  portSpeedShapes?: DEFINITION_CoreServicesApi_CrossConnectPortSpeedShape[],
+  providerServiceId?: string,
+) =>
+  getFilteredBandwidthOptions(
+    bandwidthShapes,
+    crossConnect,
+    crossConnects,
+    portSpeedShapes,
+    providerServiceId,
+  )?.some(shape => shape.value === defaultBandwidthInMbps)
+    ? defaultBandwidthInMbps
+    : undefined;
+
+export const getBandwidthOptionsPlaceHolder = (
+  t: MauiTranslate,
+  bandwidthShapeOptionsLoading: boolean,
+  bandwidthShapeOptionsErroring: boolean,
+  portSpeedShapeLoading: boolean,
+  portSpeedShapeErroring: boolean,
+  bandwidthShapes: DEFINITION_CoreServicesApi_VirtualCircuitBandwidthShape[] | undefined,
+  portSpeedShapes: DEFINITION_CoreServicesApi_CrossConnectPortSpeedShape[] | undefined,
+  crossConnect: DEFINITION_CoreServicesApi_CrossConnect | undefined,
+  crossConnectList: DEFINITION_CoreServicesApi_CrossConnect[] | undefined,
+  providerServiceId?: string,
+  connectionType?: string,
+) => {
+  const crossConnects = crossConnect ? [crossConnect] : crossConnectList;
+  const shapeOptions = getFilteredBandwidthOptions(
+    bandwidthShapes,
+    crossConnect,
+    crossConnectList,
+    portSpeedShapes,
+    providerServiceId,
+  );
+  const maxBandwidthInMbps = getMaxBandwidthShape(
+    crossConnects,
+    portSpeedShapes,
+    providerServiceId,
+  )?.bandwidthInMbps;
+  let hasError = !!portSpeedShapeErroring || !!bandwidthShapeOptionsErroring || !maxBandwidthInMbps;
+  if (!crossConnects || crossConnects.length === 0 || crossConnects.includes(undefined)) {
+    hasError = true;
+  }
+
+  let placeholderText = MessagesKeys.VirtualCircuit.form.selectAValue;
+  if (!!connectionType && connectionType === ConnectionType.Provider && !providerServiceId) {
+    placeholderText = MessagesKeys.VirtualCircuit.partnerSelect;
+  } else if (bandwidthShapeOptionsLoading || portSpeedShapeLoading) {
+    placeholderText = MessagesKeys.VirtualCircuit.loading;
+  } else if (hasError) {
+    placeholderText = MessagesKeys.VirtualCircuit.error;
+  } else if (shapeOptions.length === 0) {
+    placeholderText = MessagesKeys.VirtualCircuit.noData;
+  }
+  return t(placeholderText);
+};
+
+export const shouldShowIpFieldsById = (
+  type: string,
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean => {
+  if (!type || !providerServiceId || !Array.isArray(vcList)) {
+    return false;
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false;
+  }
+
+  return shouldShowIpFields(type, providerService);
+};
+
+export const shouldShowIpFields = (
+  type: string,
+  providerService: DEFINITION_CoreServicesApi_FastConnectProviderService,
+): boolean => {
+  // if(type === VirtualCircuitTypeEnum.Internet){
+  //   return true;
+  // }
+  // Either type or provider service is falsey? Can't check anything.
+  if (!(type && providerService)) {
+    return false;
+  }
+  if (
+    (type === VirtualCircuitTypeEnum.Private &&
+      providerService.privatePeeringBgpManagement ===
+        FastConnectProviderServiceManagementEnum.CustomerManaged) ||
+    (type === VirtualCircuitTypeEnum.Public &&
+      providerService.publicPeeringBgpManagement ===
+        FastConnectProviderServiceManagementEnum.CustomerManaged) ||
+    (type === VirtualCircuitTypeEnum.Internet &&
+      providerService.publicPeeringBgpManagement ===
+      FastConnectProviderServiceManagementEnum.CustomerManaged)
+  ) {
+    return true;
+  }
+  return false;
+};
+
+export const shouldShowIpv6Fields = (
+  type: string,
+  providerService: DEFINITION_CoreServicesApi_FastConnectProviderService,
+): boolean => {
+  if (
+    shouldShowIpFields(type, providerService) &&
+    providerService &&
+    !isProviderAzure(providerService)
+  ) {
+    return true;
+  }
+  return false;
+};
+
+export const shouldShowIgwFields = (type: string): boolean => type === VirtualCircuitTypeEnum.Internet;
+
+export const shouldShowIpv6FieldsById = (
+  providerServiceId: string,
+  type: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean => {
+  if (!providerServiceId || !Array.isArray(vcList) || !type) {
+    return false;
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false;
+  }
+
+  return shouldShowIpv6Fields(type, providerService);
+};
+
+export const getInitialIsIpv6Enabled = (virtualCircuit: VirtualCircuit) =>
+  virtualCircuit?.crossConnectMappings.some(
+    mapping => mapping.customerBgpPeeringIpv6 || mapping.oracleBgpPeeringIpv6,
+  ) ?? false;
+
+export const isPublicRouteFilteringEnabled = (
+  virtualCircuitType: string,
+  isRouteFilteringPublicEnabled: boolean,
+) =>
+  virtualCircuitType && virtualCircuitType === VirtualCircuitTypeEnum.Public
+    ? isRouteFilteringPublicEnabled
+    : false;
+
+export const getRoutingPolicyLabel = (
+  t: MauiRenderEngineRef["tFn"],
+  value: any,
+): string | undefined => {
+  const options = getRoutingPolicyOptions(VirtualCircuitTypeEnum.Public, t);
+  const match = options.find(opt => opt.value === value);
+  return match?.label;
+};
+
+export const getRoutingPolicyOptions = (type: string, t: MauiRenderEngineRef["tFn"]) => {
+  if (type === VirtualCircuitTypeEnum.Public) {
+    return [
+      {
+        label: t(
+          MessagesKeys.VirtualCircuit.routeFilteringPolicies.publicVirtualCircuit.marketAggregates,
+        ),
+        value: FastConnectProviderServiceRoutingPolicyEnum.marketAggregates,
+      },
+      {
+        label: t(
+          MessagesKeys.VirtualCircuit.routeFilteringPolicies.publicVirtualCircuit
+            .regionalAggregates,
+        ),
+        value: FastConnectProviderServiceRoutingPolicyEnum.regionalAggregates,
+      },
+      {
+        label: t(
+          MessagesKeys.VirtualCircuit.routeFilteringPolicies.publicVirtualCircuit.globalAggregates,
+        ),
+        value: FastConnectProviderServiceRoutingPolicyEnum.globalAggregates,
+      },
+      {
+        label: t(
+          MessagesKeys.VirtualCircuit.routeFilteringPolicies.publicVirtualCircuit
+            .oracleServiceNetwork,
+        ),
+        value: FastConnectProviderServiceRoutingPolicyEnum.oracleServiceNetwork,
+      },
+    ];
+  }
+  // For private VC
+};
+
+export const shouldShowRoutingPolicy = (
+  virtualCircuitType: string,
+  isRouteFilteringPublicEnabled: boolean,
+) =>
+  virtualCircuitType && virtualCircuitType === VirtualCircuitTypeEnum.Public
+    ? isRouteFilteringPublicEnabled
+    : false;
+
+export const getRoutingPolicyDefaultValue = (virtualCircuit: VirtualCircuit) =>
+  virtualCircuit?.routingPolicy
+    ? virtualCircuit.routingPolicy[0]
+    : FastConnectProviderServiceRoutingPolicyEnum.marketAggregates;
+
+export const shouldShowBgpMd5Elements = (
+  virtualCircuitType: string,
+  providerService: DEFINITION_CoreServicesApi_FastConnectProviderService,
+): boolean =>
+  virtualCircuitType !== VirtualCircuitTypeEnum.Internet &&
+  // The fact that this defers to shouldShowCustomerBgpAsnInput is intentional
+  virtualCircuitType && shouldShowCustomerBgpAsnInput(providerService);
+
+export const shouldShowCustomerBgpAsnInput = (
+  providerService: DEFINITION_CoreServicesApi_FastConnectProviderService,
+): boolean => {
+  if (
+    providerService?.customerAsnManagement ===
+    FastConnectProviderServiceManagementEnum.CustomerManaged
+  ) {
+    return true;
+  }
+  return false;
+};
+
+export const shouldShowCustomerBgpAsnInputById = (
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean => {
+  if (!providerServiceId || !Array.isArray(vcList)) {
+    return false;
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false;
+  }
+
+  return shouldShowCustomerBgpAsnInput(providerService);
+};
+
+export const hasTwoCrossConnects = (
+  providerService?: DEFINITION_CoreServicesApi_FastConnectProviderService,
+): boolean => {
+  if (!providerService) {
+    return false;
+  }
+
+  return providerService.requiredTotalCrossConnects === 2;
+};
+
+export const hasTwoCrossConnectsById = (
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean => {
+  if (!providerServiceId || !Array.isArray(vcList)) {
+    return false;
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false;
+  }
+
+  return providerService.requiredTotalCrossConnects === 2;
+};
+
+export const hasTwoCrossConnectsAndIpFieldsById = (
+  type: string,
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean => {
+  if (!providerServiceId || !Array.isArray(vcList)) {
+    return false;
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false;
+  }
+
+  return (
+    providerService.requiredTotalCrossConnects === 2 && shouldShowIpFields(type, providerService)
+  );
+};
+
+export const isProviderAzureById = (
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean => {
+  if (!providerServiceId || !Array.isArray(vcList)) {
+    return false;
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false;
+  }
+
+  return isProviderAzure(providerService);
+};
+
+export const isProviderAzure = (
+  providerService: DEFINITION_CoreServicesApi_FastConnectProviderService,
+): boolean => {
+  if (providerService) {
+    return /(microsoft|azure)/i.test(providerService.providerName);
+  } else {
+    return false;
+  }
+};
+export const showCustomerBgpAsnInput = (
+  $app: AppState,
+  virtualCircuitType: string,
+  providerService: DEFINITION_CoreServicesApi_FastConnectProviderService,
+): boolean =>
+  whitelistBfd($app) &&
+  virtualCircuitType &&
+  (shouldShowCustomerBgpAsnInput(providerService) || isProviderAzure(providerService));
+
+export function getFilteredCrossConnectOptions(
+  crossConnects: DEFINITION_CoreServicesApi_CrossConnect[],
+) {
+  return crossConnects
+    ?.filter(cc => !cc?.crossConnectGroupId)
+    ?.map(crossConnect => ({
+      label: crossConnect.displayName,
+      value: crossConnect.id,
+    }));
+}
+
+export const getRedundantCrossConnectOptions = (
+  crossConnects: DEFINITION_CoreServicesApi_CrossConnect[],
+  crossConnectGroups?: DEFINITION_CoreServicesApi_CrossConnectGroup[],
+) => {
+  if (crossConnectGroups && crossConnectGroups.length > 0) {
+    if (!crossConnects || crossConnectGroups?.length === 0) return [];
+    const crossConnectGroupsByCompartment = new Map<string, string>(
+      crossConnectGroups
+        ?.filter(ccg => ccg.lifecycleState === CrossConnectGroupLifecycleStateEnum.Provisioned)
+        ?.map(ccg => [ccg.id, ccg.displayName]),
+    );
+
+    return crossConnects.map(crossConnect => {
+      const { displayName, id, crossConnectGroupId } =
+        crossConnect as DEFINITION_CoreServicesApi_CrossConnect & { displayName: string };
+      const groupName = crossConnectGroupsByCompartment?.get(crossConnectGroupId);
+      return groupName
+        ? { label: groupName, value: crossConnectGroupId }
+        : { label: displayName, value: id };
+    });
+  }
+  return getFilteredCrossConnectOptions(crossConnects);
+};
+
+export function getDefaultTags(virtualCircuit: VirtualCircuit) {
+  const { definedTags, freeformTags } = virtualCircuit;
+  return [
+    ...(definedTags
+      ? Object.entries(definedTags).flatMap(([space, tags]) =>
+          Object.entries(tags).map(([key, value]) => ({
+            tagNameSpace: space,
+            tagKey: key,
+            tagValue: value,
+          })),
+        )
+      : []),
+    ...(freeformTags
+      ? Object.entries(freeformTags).map(([key, value]) => ({
+          tagNameSpace: "FREEFORM_TAG",
+          tagKey: key,
+          tagValue: value,
+        }))
+      : []),
+  ];
+}
+// qos api not whitelist, the mock data is only for test Qos with config override
+
+const mockQoSBandwidthTempates = [{ name: "FC_QOS_0_85_0_10" }, { name: "FC_QOS_25_25_25_20" }];
+
+export const getQoSBandwidthTemplateShapeOptions = (
+  templateShape: DEFINITION_CoreServicesApi_QosBandwidthReservationTemplateShape[],
+) => {
+  if (!templateShape) {
+    templateShape = mockQoSBandwidthTempates;
+  }
+  return templateShape.map(shape => {
+    const { name } = shape;
+    return { label: name, value: name };
+  });
+};
+
+export const getQosBandwidthValues = (qosBandwidthTemplate: string) =>
+  qosBandwidthTemplate?.includes("_") ? qosBandwidthTemplate?.split("_")?.slice(2) : [];
+
+export const getQosBandwidthValueByIndex = (
+  qosBandwidthTemplate: string,
+  index: number,
+  t: MauiTranslate,
+) =>
+  getQosBandwidthValues(qosBandwidthTemplate)?.[index]
+    ? `${getQosBandwidthValues(qosBandwidthTemplate)[index]}%`
+    : t(MessagesKeys.VirtualCircuit.label.notApplicable);
+
+export const isPublicDisable = (
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean => {
+  if (!providerServiceId || !Array.isArray(vcList)) {
+    return false; // do not disable if providerServiceId is empty or vcList invalid
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false; // do not disable if provider not found
+  }
+
+  const supportedTypes = providerService.supportedVirtualCircuitTypes || [];
+
+  return !supportedTypes.includes("PUBLIC");
+};
+
+export const isPrivateDisable = (
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean => {
+  if (!providerServiceId || !Array.isArray(vcList)) {
+    return false; // do not disable if providerServiceId is empty or vcList invalid
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false; // do not disable if provider not found
+  }
+
+  const supportedTypes = providerService.supportedVirtualCircuitTypes || [];
+
+  return !supportedTypes.includes("PRIVATE");
+};
+
+export const isInternetDisable = (
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean =>
+   false
+  /*
+  if (!providerServiceId || !Array.isArray(vcList)) {
+    return false; // do not disable if providerServiceId is empty or vcList invalid
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false; // do not disable if provider not found
+  }
+
+  const supportedTypes = providerService.supportedVirtualCircuitTypes || [];
+
+  return !supportedTypes.includes("INTERNET CIRCUIT");
+
+   */
+;
+
+export const isVirtualCircuitTypeValid = (
+  formFields: Record<string, any>,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+  providerServiceFields: string[] = [VirtualCircuitFieldNames.ProviderServiceId],
+): boolean => {
+  if (!formFields) return true;
+
+  const vcType = formFields[VirtualCircuitFieldNames.Type];
+
+  // Check for all providerServiceFields, return false if any violates public/private rules
+  return !providerServiceFields.some(providerServiceField => {
+    const providerServiceId = formFields[providerServiceField];
+    return (
+      (isPublicDisable(providerServiceId, vcList) && vcType === VCTypeEnum.Public) ||
+      (isPrivateDisable(providerServiceId, vcList) && vcType === VCTypeEnum.Private) ||
+      (isInternetDisable(providerServiceField, vcList) && vcType === VCTypeEnum.Internet)
+    );
+  });
+};
+
+export const shouldShowProviderServiceKeyInputById = (
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean => {
+  if (!providerServiceId || !Array.isArray(vcList)) {
+    return false;
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false;
+  }
+
+  return shouldShowProviderServiceKeyInput(providerService);
+};
+
+export const shouldShowProviderServiceKeyInput = (
+  providerService: FastConnectProviderService,
+): boolean => {
+  if (
+    providerService &&
+    providerService.providerServiceKeyManagement ===
+      FastConnectProviderServicePrivatePeeringBgpManagementEnum.CustomerManaged
+  ) {
+    return true;
+  }
+  return false;
+};
+
+export const isATTById = (
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+): boolean => {
+  if (!providerServiceId || !Array.isArray(vcList)) {
+    return false;
+  }
+
+  const providerService = vcList.find(vc => vc.id === providerServiceId);
+
+  if (!providerService) {
+    return false;
+  }
+
+  return isATT(providerService);
+};
+
+export const isATT = (providerService: FastConnectProviderService): boolean =>
+  shouldShowProviderServiceKeyInput(providerService) && isProviderATT(providerService);
+
+export const shouldShowProviderServiceKeyName = (
+  providerService: FastConnectProviderService,
+  isEditForm: boolean,
+): boolean => isATT(providerService) && isEditForm;
+
+export const shouldShowVlanInput = (crossConnectOrCrossConnectGroupId: string): boolean =>
+  !!crossConnectOrCrossConnectGroupId;
+
+export const shouldShowCrossConnectMappings = (
+  type: string,
+  providerService: FastConnectProviderService,
+): boolean => {
+  if (type === VirtualCircuitTypeEnum.Internet){
+    return true;
+  }
+  // Either type or provider service is falsey? Can't check anything.
+  if (!(type && providerService)) {
+    return false;
+  }
+  if (
+    (type === VirtualCircuitTypeEnum.Private &&
+      providerService.privatePeeringBgpManagement ===
+        FastConnectProviderServiceManagementEnum.CustomerManaged) ||
+    (type === VirtualCircuitTypeEnum.Public &&
+      providerService.publicPeeringBgpManagement ===
+        FastConnectProviderServiceManagementEnum.CustomerManaged) ||
+    (type === VirtualCircuitTypeEnum.Internet &&
+      providerService.publicPeeringBgpManagement ===
+        FastConnectProviderServiceManagementEnum.CustomerManaged)
+  ) {
+    return true;
+  }
+  return false;
+};
+
+function checkFromValuesHasRedundantCrossConnect(formValues: FormValues): boolean {
+  if (formValues[VirtualCircuitFieldNames.AdditionalCrossConnect]) {
+    for (const key in formValues) {
+      if (key.lastIndexOf(stringRcc2) > 0) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+export const transformData = (
+  data: FormValues,
+  isEdit: boolean = false,
+  isBandwidthPolicingWhitelisted: boolean = false,
+  type: string,
+  providerService: FastConnectProviderService,
+  crossConnectOrCrossConnectGroupId?: string,
+  isProvider?: boolean,
+) => {
+  const formTags = data[VirtualCircuitFieldNames.Tags];
+  const freeformTags = formTags ? formTags[VirtualCircuitFieldNames.FreeformTags] : {};
+  const definedTags = formTags ? formTags[VirtualCircuitFieldNames.DefinedTags] : {};
+  const hasRedundantCrossConnect = checkFromValuesHasRedundantCrossConnect(data);
+
+   // Resolve display name – fall back to provider service name for Internet VC
+  const resolvedDisplayName =
+  data[VirtualCircuitFieldNames.DisplayName] ||
+  providerService?.providerServiceName ||
+  (type === VirtualCircuitTypeEnum.Internet ? "Internet virtual circuit" : undefined);
+
+  // Initalize transformed data object with common properties
+  const transformedData: Record<string, unknown> = {
+    // [VirtualCircuitFieldNames.DisplayName]: isEdit
+    //   ? data[VirtualCircuitFieldNames.DisplayName]
+    //   : data[VirtualCircuitFieldNames.DisplayName] || undefined,
+    [VirtualCircuitFieldNames.DisplayName]: resolvedDisplayName
+  };
+  const providerServiceId = data[VirtualCircuitFieldNames.ProviderServiceId] || providerService.id || undefined;
+  const MTU = data[VirtualCircuitFieldNames.MTU];
+  const crossConnectOrCrossConnectGroupIdRcc2: string =
+    data[VirtualCircuitFieldNames.CrossConnectOrCrossConnectGroupIdRcc2];
+  const vlanInputShowing = shouldShowVlanInput(crossConnectOrCrossConnectGroupId);
+  const crossConnectMappingsShowing = shouldShowCrossConnectMappings(type, providerService);
+  const bgpMd5ElementsShowing =
+    shouldShowCustomerBgpAsnInput(providerService) &&
+    data[VirtualCircuitFieldNames.BgpMd5AuthKeyEnabled];
+  const bgpMd5Rcc2ElementsShowing =
+    shouldShowCustomerBgpAsnInput(providerService) &&
+    data[VirtualCircuitFieldNames.BgpMd5AuthKeyEnabledRcc2];
+  const updatedRouteFiltering = data[VirtualCircuitFieldNames.RoutingPolicy];
+  const isBFD = data[VirtualCircuitFieldNames.IsBfdEnabled];
+  const providerState = data[VirtualCircuitFieldNames.ProviderState];
+  const referenceComment = isProvider ? data[VirtualCircuitFieldNames.ReferenceComment] : undefined;
+  const isTransportMode =
+    data[VirtualCircuitFieldNames.IsTransportMode] === TransportTrafficType.ipsecTraffic;
+
+  if (isBandwidthPolicingWhitelisted && !providerServiceId) {
+    const isBandwidthPolicingEnabled = data[VirtualCircuitFieldNames.isBandwidthPolicingEnabled];
+    transformedData[VirtualCircuitFieldNames.isBandwidthPolicingEnabled] =
+      isBandwidthPolicingEnabled?.length === 1;
+  }
+
+  transformedData[VirtualCircuitFieldNames.RoutingPolicy] = updatedRouteFiltering
+    ? [updatedRouteFiltering]
+    : undefined;
+
+  transformedData[VirtualCircuitFieldNames.Type] = type;
+  transformedData[VirtualCircuitFieldNames.CompartmentId] =
+    data[VirtualCircuitFieldNames.CompartmentId];
+
+  // Add provider service ID if not an Edit and it has a value
+  if (!isEdit && providerServiceId) {
+    transformedData[VirtualCircuitFieldNames.ProviderServiceId] = providerServiceId;
+  }
+
+  // Add MTU
+  // transformedData[VirtualCircuitFieldNames.MTU] = MTU || undefined;
+  if (type !== VirtualCircuitTypeEnum.Internet) {
+    transformedData[VirtualCircuitFieldNames.MTU] = MTU || undefined;
+  }
+  const isQosBandwidthReservationEnabled =
+    data[VirtualCircuitFieldNames.isQosBandwidthReservationEnabled];
+  const qosBandwidthReservationTemplateShapeName =
+    data[VirtualCircuitFieldNames.qosBandwidthReservationTemplateShapeName];
+  transformedData[VirtualCircuitFieldNames.isQosBandwidthReservationEnabled] =
+    isQosBandwidthReservationEnabled;
+  transformedData[VirtualCircuitFieldNames.qosBandwidthReservationTemplateShapeName] =
+    qosBandwidthReservationTemplateShapeName || undefined;
+
+  // Reference comment
+  transformedData[VirtualCircuitFieldNames.ReferenceComment] = referenceComment || undefined;
+
+  // Provider state
+  transformedData[VirtualCircuitFieldNames.ProviderState] = providerState;
+
+  // BFD
+  transformedData[VirtualCircuitFieldNames.IsBfdEnabled] = !!isBFD;
+
+  // IsTransportMode
+  transformedData[VirtualCircuitFieldNames.IsTransportMode] = isPrivateVC(type) && isTransportMode;
+
+  // Add DRG if showing
+  if (shouldShowGatewayElements(type)) {
+    transformedData[VirtualCircuitFieldNames.GatewayId] = data[VirtualCircuitFieldNames.GatewayId];
+  }
+
+  // Add bandwidth if it's showing
+  if (shouldShowBandwidthShapeSelect(providerService)) {
+    transformedData[VirtualCircuitFieldNames.BandwidthShapeName] =
+      data[VirtualCircuitFieldNames.BandwidthShapeName];
+  }
+  // Add provider service key if it's showing
+  if (
+    (!isEdit || (isEdit && isProviderATT(providerService))) &&
+    shouldShowProviderServiceKeyInput(providerService)
+  ) {
+    transformedData[VirtualCircuitFieldNames.ProviderServiceKeyName] =
+      data[VirtualCircuitFieldNames.ProviderServiceKeyName];
+    if (hasRedundantCrossConnect) {
+      transformedData[VirtualCircuitFieldNames.ProviderServiceKeyNameRcc2] =
+        data[VirtualCircuitFieldNames.ProviderServiceKeyNameRcc2];
+    }
+  }
+
+  // Add BGP ASN if it's showing
+  if (
+    (!isProvider && shouldShowCustomerBgpAsnInput(providerService)) ||
+    (isProvider && shouldShowProviderBgpAsnInput(providerService))
+  ) {
+    const customerBgpAsnString = data[VirtualCircuitFieldNames.CustomerBgpAsn] || undefined;
+    transformedData[VirtualCircuitFieldNames.CustomerBgpAsn] = Number.isFinite(
+      Number(customerBgpAsnString),
+    )
+      ? Number(customerBgpAsnString)
+      : undefined;
+  }
+
+  // Add cross connect mappings if showing, OR if any of the fields that are
+  // showing can affect data INSIDE cross connect mappings.
+  if (
+    type === VirtualCircuitTypeEnum.Internet ||
+    vlanInputShowing ||
+    crossConnectMappingsShowing ||
+    shouldShowCustomerBgpAsnInput(providerService)
+  ) {
+    const isIpv6Enabled: boolean = data[VirtualCircuitFieldNames.Ipv6Enabled];
+    // const vlanString: string = data[VirtualCircuitFieldNames.Vlan] || undefined;
+    // Hardcode VLAN to 102 for Internet type
+    const vlanString: string =
+      type === VirtualCircuitTypeEnum.Internet
+        ? "102"
+        : data[VirtualCircuitFieldNames.Vlan] || undefined;
+    const vlan: number = Number.isFinite(Number(vlanString)) ? Number(vlanString) : undefined;
+
+    const crossConnectMappings = [];
+
+    const totalCrossConnects = providerService
+      ? providerService.requiredTotalCrossConnects
+      : colocatedDefaults.requiredTotalCrossConnects;
+    for (let i = 0; i < totalCrossConnects; i++) {
+      const mapping: Record<string, unknown> = {};
+     // Add crossConnectOrCrossConnectGroupId and vlan to payload if showing
+      // For Internet type, always include crossConnectOrCrossConnectGroupId even if VLAN input is not shown
+      if (vlanInputShowing || type === VirtualCircuitTypeEnum.Internet) {
+        mapping[VirtualCircuitFieldNames.CrossConnectOrCrossConnectGroupId] =
+          crossConnectOrCrossConnectGroupId;
+        if (vlanInputShowing) {
+          mapping[VirtualCircuitFieldNames.Vlan] = vlan;
+        } else if (type === VirtualCircuitTypeEnum.Internet) {
+          // Hardcode VLAN to 102 for Internet type
+          mapping[VirtualCircuitFieldNames.Vlan] = 102;
+        }
+      }
+      // Add bgp IPs to payload if showing
+      if (crossConnectMappingsShowing) {
+        // mapping[VirtualCircuitFieldNames.CustomerBgpPeeringIp] =
+        //   data[getIndexedFieldName(VirtualCircuitFieldNames.CustomerBgpPeeringIp, i)] || undefined;
+        // mapping[VirtualCircuitFieldNames.OracleBgpPeeringIp] =
+        //   data[getIndexedFieldName(VirtualCircuitFieldNames.OracleBgpPeeringIp, i)] || undefined;
+        if (isIpv6Enabled) {
+          mapping[VirtualCircuitFieldNames.CustomerBgpPeeringIpv6] =
+            data[getIndexedFieldName(VirtualCircuitFieldNames.CustomerBgpPeeringIpv6, i)] ||
+            undefined;
+          mapping[VirtualCircuitFieldNames.OracleBgpPeeringIpv6] =
+            data[getIndexedFieldName(VirtualCircuitFieldNames.OracleBgpPeeringIpv6, i)] ||
+            undefined;
+        }
+      }
+       // Add IGW fields for Internet type
+      // if (type === VirtualCircuitTypeEnum.Internet && i === 0) {
+      //   mapping[VirtualCircuitFieldNames.IgwOracleBgpIp] =
+      //     data[VirtualCircuitFieldNames.IgwOracleBgpIp] || undefined;
+      //   mapping[VirtualCircuitFieldNames.IgwRemoteBgpIp] =
+      //     data[VirtualCircuitFieldNames.IgwRemoteBgpIp] || undefined;
+      //   mapping[VirtualCircuitFieldNames.IgwOracleBgpIpv6] =
+      //     data[VirtualCircuitFieldNames.IgwOracleBgpIpv6] || undefined;
+      //   mapping[VirtualCircuitFieldNames.IgwRemoteBgpIpv6] =
+      //     data[VirtualCircuitFieldNames.IgwRemoteBgpIpv6] || undefined;
+      //   mapping[VirtualCircuitFieldNames.IgwPeerName] =
+      //     data[VirtualCircuitFieldNames.IgwPeerName] || undefined;
+      //   mapping[VirtualCircuitFieldNames.IgwPeerType] =
+      //     data[VirtualCircuitFieldNames.IgwPeerType] || undefined;
+      // }
+      // Add md5 key to payload if showing
+      if (bgpMd5ElementsShowing) {
+        mapping[VirtualCircuitFieldNames.BgpMd5AuthKey] =
+          data[getIndexedFieldName(VirtualCircuitFieldNames.BgpMd5AuthKey, i)];
+      }
+      crossConnectMappings.push(mapping);
+    }
+
+    if (hasRedundantCrossConnect) {
+      const isIpv6EnabledRcc2: boolean = data[VirtualCircuitFieldNames.Ipv6EnabledRcc2];
+      const vlanRcc2String: string = data[VirtualCircuitFieldNames.VlanRcc2] || undefined;
+      const vlanRcc2: number = Number.isFinite(Number(vlanRcc2String))
+        ? Number(vlanRcc2String)
+        : undefined;
+      const redundantCrossConnectMapping = [];
+      const totalCrossConnects = providerService
+        ? providerService.requiredTotalCrossConnects
+        : colocatedDefaults.requiredTotalCrossConnects;
+      for (let i = 0; i < totalCrossConnects; i++) {
+        const mapping: Record<string, unknown> = {};
+
+        // Add vlan to payload if showing
+        if (vlanInputShowing) {
+          mapping[VirtualCircuitFieldNames.CrossConnectOrCrossConnectGroupId] =
+            crossConnectOrCrossConnectGroupIdRcc2;
+          mapping[VirtualCircuitFieldNames.Vlan] = vlanRcc2;
+        }
+        const updatedIndex = i + 1;
+        // Add bgp IPs to payload if showing
+        if (crossConnectMappingsShowing) {
+          mapping[VirtualCircuitFieldNames.CustomerBgpPeeringIp] =
+            data[
+              getIndexedFieldName(VirtualCircuitFieldNames.CustomerBgpPeeringIp, updatedIndex, true)
+            ] || undefined;
+          mapping[VirtualCircuitFieldNames.OracleBgpPeeringIp] =
+            data[
+              getIndexedFieldName(VirtualCircuitFieldNames.OracleBgpPeeringIp, updatedIndex, true)
+            ] || undefined;
+          if (isIpv6EnabledRcc2) {
+            mapping[VirtualCircuitFieldNames.CustomerBgpPeeringIpv6] =
+              data[
+                getIndexedFieldName(
+                  VirtualCircuitFieldNames.CustomerBgpPeeringIpv6,
+                  updatedIndex,
+                  true,
+                )
+              ] || undefined;
+            mapping[VirtualCircuitFieldNames.OracleBgpPeeringIpv6] =
+              data[
+                getIndexedFieldName(
+                  VirtualCircuitFieldNames.OracleBgpPeeringIpv6,
+                  updatedIndex,
+                  true,
+                )
+              ] || undefined;
+          }
+        }
+        // Add md5 key to payload if showing
+        if (bgpMd5Rcc2ElementsShowing) {
+          mapping[VirtualCircuitFieldNames.BgpMd5AuthKey] =
+            data[getIndexedFieldName(VirtualCircuitFieldNames.BgpMd5AuthKey, updatedIndex, true)];
+        }
+
+        redundantCrossConnectMapping.push(mapping);
+      }
+
+      transformedData[VirtualCircuitFieldNames.CrossConnectMappings] = [
+        ...crossConnectMappings,
+        ...redundantCrossConnectMapping,
+      ];
+    } else {
+      transformedData[VirtualCircuitFieldNames.CrossConnectMappings] = crossConnectMappings;
+    }
+  }
+  // Tags
+   // Add IGW fields to freeformTags for Internet type
+  const finalFreeformTags = { ...freeformTags };
+  if (type === VirtualCircuitTypeEnum.Internet) {
+    const igwOracleBgpIp = data[VirtualCircuitFieldNames.IgwOracleBgpIp];
+    const igwRemoteBgpIp = data[VirtualCircuitFieldNames.IgwRemoteBgpIp];
+    const igwOracleBgpIpv6 = data[VirtualCircuitFieldNames.IgwOracleBgpIpv6];
+    const igwRemoteBgpIpv6 = data[VirtualCircuitFieldNames.IgwRemoteBgpIpv6];
+    const igwPeerName = data[VirtualCircuitFieldNames.IgwPeerName];
+    const igwPeerType = data[VirtualCircuitFieldNames.IgwPeerType];
+    
+    if (igwOracleBgpIp) {
+      finalFreeformTags[VirtualCircuitFieldNames.IgwOracleBgpIp] = igwOracleBgpIp;
+    }
+    if (igwRemoteBgpIp) {
+      finalFreeformTags[VirtualCircuitFieldNames.IgwRemoteBgpIp] = igwRemoteBgpIp;
+    }
+    if (igwOracleBgpIpv6) {
+      finalFreeformTags[VirtualCircuitFieldNames.IgwOracleBgpIpv6] = igwOracleBgpIpv6;
+    }
+    if (igwRemoteBgpIpv6) {
+      finalFreeformTags[VirtualCircuitFieldNames.IgwRemoteBgpIpv6] = igwRemoteBgpIpv6;
+    }
+    if (igwPeerName) {
+      finalFreeformTags[VirtualCircuitFieldNames.IgwPeerName] = igwPeerName;
+    }
+    if (igwPeerType) {
+      finalFreeformTags[VirtualCircuitFieldNames.IgwPeerType] = igwPeerType;
+    }
+  }
+  // eslint-disable-next-line no-constant-condition
+  if (typeof finalFreeformTags && !isProvider) {
+    transformedData[VirtualCircuitFieldNames.FreeformTags] = finalFreeformTags;
+  }
+
+  // eslint-disable-next-line no-constant-condition
+  if (typeof definedTags && !isProvider) {
+    transformedData[VirtualCircuitFieldNames.DefinedTags] = definedTags;
+  }
+
+  if (isProvider) {
+    transformedData[VirtualCircuitFieldNames.CrossConnectMappings] = data[
+      VirtualCircuitFieldNames.CrossConnectMappings
+    ].map((crossConnectMapping: Record<string, unknown>) => ({
+      [VirtualCircuitFieldNames.CrossConnectOrCrossConnectGroupId]:
+        crossConnectMapping[VirtualCircuitFieldNames.CrossConnectOrCrossConnectGroupId] ||
+        undefined,
+      [VirtualCircuitFieldNames.Vlan]:
+        crossConnectMapping[VirtualCircuitFieldNames.Vlan] || undefined,
+      [VirtualCircuitFieldNames.CustomerBgpPeeringIp]:
+        crossConnectMapping[VirtualCircuitFieldNames.CustomerBgpPeeringIp] || undefined,
+      [VirtualCircuitFieldNames.OracleBgpPeeringIp]:
+        crossConnectMapping[VirtualCircuitFieldNames.OracleBgpPeeringIp] || undefined,
+      [VirtualCircuitFieldNames.CustomerBgpPeeringIpv6]:
+        crossConnectMapping[VirtualCircuitFieldNames.CustomerBgpPeeringIpv6] || undefined,
+      [VirtualCircuitFieldNames.OracleBgpPeeringIpv6]:
+        crossConnectMapping[VirtualCircuitFieldNames.OracleBgpPeeringIpv6] || undefined,
+      [VirtualCircuitFieldNames.BgpMd5AuthKey]:
+        crossConnectMapping[VirtualCircuitFieldNames.BgpMd5AuthKey] || undefined,
+    }));
+  }
+
+  // Add public prefixes if showing, and not an Edit
+  if (!isEdit && shouldShowPublicPrefixesTextarea(type)) {
+    transformedData[VirtualCircuitFieldNames.PublicPrefixes] = transformPublicPrefixes(
+      data[VirtualCircuitFieldNames.PublicPrefixes],
+    );
+  }
+
+  return transformedData;
+};
+
+export const getVCEditPayload = (
+  $app: AppState,
+  subFormValues: FormValues,
+  defaultValues: VirtualCircuit,
+  providerService: FastConnectProviderService,
+  $crossConnectOrCrossConnectGroupId?: string,
+) => {
+  const transformedData = transformData(
+    subFormValues,
+    true,
+    whitelistBandwidthPolicing($app),
+    defaultValues?.type,
+    providerService,
+    $crossConnectOrCrossConnectGroupId,
+    isProviderTenant($app.consoleState),
+  );
+  if (!subFormValues.isQosBandwidthReservationEnabled) {
+    subFormValues.qosBandwidthReservationTemplateShapeName = undefined;
+  }
+  const updateVirtualCircuit = getChangedProperties(
+    transformedData,
+    // @ts-ignore
+    cleanCrossConnectMappingsFromApiVirtualCircuit(defaultValues),
+  );
+  const shouldAddQosBandwidthReservationEnabled =
+    Object.prototype.hasOwnProperty.call(
+      updateVirtualCircuit,
+      VirtualCircuitFieldNames.qosBandwidthReservationTemplateShapeName,
+    ) &&
+    !!updateVirtualCircuit[VirtualCircuitFieldNames.qosBandwidthReservationTemplateShapeName] &&
+    !!defaultValues?.isQosBandwidthReservationEnabled;
+
+  // Update changedValues based on the condition
+  if (shouldAddQosBandwidthReservationEnabled) {
+    updateVirtualCircuit.isQosBandwidthReservationEnabled = true;
+  }
+  return updateVirtualCircuit;
+};
+
+export const getVCCreatePayload = (
+  $app: AppState,
+  subFormValues: FormValues,
+  providerService: FastConnectProviderService,
+  $crossConnectOrCrossConnectGroupId?: string,
+) => {
+  const createVirtualCircuitDetails = transformData(
+    subFormValues,
+    false,
+    whitelistBandwidthPolicing($app),
+    subFormValues[VirtualCircuitFieldNames.Type],
+    providerService,
+    $crossConnectOrCrossConnectGroupId,
+  );
+  // Debug: Log the payload being sent to API
+  console.log("=== CreateVirtualCircuit Payload ===");
+  console.log("Type:", subFormValues[VirtualCircuitFieldNames.Type]);
+  console.log("Provider service arg:", providerService);
+  console.log("Form providerServiceId:", subFormValues[VirtualCircuitFieldNames.ProviderServiceId]);
+  console.log("Provider service arg:", providerService);
+  console.log("Form providerServiceId:", subFormValues[VirtualCircuitFieldNames.ProviderServiceId]);
+  console.log("Full Payload:", JSON.stringify(createVirtualCircuitDetails, null, 2));
+  console.log("====================================");
+
+  return createVirtualCircuitDetails;
+};
+
+export const cleanCrossConnectMappingsFromApiVirtualCircuit = (
+  virtualCircuit: VirtualCircuit,
+): VirtualCircuit => {
+  if (virtualCircuit?.crossConnectMappings) {
+    virtualCircuit.crossConnectMappings
+      .filter(obj => Object.keys(obj)?.length > 0)
+      .forEach(mapping => {
+        // If VC type is PUBLIC, the user cannot change CC mapping IPs, so clean them out.
+        if (virtualCircuit.type === VirtualCircuitTypeEnum.Public) {
+          delete mapping.customerBgpPeeringIp;
+          delete mapping.customerBgpPeeringIpv6;
+          delete mapping.oracleBgpPeeringIp;
+          delete mapping.oracleBgpPeeringIpv6;
+        }
+
+        Object.entries(mapping).forEach(([key, value]) => {
+          if (value === null) {
+            // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+            delete mapping[key as keyof typeof mapping];
+          }
+        });
+      });
+    if (virtualCircuit.crossConnectMappings?.length === 0) {
+      delete virtualCircuit.crossConnectMappings;
+    }
+  }
+  return virtualCircuit;
+};
+
+export const shouldShowPublicPrefixesTextarea = (type: string): boolean => {
+  if (type && type === VirtualCircuitTypeEnum.Public) {
+    return true;
+  }
+  return false;
+};
+
+export const isLayer2 = (virtualCircuit: VirtualCircuit): boolean =>
+  virtualCircuit?.serviceType === FastConnectProviderServiceTypeEnum.Layer2;
+
+export const isLayer3 = (virtualCircuit: VirtualCircuit): boolean =>
+  virtualCircuit?.serviceType === FastConnectProviderServiceTypeEnum.Layer3;
+
+export const isLayer3Partner = (
+  providerServiceId: string,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[],
+): boolean => {
+  if (!providerServiceId || !Array.isArray(vcList)) {
+    return false;
+  }
+
+  return vcList.some(
+    vc =>
+      vc.id === providerServiceId &&
+      vc.type === "LAYER3" &&
+      !vc.providerName?.toLowerCase().includes("google") &&
+      !vc.providerName?.toLowerCase().includes("gcp"),
+  );
+};
+
+export const getCrossConnectOrCrossConnectGroupsOptions = (
+  ccDataSource: typeof CoreServicesApi.ListCrossConnects.datasource,
+  ccgDataSource: typeof CoreServicesApi.ListCrossConnectGroups.datasource,
+) => {
+  const ccs =
+    (getDataFromKey(
+      ccDataSource as unknown as ActionResult<MauiDataActionResult>,
+    ) as UiCrossConnect[]) || [];
+
+  const ccgs =
+    (getDataFromKey(
+      ccgDataSource as unknown as ActionResult<MauiDataActionResult>,
+    ) as UiCrossConnectGroup[]) || [];
+
+  const ccAndCcgPicklist: SelectOption[] = [];
+
+  ccgs.forEach(ccg => {
+    ccAndCcgPicklist.push({
+      label: displayNamePlusOcidSuffix(ccg.displayName, ccg.id.substring(ccg.id.length - 6)),
+      value: ccg.id,
+    });
+  });
+
+  ccs.forEach(cc => {
+    if (!cc.crossConnectGroupId)
+      ccAndCcgPicklist.push({
+        label: displayNamePlusOcidSuffix(cc.displayName, cc.id.substring(cc.id.length - 6)),
+        value: cc.id,
+      });
+  });
+
+  return ccAndCcgPicklist;
+};
+
+export const shouldShowProviderBgpAsnInput = (
+  providerService: DEFINITION_CoreServicesApi_FastConnectProviderService,
+): boolean =>
+  providerService?.customerAsnManagement ===
+  FastConnectProviderServiceCustomerAsnManagementEnum.ProviderManaged;
+
+export const showProviderBgpAsnInput = (
+  $app: AppState,
+  virtualCircuitType: string,
+  providerService: DEFINITION_CoreServicesApi_FastConnectProviderService,
+): boolean =>
+  whitelistBfd($app) &&
+  virtualCircuitType &&
+  (shouldShowProviderBgpAsnInput(providerService) || isProviderAzure(providerService));
+
+export const isPublicBgpProviderManaged = (
+  providerService: DEFINITION_CoreServicesApi_FastConnectProviderService,
+): boolean =>
+  providerService?.publicPeeringBgpManagement ===
+  FastConnectProviderServicePublicPeeringBgpManagementEnum.ProviderManaged;
+
+export const ProviderStateOptions = [
+  {
+    label: Messages.VirtualCircuit.form.partnerStateOptions.inactive,
+    value: Messages.VirtualCircuit.form.partnerStateOptions.inactive,
+  },
+  {
+    label: Messages.VirtualCircuit.form.partnerStateOptions.active,
+    value: Messages.VirtualCircuit.form.partnerStateOptions.active,
+  },
+];
+
+export const analyzeBulkCrossConnectResults = (
+  data: any,
+): any /*{ successIds: string[]; failureCount: number }*/ => {
+  if (!data || !Array.isArray(data.aggregatedResults)) {
+    return { successIds: [], failureCount: 0 };
+  }
+
+  const successIds: string[] = [];
+  let failureCount = 0;
+
+  data.aggregatedResults.forEach((item: any) => {
+    if (item?.id) {
+      // success case → has crossConnect id
+      successIds.push(item.id);
+    } else {
+      // failure case → no id but has status/error
+      failureCount++;
+    }
+  });
+
+  return successIds;
+  // return { successIds, failureCount };
+};
+
+export const getBulkCrossConnectStatus = (
+  data: any,
+  totalNumberOfCrossConnects: number | "1" | "2" | "3",
+  t: MauiTranslate,
+): string => {
+  const total = Number(totalNumberOfCrossConnects) as 1 | 2 | 3;
+
+  if (!data || !Array.isArray(data.aggregatedResults)) {
+    // default state: assume all are in-progress
+    return `(${total} of ${total})`;
+  }
+
+  let successCount = 0;
+
+  data.aggregatedResults.forEach((item: any) => {
+    if (item?.id) {
+      successCount++;
+    }
+  });
+  return t("FastConnect.numXOfNumY", [successCount.toString(), total.toString()]);
+  // return `(${successCount} of ${total})`;
+};
+
+export const convertTags = (
+  tagsWrapper: any[] = [],
+): {
+  freeformTags: Record<string, string>;
+  definedTags: Record<string, Record<string, string>>;
+} => {
+  const freeformTags: Record<string, string> = {};
+  const definedTags: Record<string, Record<string, string>> = {};
+
+  // Flatten out all rows from tags -> tags-subForm -> tag-row
+  const tagRows = tagsWrapper?.[0]?.["tags-subForm"]?.["tag-row"] ?? [];
+
+  for (const tag of tagRows) {
+    const { tagNameSpace, tagKey, tagValue } = tag || {};
+
+    if (!tagKey || !tagValue) continue; // skip invalid or empty
+
+    if (tagNameSpace === "FREEFORM_TAG") {
+      // Freeform tag
+      freeformTags[tagKey] = tagValue;
+    } else {
+      // Defined tag
+      if (!definedTags[tagNameSpace]) {
+        definedTags[tagNameSpace] = {};
+      }
+      definedTags[tagNameSpace][tagKey] = tagValue;
+    }
+  }
+
+  return { freeformTags, definedTags };
+};
+
+export const getType1Body = (
+  user: any,
+  vcNumber: number,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+) => {
+  const formFields = user?.forms?.["intent.fast-connect.create.Step2"]?.$formFields;
+
+  if (vcNumber === 1) {
+    const { freeformTags, definedTags } = convertTags(formFields?.tags);
+    const providerService = vcList.find(vc => vc.id === formFields?.providerServiceId);
+    const res: any = {
+      displayName: formFields?.displayName,
+      compartmentId: formFields?.compartmentId,
+      providerServiceId: formFields?.providerServiceId,
+      type: formFields?.type,
+      ipMtu: formFields?.ipMtu,
+      isBfdEnabled: formFields?.isBfdEnabled,
+      bandwidthShapeName: formFields?.bandwidthShapeName,
+      customerAsn: formFields?.customerAsn,
+
+      // Default: single mapping with all values
+      crossConnectMappings: [
+        {
+          customerBgpPeeringIp: formFields?.["customerBgpPeeringIp-0"],
+          oracleBgpPeeringIp: formFields?.["oracleBgpPeeringIp-0"],
+          customerBgpPeeringIpv6: formFields?.["customerBgpPeeringIpv6-0"],
+          oracleBgpPeeringIpv6: formFields?.["oracleBgpPeeringIpv6-0"],
+          bgpMd5AuthKey: formFields?.["bgpMd5AuthKey-0"],
+        },
+      ],
+
+      // Conditionally add PUBLIC props
+      ...(formFields?.type === VCTypeEnum.Public && {
+        publicPrefixes:
+          formFields?.publicPrefixes !== "" ? [{ cidrBlock: formFields?.publicPrefixes }] : [],
+        routingPolicy: [formFields?.routingPolicy],
+      }),
+
+      // Conditionally add PRIVATE props
+      ...(formFields?.type === VCTypeEnum.Private && {
+        isTransportMode: formFields?.isTransportMode === TransportTrafficType.ipsecTraffic,
+        gatewayId: formFields?.gatewayId,
+      }),
+       // Conditionally add Internet props
+      ...(formFields?.type === VCTypeEnum.Internet && {
+        isTransportMode: formFields?.isTransportMode === TransportTrafficType.ipsecTraffic,
+        gatewayId: formFields?.gatewayId,
+      }),
+
+      freeformTags: freeformTags ?? {},
+      definedTags: definedTags ?? {},
+    };
+
+    // Case: providerServiceKeyName
+    if (shouldShowProviderServiceKeyInput(providerService)) {
+      res.providerServiceKeyName = formFields?.providerServiceKeyName;
+    }
+
+    // Special case: provider with requiredTotalCrossConnects = 2
+    if (providerService && hasTwoCrossConnects(providerService)) {
+      res.crossConnectMappings = [
+        {
+          customerBgpPeeringIp: formFields?.["customerBgpPeeringIp-0"],
+          oracleBgpPeeringIp: formFields?.["oracleBgpPeeringIp-0"],
+        },
+        {
+          customerBgpPeeringIp: formFields?.["customerBgpPeeringIp-4"],
+          oracleBgpPeeringIp: formFields?.["oracleBgpPeeringIp-4"],
+        },
+      ];
+    }
+
+    // Cleanup: remove any mapping where all values undefined
+    if (res.crossConnectMappings?.length) {
+      res.crossConnectMappings = res.crossConnectMappings.filter(
+        (m: any) => !Object.values(m ?? {}).every(v => v === undefined),
+      );
+
+      if (res.crossConnectMappings.length === 0) {
+        delete res.crossConnectMappings;
+      }
+    }
+
+    return res;
+  } else if (vcNumber === 2) {
+    const { freeformTags, definedTags } = convertTags(formFields?.tags1);
+    const providerService = vcList.find(vc => vc.id === formFields?.["providerServiceId-1"]);
+
+    const res: any = {
+      displayName: formFields?.["displayName-1"],
+      compartmentId: formFields?.["compartmentId-1"],
+      providerServiceId: formFields?.["providerServiceId-1"],
+      type: formFields?.type,
+      ipMtu: formFields?.["ipMtu-1"],
+      isBfdEnabled: formFields?.["isBfdEnabled-1"],
+      bandwidthShapeName: formFields?.["bandwidthShapeName-1"],
+      customerAsn: formFields?.["customerAsn-1"],
+
+      // Default: single mapping with all values
+      crossConnectMappings: [
+        {
+          customerBgpPeeringIp: formFields?.["customerBgpPeeringIp-1"],
+          oracleBgpPeeringIp: formFields?.["oracleBgpPeeringIp-1"],
+          customerBgpPeeringIpv6: formFields?.["customerBgpPeeringIpv6-1"],
+          oracleBgpPeeringIpv6: formFields?.["oracleBgpPeeringIpv6-1"],
+          bgpMd5AuthKey: formFields?.["bgpMd5AuthKey-1"],
+        },
+      ],
+      // Conditionally add PUBLIC props
+      ...(formFields?.type === VCTypeEnum.Public && {
+        publicPrefixes:
+          formFields?.["publicPrefixes-1"] !== ""
+            ? [{ cidrBlock: formFields?.["publicPrefixes-1"] }]
+            : [],
+        routingPolicy: [formFields?.["routingPolicy-1"]],
+      }),
+
+      // Conditionally add PRIVATE props
+      ...(formFields?.type === VCTypeEnum.Private && {
+        isTransportMode: formFields?.isTransportMode === TransportTrafficType.ipsecTraffic,
+        gatewayId: formFields?.gatewayId,
+      }),
+
+       // Conditionally add Internet props
+      ...(formFields?.type === VCTypeEnum.Internet && {
+        isTransportMode: formFields?.isTransportMode === TransportTrafficType.ipsecTraffic,
+        gatewayId: formFields?.gatewayId,
+      }),
+
+      freeformTags: freeformTags ?? {},
+      definedTags: definedTags ?? {},
+    };
+
+    // Case: providerServiceKeyName
+    if (shouldShowProviderServiceKeyInput(providerService)) {
+      res.providerServiceKeyName = formFields?.["providerServiceKeyName-1"];
+    }
+
+    // Special case: provider with requiredTotalCrossConnects = 2
+    if (providerService && hasTwoCrossConnects(providerService)) {
+      res.crossConnectMappings = [
+        {
+          customerBgpPeeringIp: formFields?.["customerBgpPeeringIp-2"],
+          oracleBgpPeeringIp: formFields?.["oracleBgpPeeringIp-2"],
+        },
+        {
+          customerBgpPeeringIp: formFields?.["customerBgpPeeringIp-3"],
+          oracleBgpPeeringIp: formFields?.["oracleBgpPeeringIp-3"],
+        },
+      ];
+    }
+
+    // Cleanup: remove any mapping where all values undefined
+    if (res.crossConnectMappings?.length) {
+      res.crossConnectMappings = res.crossConnectMappings.filter(
+        (m: any) => !Object.values(m ?? {}).every(v => v === undefined),
+      );
+
+      if (res.crossConnectMappings.length === 0) {
+        delete res.crossConnectMappings;
+      }
+    }
+
+    return res;
+  }
+};
+//   const formFields = user?.forms?.["intent.fast-connect.create.Step2"]?.$formFields;
+//   const { freeformTags, definedTags } = convertTags(formFields?.tags);
+
+//   const res = {
+//     displayName: formFields?.displayName,
+//     compartmentId: formFields?.compartmentId,
+//     providerServiceId: formFields?.providerServiceId,
+//     type: formFields?.type,
+//     ipMtu: formFields?.ipMtu,
+//     isBfdEnabled: formFields?.isBfdEnabled,
+//     bandwidthShapeName: formFields?.bandwidthShapeName,
+//     customerAsn: formFields?.customerAsn,
+//     crossConnectMappings: [
+//       {
+//         customerBgpPeeringIp: formFields?.["customerBgpPeeringIp-0"],
+//         oracleBgpPeeringIp: formFields?.["oracleBgpPeeringIp-0"],
+//         customerBgpPeeringIpv6: formFields?.["customerBgpPeeringIpv6-0"],
+//         oracleBgpPeeringIpv6: formFields?.["oracleBgpPeeringIpv6-0"],
+//         bgpMd5AuthKey: formFields?.["bgpMd5AuthKey-0"],
+//       },
+//     ],
+
+//     // Conditionally add PUBLIC props
+//     ...(formFields?.type === VCTypeEnum.Public && {
+//       publicPrefixes:
+//         formFields?.publicPrefixes !== "" ? [{ cidrBlock: formFields?.publicPrefixes }] : [],
+//       routingPolicy: [formFields?.routingPolicy],
+//     }),
+
+//     // Conditionally add PRIVATE props
+//     ...(formFields?.type === VCTypeEnum.Private && {
+//       isTransportMode: formFields?.isTransportMode === TransportTrafficType.ipsecTraffic,
+//       gatewayId: formFields?.gatewayId,
+//     }),
+
+//     freeformTags: freeformTags ?? {},
+//     definedTags: definedTags ?? {},
+//   };
+
+//   // Condition if crossConnectMappings is empty or all keys are undefined remove crossConnectMappings from res
+//   if (
+//     res.crossConnectMappings?.length === 1 &&
+//     Object.values(res.crossConnectMappings[0] ?? {}).every(v => v === undefined)
+//   ) {
+//     delete res.crossConnectMappings;
+//   }
+
+//   //   console.log("Type2 VC Body-->", res);
+//   return res;
+// };
+
+export const getType2Body = (
+  user: any,
+  vcList: DEFINITION_CoreServicesApi_FastConnectProviderService[] = [],
+) => {
+  const formFields = user?.forms?.["intent.fast-connect.create.Step2"]?.$formFields;
+  const { freeformTags, definedTags } = convertTags(formFields?.tags);
+
+  const providerService = vcList.find(vc => vc.id === formFields?.providerServiceId);
+
+  const res: any = {
+    displayName: formFields?.displayName,
+    compartmentId: formFields?.compartmentId,
+    providerServiceId: formFields?.providerServiceId,
+    type: formFields?.type,
+    ipMtu: formFields?.ipMtu,
+    isBfdEnabled: formFields?.isBfdEnabled,
+    bandwidthShapeName: formFields?.bandwidthShapeName,
+    customerAsn: formFields?.customerAsn,
+
+    // Default: single mapping with all values
+    crossConnectMappings: [
+      {
+        customerBgpPeeringIp: formFields?.["customerBgpPeeringIp-0"],
+        oracleBgpPeeringIp: formFields?.["oracleBgpPeeringIp-0"],
+        customerBgpPeeringIpv6: formFields?.["customerBgpPeeringIpv6-0"],
+        oracleBgpPeeringIpv6: formFields?.["oracleBgpPeeringIpv6-0"],
+        bgpMd5AuthKey: formFields?.["bgpMd5AuthKey-0"],
+      },
+    ],
+
+    // Conditionally add PUBLIC props
+    ...(formFields?.type === VCTypeEnum.Public && {
+      publicPrefixes:
+        formFields?.publicPrefixes !== "" ? [{ cidrBlock: formFields?.publicPrefixes }] : [],
+      routingPolicy: [formFields?.routingPolicy],
+    }),
+
+    // Conditionally add PRIVATE props
+    ...(formFields?.type === VCTypeEnum.Private && {
+      isTransportMode: formFields?.isTransportMode === TransportTrafficType.ipsecTraffic,
+      gatewayId: formFields?.gatewayId,
+    }),
+
+    freeformTags: freeformTags ?? {},
+    definedTags: definedTags ?? {},
+  };
+
+  // Case: providerServiceKeyName
+  if (shouldShowProviderServiceKeyInput(providerService)) {
+    res.providerServiceKeyName = formFields?.providerServiceKeyName;
+  }
+
+  // Special case: provider with requiredTotalCrossConnects = 2
+  if (providerService && hasTwoCrossConnects(providerService)) {
+    res.crossConnectMappings = [
+      {
+        customerBgpPeeringIp: formFields?.["customerBgpPeeringIp-0"],
+        oracleBgpPeeringIp: formFields?.["oracleBgpPeeringIp-0"],
+      },
+      {
+        customerBgpPeeringIp: formFields?.["customerBgpPeeringIp-1"],
+        oracleBgpPeeringIp: formFields?.["oracleBgpPeeringIp-1"],
+      },
+    ];
+  }
+
+  // Cleanup: remove any mapping where all values undefined
+  if (res.crossConnectMappings?.length) {
+    res.crossConnectMappings = res.crossConnectMappings.filter(
+      (m: any) => !Object.values(m ?? {}).every(v => v === undefined),
+    );
+
+    if (res.crossConnectMappings.length === 0) {
+      delete res.crossConnectMappings;
+    }
+  }
+
+  return res;
+};
+
+export const getType3Body = (app: any, user: any) => ({});
+
+export const getType4Body = (app: any, user: any) => ({});
+
+// earlier -> getType5Body()
+// Single-Type5
+export const getSingleCrossConnectBody = (user: any) => {
+  const formFields = user?.forms?.["intent.fast-connect.create.Step2"]?.$formFields;
+  const isCCGroup = formFields?.crossConnectType === CrossConnectType.Group;
+
+  if (isCCGroup) {
+    // failsafe
+    return {};
+  }
+
+  // For Single CC body
+  const isMacsecEnabled = formFields?.state === true;
+  const { freeformTags, definedTags } = convertTags(formFields?.tags);
+
+  const res: Record<string, any> = {
+    displayName: formFields?.displayName,
+    compartmentId: formFields?.compartmentId,
+    locationName: formFields?.locationName,
+    portSpeedShapeName: formFields?.portSpeedShapeName,
+    customerReferenceName: formFields?.customerReferenceName,
+    freeformTags: freeformTags ?? {},
+    definedTags: definedTags ?? {},
+    macsecProperties: {
+      state: isMacsecEnabled ? "ENABLED" : "DISABLED",
+      primaryKey: isMacsecEnabled
+        ? {
+            connectivityAssociationNameSecretId: formFields?.connectivityAssociationNameSecretId,
+            connectivityAssociationKeySecretId: formFields?.connectivityAssociationKeySecretId,
+          }
+        : null,
+      encryptionCipher: isMacsecEnabled ? formFields?.encryptionCipher : null,
+      isUnprotectedTrafficAllowed: isMacsecEnabled
+        ? formFields?.isUnprotectedTrafficAllowed === unprotectedTrafficAllowed.failOpen
+        : false,
+    },
+  };
+
+  // Add router proximity conditionally
+  if (formFields?.routerProximityEnabled === true) {
+    if (formFields?.routerProximityNearOrFar === RouterProximityType.Near) {
+      res.nearCrossConnectOrCrossConnectGroupId = formFields?.nearCrossConnectOrCrossConnectGroupId;
+    } else {
+      res.farCrossConnectOrCrossConnectGroupId = formFields?.farCrossConnectOrCrossConnectGroupId;
+    }
+  }
+
+  //   console.log("getSingleCrossConnectBody -->", res);
+  return res;
+};
+
+export const getCrossConnectGroupBody = (user: any, ccgNumber: number) => {
+  const formFields = user?.forms?.["intent.fast-connect.create.Step2"]?.$formFields;
+
+  if (ccgNumber === 1) {
+    const isMacsecEnabled = formFields?.state === true;
+    const { freeformTags, definedTags } = convertTags(formFields?.tags);
+
+    const res: Record<string, any> = {
+      displayName: formFields?.displayName,
+      compartmentId: formFields?.compartmentId,
+      customerReferenceName: formFields?.customerReferenceName,
+      freeformTags: freeformTags ?? {},
+      definedTags: definedTags ?? {},
+      macsecProperties: {
+        state: isMacsecEnabled ? "ENABLED" : "DISABLED",
+        primaryKey: isMacsecEnabled
+          ? {
+              connectivityAssociationNameSecretId: formFields?.connectivityAssociationNameSecretId,
+              connectivityAssociationKeySecretId: formFields?.connectivityAssociationKeySecretId,
+            }
+          : null,
+        encryptionCipher: isMacsecEnabled ? formFields?.encryptionCipher : null,
+        isUnprotectedTrafficAllowed: isMacsecEnabled
+          ? formFields?.isUnprotectedTrafficAllowed === unprotectedTrafficAllowed.failOpen
+          : false,
+      },
+    };
+
+    // console.log("getCrossConnectGroupBody CCG1 -->", res);
+    return res;
+  } else if (ccgNumber === 2) {
+    const isMacsecEnabled = formFields?.["state-1"] === true;
+    const { freeformTags, definedTags } = convertTags(formFields?.["tags-1"]);
+
+    const res: Record<string, any> = {
+      displayName: formFields?.["displayName-1"],
+      compartmentId: formFields?.["compartmentId-1"],
+      customerReferenceName: formFields?.["customerReferenceName-1"],
+      freeformTags: freeformTags ?? {},
+      definedTags: definedTags ?? {},
+      macsecProperties: {
+        state: isMacsecEnabled ? "ENABLED" : "DISABLED",
+        primaryKey: isMacsecEnabled
+          ? {
+              connectivityAssociationNameSecretId:
+                formFields?.["connectivityAssociationNameSecretId-1"],
+              connectivityAssociationKeySecretId:
+                formFields?.["connectivityAssociationKeySecretId-1"],
+            }
+          : null,
+        encryptionCipher: isMacsecEnabled ? formFields?.["encryptionCipher-1"] : null,
+        isUnprotectedTrafficAllowed: isMacsecEnabled
+          ? formFields?.["isUnprotectedTrafficAllowed-1"] === unprotectedTrafficAllowed.failOpen
+          : false,
+      },
+    };
+
+    // console.log("getCrossConnectGroupBody CCG2 -->", res);
+    return res;
+  }
+};
+
+// export const getCrossConnectGroupBody = (user: any) => {
+//   const formFields = user?.forms?.["intent.fast-connect.create.Step2"]?.$formFields;
+
+//   const isMacsecEnabled = formFields?.state === true;
+//   const { freeformTags, definedTags } = convertTags(formFields?.tags);
+
+//   const res: Record<string, any> = {
+//     displayName: formFields?.displayName,
+//     compartmentId: formFields?.compartmentId,
+//     customerReferenceName: formFields?.customerReferenceName,
+//     freeformTags: freeformTags ?? {},
+//     definedTags: definedTags ?? {},
+//     macsecProperties: {
+//       state: isMacsecEnabled ? "ENABLED" : "DISABLED",
+//       primaryKey: isMacsecEnabled
+//         ? {
+//             connectivityAssociationNameSecretId: formFields?.connectivityAssociationNameSecretId,
+//             connectivityAssociationKeySecretId: formFields?.connectivityAssociationKeySecretId,
+//           }
+//         : null,
+//       encryptionCipher: isMacsecEnabled ? formFields?.encryptionCipher : null,
+//       isUnprotectedTrafficAllowed: isMacsecEnabled
+//         ? formFields?.isUnprotectedTrafficAllowed === unprotectedTrafficAllowed.failOpen
+//         : false,
+//     },
+//   };
+
+// console.log("getCrossConnectGroupBody -->", res);
+
+//   return res;
+// };
+
+export const getMultipleCrossConnectsBodyC2 = (
+  user: any,
+  newCcgData: DEFINITION_CoreServicesApi_CrossConnectGroup,
+  ccg1Data: any,
+): Array<{ crossConnectPayload: Record<string, any> }> => {
+  const formFields = user?.forms?.["intent.fast-connect.create.Step2"]?.$formFields;
+  const numberOfCrossConnects = formFields?.[`${CrossConnectFieldNames.NumberOfCrossConnects}-1`];
+  const { freeformTags, definedTags } = convertTags(formFields?.tags1);
+
+  const payloads: Array<{ crossConnectPayload: Record<string, any> }> = [];
+
+  for (let i = 0; i < numberOfCrossConnects; i++) {
+    const displayName = formFields?.["displayName-1"]
+      ? `${formFields?.["displayName-1"]}-${i + 1}`
+      : `${newCcgData?.displayName?.replace("group", "")}-${i + 1}`;
+
+    const crossConnectPayload: Record<string, any> = {
+      compartmentId: formFields?.["compartmentId-1"],
+      locationName: formFields?.["locationName-1"] ?? formFields?.locationName,
+      portSpeedShapeName: formFields?.["portSpeedShapeName-1"],
+      freeformTags: freeformTags ?? {},
+      definedTags: definedTags ?? {},
+      displayName,
+      customerReferenceName: formFields?.["customerReferenceName-1"],
+      crossConnectGroupId: newCcgData?.id,
+      farCrossConnectOrCrossConnectGroupId: ccg1Data?.id,
+    };
+
+    payloads.push({ crossConnectPayload });
+  }
+
+  //   console.log("getMultipleCrossConnectsBodyC2 -->", payloads);
+  return payloads;
+};
+
+// Group-Type5
+export const getMultipleCrossConnectsBody = (
+  user: any,
+  newCcgData: DEFINITION_CoreServicesApi_CrossConnectGroup,
+): Array<{ crossConnectPayload: Record<string, any> }> => {
+  const formFields = user?.forms?.["intent.fast-connect.create.Step2"]?.$formFields;
+  const numberOfCrossConnects = formFields?.[CrossConnectFieldNames.NumberOfCrossConnects];
+  const { freeformTags, definedTags } = convertTags(formFields?.tags);
+
+  const payloads: Array<{ crossConnectPayload: Record<string, any> }> = [];
+
+  for (let i = 0; i < numberOfCrossConnects; i++) {
+    const displayName = formFields?.displayName
+      ? `${formFields.displayName}-${i + 1}`
+      : `${newCcgData?.displayName?.replace("group", "")}-${i + 1}`;
+
+    const crossConnectPayload: Record<string, any> = {
+      compartmentId: formFields?.compartmentId,
+      locationName: formFields?.locationName,
+      portSpeedShapeName: formFields?.portSpeedShapeName,
+      freeformTags: freeformTags ?? {},
+      definedTags: definedTags ?? {},
+      displayName,
+      customerReferenceName: formFields?.customerReferenceName,
+      crossConnectGroupId: newCcgData?.id,
+    };
+
+    // Add router proximity conditionally
+    if (formFields?.routerProximityEnabled === true) {
+      if (formFields?.routerProximityNearOrFar === RouterProximityType.Near) {
+        crossConnectPayload.nearCrossConnectOrCrossConnectGroupId =
+          formFields?.nearCrossConnectOrCrossConnectGroupId;
+      } else {
+        crossConnectPayload.farCrossConnectOrCrossConnectGroupId =
+          formFields?.farCrossConnectOrCrossConnectGroupId;
+      }
+    }
+
+    payloads.push({ crossConnectPayload });
+  }
+
+  //   console.log("getMultipleCrossConnectsBody -->", payloads);
+  return payloads;
+};
+
+//  =========================== Type 3 ===========================
+export const getType3SingleCCBody = (user: any, ccNumber: number) => {
+  const formFields = user?.forms?.["intent.fast-connect.create.Step2"]?.$formFields;
+
+  if (ccNumber === 1) {
+    const isMacsecEnabled = formFields?.state === true;
+    const { freeformTags, definedTags } = convertTags(formFields?.tags);
+
+    const res: Record<string, any> = {
+      displayName: formFields?.displayName,
+      compartmentId: formFields?.compartmentId,
+      locationName: formFields?.locationName,
+      portSpeedShapeName: formFields?.portSpeedShapeName,
+      customerReferenceName: formFields?.customerReferenceName,
+      freeformTags: freeformTags ?? {},
+      definedTags: definedTags ?? {},
+      macsecProperties: {
+        state: isMacsecEnabled ? "ENABLED" : "DISABLED",
+        primaryKey: isMacsecEnabled
+          ? {
+              connectivityAssociationNameSecretId: formFields?.connectivityAssociationNameSecretId,
+              connectivityAssociationKeySecretId: formFields?.connectivityAssociationKeySecretId,
+            }
+          : null,
+        encryptionCipher: isMacsecEnabled ? formFields?.encryptionCipher : null,
+        isUnprotectedTrafficAllowed: isMacsecEnabled
+          ? formFields?.isUnprotectedTrafficAllowed === unprotectedTrafficAllowed.failOpen
+          : false,
+      },
+    };
+
+    // console.log("getType3SingleCCBody C1-->", res);
+    return res;
+  } else if (ccNumber === 2) {
+    const isMacsecEnabled = formFields?.["state-1"] === true;
+    const { freeformTags, definedTags } = convertTags(formFields?.tags1);
+
+    const res: Record<string, any> = {
+      displayName: formFields?.["displayName-1"],
+      compartmentId: formFields?.["compartmentId-1"],
+      locationName: formFields?.["locationName-1"],
+      portSpeedShapeName: formFields?.["portSpeedShapeName-1"],
+      customerReferenceName: formFields?.["customerReferenceName-1"],
+      freeformTags: freeformTags ?? {},
+      definedTags: definedTags ?? {},
+      macsecProperties: {
+        state: isMacsecEnabled ? "ENABLED" : "DISABLED",
+        primaryKey: isMacsecEnabled
+          ? {
+              connectivityAssociationNameSecretId:
+                formFields?.["connectivityAssociationNameSecretId-1"],
+              connectivityAssociationKeySecretId:
+                formFields?.["connectivityAssociationKeySecretId-1"],
+            }
+          : null,
+        encryptionCipher: isMacsecEnabled ? formFields?.["encryptionCipher-1"] : null,
+        isUnprotectedTrafficAllowed: isMacsecEnabled
+          ? formFields?.["isUnprotectedTrafficAllowed-1"] === unprotectedTrafficAllowed.failOpen
+          : false,
+      },
+    };
+
+    // console.log("getType3SingleCCBody C2 -->", res);
+    return res;
+  }
+};
+
+//  =========================== Type 4 ===========================
+
+export const getType4SingleCCBody = (user: any, ccNumber: number, cc1Data?: any) => {
+  const formFields = user?.forms?.["intent.fast-connect.create.Step2"]?.$formFields;
+
+  if (ccNumber === 1) {
+    const isMacsecEnabled = formFields?.state === true;
+    const { freeformTags, definedTags } = convertTags(formFields?.tags);
+
+    const res: Record<string, any> = {
+      displayName: formFields?.displayName,
+      compartmentId: formFields?.compartmentId,
+      locationName: formFields?.locationName,
+      portSpeedShapeName: formFields?.portSpeedShapeName,
+      customerReferenceName: formFields?.customerReferenceName,
+      freeformTags: freeformTags ?? {},
+      definedTags: definedTags ?? {},
+      macsecProperties: {
+        state: isMacsecEnabled ? "ENABLED" : "DISABLED",
+        primaryKey: isMacsecEnabled
+          ? {
+              connectivityAssociationNameSecretId: formFields?.connectivityAssociationNameSecretId,
+              connectivityAssociationKeySecretId: formFields?.connectivityAssociationKeySecretId,
+            }
+          : null,
+        encryptionCipher: isMacsecEnabled ? formFields?.encryptionCipher : null,
+        isUnprotectedTrafficAllowed: isMacsecEnabled
+          ? formFields?.isUnprotectedTrafficAllowed === unprotectedTrafficAllowed.failOpen
+          : false,
+      },
+    };
+
+    // console.log("getType4SingleCCBody C1-->", res);
+    return res;
+  } else if (ccNumber === 2) {
+    const isMacsecEnabled = formFields?.["state-1"] === true;
+    const { freeformTags, definedTags } = convertTags(formFields?.tags1);
+
+    const res: Record<string, any> = {
+      displayName: formFields?.["displayName-1"],
+      compartmentId: formFields?.["compartmentId-1"],
+      locationName: formFields?.["locationName-1"] ?? formFields?.locationName,
+      portSpeedShapeName: formFields?.["portSpeedShapeName-1"],
+      customerReferenceName: formFields?.["customerReferenceName-1"],
+      freeformTags: freeformTags ?? {},
+      definedTags: definedTags ?? {},
+      macsecProperties: {
+        state: isMacsecEnabled ? "ENABLED" : "DISABLED",
+        primaryKey: isMacsecEnabled
+          ? {
+              connectivityAssociationNameSecretId:
+                formFields?.["connectivityAssociationNameSecretId-1"],
+              connectivityAssociationKeySecretId:
+                formFields?.["connectivityAssociationKeySecretId-1"],
+            }
+          : null,
+        encryptionCipher: isMacsecEnabled ? formFields?.["encryptionCipher-1"] : null,
+        isUnprotectedTrafficAllowed: isMacsecEnabled
+          ? formFields?.["isUnprotectedTrafficAllowed-1"] === unprotectedTrafficAllowed.failOpen
+          : false,
+      },
+      farCrossConnectOrCrossConnectGroupId: cc1Data?.id,
+    };
+
+    // console.log("getType4SingleCCBody C2 -->", res);
+    return res;
+  }
+};
+
+export const getActionName = (user: any) => {
+  const currentFlowType = getCurrentCreateFlowType(user);
+  //   console.log("getActionName Flow Type ===>", currentFlowType);
+
+  const formFields = user?.forms?.["intent.fast-connect.create.Step2"]?.$formFields;
+  const isCCGroup = formFields?.crossConnectType === CrossConnectType.Group;
+
+  switch (currentFlowType) {
+    case "type1":
+      return [VirtualCircuitDetailsActions.createVCSubmit1];
+
+    case "type2":
+      return [VirtualCircuitDetailsActions.createVCSubmit2];
+
+    case "type3":
+      return isCCGroup
+        ? [VirtualCircuitDetailsActions.createVCSubmit3CCGroup]
+        : [VirtualCircuitDetailsActions.createVCSubmit3];
+
+    case "type4":
+      return isCCGroup
+        ? [VirtualCircuitDetailsActions.createVCSubmit4CCGroup]
+        : [VirtualCircuitDetailsActions.createVCSubmit4];
+
+    case "type5":
+      return isCCGroup
+        ? [VirtualCircuitDetailsActions.createVCSubmit5CCGroup]
+        : [VirtualCircuitDetailsActions.createVCSubmit5];
+
+    default:
+      //   console.warn("Unknown flow type. Returning empty body.");
+      return "";
+  }
+};
+
+export const getSaveAsStackResourceName = ($user: UserState) => {
+  const currentFlowType = getCurrentCreateFlowType($user);
+  const formFields = ($user?.forms?.[IntentId.CreateStep2] as any)?.$formFields;
+  const isCCGroup = formFields?.crossConnectType === CrossConnectType.Group;
+  const numberOfCrossConnectsCCG1 = formFields?.[CrossConnectFieldNames.NumberOfCrossConnects];
+  const numberOfCrossConnectsCCG2 =
+    formFields?.[`${CrossConnectFieldNames.NumberOfCrossConnects}-1`];
+
+  switch (currentFlowType) {
+    case "type1":
+      return [
+        "generated_" + TerraformResourceTypes.VirtualCircuit,
+        "generated_" + TerraformResourceTypes.VirtualCircuit + "_redundant",
+      ];
+    case "type2":
+      return "generated_" + TerraformResourceTypes.VirtualCircuit;
+    case "type3":
+    case "type4":
+      return isCCGroup
+        ? [
+            "generated_" + TerraformResourceTypes.CrossConnectGroup,
+            ...new Array(numberOfCrossConnectsCCG1)
+              .fill(0)
+              .map((_, index) => `generated_${TerraformResourceTypes.CrossConnect}_${index + 1}`),
+            "generated_" + TerraformResourceTypes.CrossConnectGroup + "_redundant",
+            ...new Array(numberOfCrossConnectsCCG2)
+              .fill(0)
+              .map(
+                (_, index) =>
+                  `generated_${TerraformResourceTypes.CrossConnect}_redundant_${index + 1}`,
+              ),
+          ]
+        : [
+            "generated_" + TerraformResourceTypes.CrossConnect,
+            "generated_" + TerraformResourceTypes.CrossConnect + "_redundant",
+          ];
+    case "type5":
+      return isCCGroup
+        ? [
+            "generated_" + TerraformResourceTypes.CrossConnectGroup,
+            ...new Array(numberOfCrossConnectsCCG1)
+              .fill(0)
+              .map((_, index) => `generated_${TerraformResourceTypes.CrossConnect}_${index + 1}`),
+          ]
+        : "generated_" + TerraformResourceTypes.CrossConnect;
+  }
+};
+
+export const getSaveAsStackResourceType = ($user: UserState) => {
+  const currentFlowType = getCurrentCreateFlowType($user);
+  const formFields = ($user?.forms?.[IntentId.CreateStep2] as any)?.$formFields;
+  const isCCGroup = formFields?.crossConnectType === CrossConnectType.Group;
+  const numberOfCrossConnectsCCG1 = formFields?.[CrossConnectFieldNames.NumberOfCrossConnects];
+  const numberOfCrossConnectsCCG2 =
+    formFields?.[`${CrossConnectFieldNames.NumberOfCrossConnects}-1`];
+
+  switch (currentFlowType) {
+    case "type1":
+      return [TerraformResourceTypes.VirtualCircuit, TerraformResourceTypes.VirtualCircuit];
+    case "type2":
+      return TerraformResourceTypes.VirtualCircuit;
+    case "type3":
+    case "type4":
+      return isCCGroup
+        ? [
+            TerraformResourceTypes.CrossConnectGroup,
+            ...new Array(numberOfCrossConnectsCCG1).fill(TerraformResourceTypes.CrossConnect),
+            TerraformResourceTypes.CrossConnectGroup,
+            ...new Array(numberOfCrossConnectsCCG2).fill(TerraformResourceTypes.CrossConnect),
+          ]
+        : [TerraformResourceTypes.CrossConnect, TerraformResourceTypes.CrossConnect];
+    case "type5":
+      return isCCGroup
+        ? [
+            TerraformResourceTypes.CrossConnectGroup,
+            ...new Array(numberOfCrossConnectsCCG1).fill(TerraformResourceTypes.CrossConnect),
+          ]
+        : TerraformResourceTypes.CrossConnect;
+  }
+};
+
+export const getSaveAsStackResourceObject = ($user: UserState) => {
+  const currentFlowType = getCurrentCreateFlowType($user);
+  const formFields = ($user?.forms?.[IntentId.CreateStep2] as any)?.$formFields;
+  const isCCGroup = formFields?.crossConnectType === CrossConnectType.Group;
+
+  switch (currentFlowType) {
+    case "type1":
+      return [getType1Body($user, 1), getType1Body($user, 2)];
+    case "type2":
+      return getType2Body($user);
+    case "type3":
+      return isCCGroup
+        ? [
+            getCrossConnectGroupBody($user, 1),
+            ...getTerraformMultipleCCs(
+              getMultipleCrossConnectsBody($user, {
+                id: getTerraformCCGId("generated_" + TerraformResourceTypes.CrossConnectGroup),
+              } as DEFINITION_CoreServicesApi_CrossConnectGroup),
+            ),
+            getCrossConnectGroupBody($user, 2),
+            ...getTerraformMultipleCCs(
+              getMultipleCrossConnectsBodyC2(
+                $user,
+                {
+                  id: getTerraformCCGId(
+                    "generated_" + TerraformResourceTypes.CrossConnectGroup + "_redundant",
+                  ),
+                } as DEFINITION_CoreServicesApi_CrossConnectGroup,
+                {
+                  id: getTerraformCCGId("generated_" + TerraformResourceTypes.CrossConnectGroup),
+                } as DEFINITION_CoreServicesApi_CrossConnectGroup,
+              ),
+            ),
+          ]
+        : [getType3SingleCCBody($user, 1), getType3SingleCCBody($user, 2)];
+    case "type4":
+      return isCCGroup
+        ? [
+            getCrossConnectGroupBody($user, 1),
+            ...getTerraformMultipleCCs(
+              getMultipleCrossConnectsBody($user, {
+                id: getTerraformCCGId("generated_" + TerraformResourceTypes.CrossConnectGroup),
+              } as DEFINITION_CoreServicesApi_CrossConnectGroup),
+            ),
+            getCrossConnectGroupBody($user, 2),
+            ...getTerraformMultipleCCs(
+              getMultipleCrossConnectsBodyC2(
+                $user,
+                {
+                  id: getTerraformCCGId(
+                    "generated_" + TerraformResourceTypes.CrossConnectGroup + "_redundant",
+                  ),
+                } as DEFINITION_CoreServicesApi_CrossConnectGroup,
+                {
+                  id: getTerraformCCGId("generated_" + TerraformResourceTypes.CrossConnectGroup),
+                } as DEFINITION_CoreServicesApi_CrossConnectGroup,
+              ),
+            ),
+          ]
+        : [
+            getType4SingleCCBody($user, 1),
+            getType4SingleCCBody($user, 2, {
+              id: getTerraformCC1Id("generated_" + TerraformResourceTypes.CrossConnect),
+            }),
+          ];
+    case "type5":
+      return isCCGroup
+        ? [
+            getCrossConnectGroupBody($user, 1),
+            ...getTerraformMultipleCCs(
+              getMultipleCrossConnectsBody($user, {
+                id: getTerraformCCGId("generated_" + TerraformResourceTypes.CrossConnectGroup),
+              } as DEFINITION_CoreServicesApi_CrossConnectGroup),
+              formFields?.displayName,
+            ),
+          ]
+        : getSingleCrossConnectBody($user);
+  }
+};
+
+export const getTerraformCC1Id = (ccName: string) =>
+  "${" + `${TerraformResourceTypes.CrossConnect}.${ccName}.id` + "}";
+
+export const getTerraformCCGId = (ccgName: string) =>
+  "${" + `${TerraformResourceTypes.CrossConnectGroup}.${ccgName}.id` + "}";
+
+export const getTerraformCCGDisplayName = (ccgName: string) =>
+  "${" + `${TerraformResourceTypes.CrossConnectGroup}.${ccgName}.displayName` + "}";
+
+export const getTerraformMultipleCCs = (
+  ccPayloads: Array<{ crossConnectPayload: Record<string, any> }>,
+  ccgDisplayName?: string,
+) => {
+  return ccPayloads.map((item, index) => ({
+    ...item.crossConnectPayload,
+    displayName: ccgDisplayName
+      ? `${ccgDisplayName}-${index + 1}`
+      : `${getTerraformCCGDisplayName("generated_" + TerraformResourceTypes.CrossConnectGroup)}-${index + 1}`,
+  }));
+};
+
+export const displayNamePlusOcidSuffix = (name: string, suffix: string): string => {
+  return `${name}   ...${suffix}`;
+};
+
+export const validateSelectedCrossConnectOrGroup = (
+  crossConnectMappings: CrossConnectMapping[],
+  currentIndex: number,
+) => {
+  const selectedId =
+    crossConnectMappings?.[currentIndex]?.[
+      VirtualCircuitFieldNames.CrossConnectOrCrossConnectGroupId
+    ];
+  if (!selectedId) return true; // No selection made yet
+
+  // Check for duplicates in the array excluding the current index
+  return crossConnectMappings.every(
+    (mapping, index) =>
+      index === currentIndex ||
+      mapping?.[VirtualCircuitFieldNames.CrossConnectOrCrossConnectGroupId] !== selectedId,
+  );
+};
