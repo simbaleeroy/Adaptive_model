@@ -1,3 +1,8 @@
- optional: mauiExpression(
-                            ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-                              $virtualCircuit?.type) !== VirtualCircuitTypeEnum.Internet,
+  type: "required",
+                              message: Messages.VirtualCircuit.form.ipMissingError,
+                              predicate: mauiExpression(
+                                ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+                                  $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet,
+                              ),
+                            },
+                            {
