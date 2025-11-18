@@ -1,6 +1,469 @@
- // Debug: Log the payload being sent to API
-  console.log("=== CreateVirtualCircuit Payload ===");
-  console.log("Type:", subFormValues[VirtualCircuitFieldNames.Type]);
-  console.log("Full Payload:", JSON.stringify(createVirtualCircuitDetails, null, 2));
-  console.log("====================================");
-  
+
+Referrer Policy: Ignoring the less restricted referrer policy “origin-when-cross-origin” for the cross-site request: https://consent.trustarc.com/analytics?action=0&domain=oracle.com&implied=1&session=a801d5881ee74a2291458a1b168410dd&new=1&referer=https://console.r1.oracleiaas.com analytics
+[maui-preact__LogEvent]:  
+Object { logMetadata: {…}, msg: "" }
+vendors.console.49d0a293.js:2:688319
+metrics - signaturesPerMinute: 
+Object { timestamp: 1763448289461, name: "signaturesPerMinute", value: 13, dimensions: {…} }
+vendors.console.49d0a293.js:2:692641
+metrics - Request.Response.SLA: 
+Object { name: "Request.Response.SLA", value: 1, timestamp: 1763448289660, dimensions: {…} }
+vendors.console.49d0a293.js:2:692641
+metrics - Request.Response.SLA: 
+Object { name: "Request.Response.SLA", value: 1, timestamp: 1763448289828, dimensions: {…} }
+vendors.console.49d0a293.js:2:692641
+metrics - Request.Response.SLA: 
+Object { name: "Request.Response.SLA", value: 1, timestamp: 1763448299744, dimensions: {…} }
+vendors.console.49d0a293.js:2:692641
+metrics - signaturesPerMinute: 
+Object { timestamp: 1763448469610, name: "signaturesPerMinute", value: 12, dimensions: {…} }
+vendors.console.49d0a293.js:2:692641
+metrics - Request.Response.SLA: 
+Object { name: "Request.Response.SLA", value: 1, timestamp: 1763448590113, dimensions: {…} }
+​
+dimensions: Object { origin: "maui-preact", environment: "prod", tenancyType: "internal", … }
+​
+name: "Request.Response.SLA"
+​
+timestamp: 1763448590113
+​
+value: 1
+​
+<prototype>: Object { … }
+​​
+__defineGetter__: function __defineGetter__()
+​​
+__defineSetter__: function __defineSetter__()
+​​
+__lookupGetter__: function __lookupGetter__()
+​​
+__lookupSetter__: function __lookupSetter__()
+​​
+__proto__: 
+​​
+constructor: function Object()
+​​
+hasOwnProperty: function hasOwnProperty()
+​​
+isPrototypeOf: function isPrototypeOf()
+​​
+propertyIsEnumerable: function propertyIsEnumerable()
+​​
+toLocaleString: function toLocaleString()
+​​
+toString: function toString()
+​​
+valueOf: function valueOf()
+​​
+<get __proto__()>: function __proto__()
+​​
+<set __proto__()>: function __proto__()
+vendors.console.49d0a293.js:2:692641
+metrics - [RuntimeMaui.AssetDownloadLatency] - intent.fast-connect.cross-connect-secret.view :  
+Object { name: "RuntimeMaui.AssetDownloadLatency", value: 51, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigDownloadSLA] - intent.fast-connect.cross-connect-secret.view :  
+Object { name: "RuntimeMaui.ConfigDownloadSLA", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+[maui__LogEvent]: [fast-connect] => Plugin render with Configuration: {"id":"intent.fast-connect.cross-connect.virtual-circuit.list",".placeholderMetadata":{"id":"id","name":"name","schema":"schema","type":"type","version":"version"},"inputConfigUrl":"intent.fast-connect.cross-connect.virtual-circuit.list","templateConfigUrl":"listing-table@2.1.0"} 
+Object { metadata: {…} }
+​
+metadata: Object { eventMeta: "intent.fast-connect.cross-connect.virtual-circuit.list" }
+​
+<prototype>: Object { … }
+​​
+__defineGetter__: function __defineGetter__()
+​​
+__defineSetter__: function __defineSetter__()
+​​
+__lookupGetter__: function __lookupGetter__()
+​​
+__lookupSetter__: function __lookupSetter__()
+​​
+__proto__: 
+​​
+constructor: function Object()
+​​
+hasOwnProperty: function hasOwnProperty()
+​​
+isPrototypeOf: function isPrototypeOf()
+​​
+propertyIsEnumerable: function propertyIsEnumerable()
+​​
+toLocaleString: function toLocaleString()
+​​
+toString: function toString()
+​​
+valueOf: function valueOf()
+​​
+<get __proto__()>: function __proto__()
+​​
+<set __proto__()>: function __proto__()
+vendor.oci.29e818.1762418008537.js:2:1342401
+metrics - [RuntimeMaui.ConfigRenderSLA] - intent.fast-connect.virtual-circuit.subForm :  
+Object { name: "RuntimeMaui.ConfigRenderSLA", value: 1, dimensions: {…} }
+​
+dimensions: Object { context: "maui", builder: "JET", intentId: "intent.fast-connect.virtual-circuit.subForm", … }
+​​
+builder: "JET"
+​​
+context: "maui"
+​​
+intentId: "intent.fast-connect.virtual-circuit.subForm"
+​​
+pluginName: "fast-connect"
+​​
+template: "content"
+​​
+templateVersion: "1.0.6"
+​​
+<prototype>: Object { … }
+​​​
+__defineGetter__: function __defineGetter__()
+​​​
+__defineSetter__: function __defineSetter__()
+​​​
+__lookupGetter__: function __lookupGetter__()
+​​​
+__lookupSetter__: function __lookupSetter__()
+​​​
+__proto__: 
+​​​
+constructor: function Object()
+​​​
+hasOwnProperty: function hasOwnProperty()
+​​​
+isPrototypeOf: function isPrototypeOf()
+​​​
+propertyIsEnumerable: function propertyIsEnumerable()
+​​​
+toLocaleString: function toLocaleString()
+​​​
+toString: function toString()
+​​​
+valueOf: function valueOf()
+​​​
+<get __proto__()>: function __proto__()
+​​​
+<set __proto__()>: function __proto__()
+​
+name: "RuntimeMaui.ConfigRenderSLA"
+​
+value: 1
+​
+<prototype>: Object { … }
+​​
+__defineGetter__: function __defineGetter__()
+​​
+__defineSetter__: function __defineSetter__()
+​​
+__lookupGetter__: function __lookupGetter__()
+​​
+__lookupSetter__: function __lookupSetter__()
+​​
+__proto__: 
+​​
+constructor: function Object()
+​​
+hasOwnProperty: function hasOwnProperty()
+​​
+isPrototypeOf: function isPrototypeOf()
+​​
+propertyIsEnumerable: function propertyIsEnumerable()
+​​
+toLocaleString: function toLocaleString()
+​​
+toString: function toString()
+​​
+valueOf: function valueOf()
+​​
+<get __proto__()>: function __proto__()
+​​
+<set __proto__()>: function __proto__()
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.FrameworkAvailability] - intent.fast-connect.virtual-circuit.subForm :  
+Object { name: "RuntimeMaui.FrameworkAvailability", value: 1, dimensions: {…} }
+​
+dimensions: Object { context: "maui", builder: "JET", intentId: "intent.fast-connect.virtual-circuit.subForm", … }
+​​
+builder: "JET"
+​​
+context: "maui"
+​​
+intentId: "intent.fast-connect.virtual-circuit.subForm"
+​​
+pluginName: "fast-connect"
+​​
+<prototype>: Object { … }
+​​​
+__defineGetter__: function __defineGetter__()
+​​​
+__defineSetter__: function __defineSetter__()
+​​​
+__lookupGetter__: function __lookupGetter__()
+​​​
+__lookupSetter__: function __lookupSetter__()
+​​​
+__proto__: 
+​​​
+constructor: function Object()
+​​​
+hasOwnProperty: function hasOwnProperty()
+​​​
+isPrototypeOf: function isPrototypeOf()
+​​​
+propertyIsEnumerable: function propertyIsEnumerable()
+​​​
+toLocaleString: function toLocaleString()
+​​​
+toString: function toString()
+​​​
+valueOf: function valueOf()
+​​​
+<get __proto__()>: function __proto__()
+​​​
+<set __proto__()>: function __proto__()
+​
+name: "RuntimeMaui.FrameworkAvailability"
+​
+value: 1
+​
+<prototype>: Object { … }
+​​
+__defineGetter__: function __defineGetter__()
+​​
+__defineSetter__: function __defineSetter__()
+​​
+__lookupGetter__: function __lookupGetter__()
+​​
+__lookupSetter__: function __lookupSetter__()
+​​
+__proto__: 
+​​
+constructor: function Object()
+​​
+hasOwnProperty: function hasOwnProperty()
+​​
+isPrototypeOf: function isPrototypeOf()
+​​
+propertyIsEnumerable: function propertyIsEnumerable()
+​​
+toLocaleString: function toLocaleString()
+​​
+toString: function toString()
+​​
+valueOf: function valueOf()
+​​
+<get __proto__()>: function __proto__()
+​​
+<set __proto__()>: function __proto__()
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.BuilderAvailability] - intent.fast-connect.virtual-circuit.subForm :  
+Object { name: "RuntimeMaui.BuilderAvailability", value: 1, dimensions: {…} }
+​
+dimensions: Object { context: "maui", builder: "JET", intentId: "intent.fast-connect.virtual-circuit.subForm", … }
+​
+name: "RuntimeMaui.BuilderAvailability"
+​
+value: 1
+​
+<prototype>: Object { … }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigAPITriggerCount] - ListVirtualCircuitsAction :  
+Object { name: "RuntimeMaui.ConfigAPITriggerCount", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigAPIResourceCount] - ListVirtualCircuitsAction :  
+Object { name: "RuntimeMaui.ConfigAPIResourceCount", value: 2, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigAPITriggerCount] - GetVirtualCircuitBulkAction :  
+Object { name: "RuntimeMaui.ConfigAPITriggerCount", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigAPIResourceCount] - GetVirtualCircuitBulkAction :  
+Object { name: "RuntimeMaui.ConfigAPIResourceCount", value: undefined, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - signaturesPerMinute: 
+Object { timestamp: 1763450109657, name: "signaturesPerMinute", value: 19, dimensions: {…} }
+vendors.console.49d0a293.js:2:692641
+<empty string> vendors.console.49d0a293.js:2:794967
+metrics - Request.Response.SLA: 
+Object { name: "Request.Response.SLA", value: 1, timestamp: 1763450116539, dimensions: {…} }
+vendors.console.49d0a293.js:2:692641
+metrics - [RuntimeMaui.ServiceCall.GetCrossConnect.duration] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.GetCrossConnect.duration", value: 174, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.GetCrossConnect.200] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.GetCrossConnect.200", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.200] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.200", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.2xx] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.2xx", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+<empty string> vendors.console.49d0a293.js:2:794967
+metrics - Request.Response.SLA: 
+Object { name: "Request.Response.SLA", value: 1, timestamp: 1763450117499, dimensions: {…} }
+vendors.console.49d0a293.js:2:692641
+metrics - [RuntimeMaui.ServiceCall.ListVirtualCircuits.duration] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.ListVirtualCircuits.duration", value: 229, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.ListVirtualCircuits.200] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.ListVirtualCircuits.200", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.200] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.200", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.2xx] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.2xx", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigAPITriggerCount] - ListVirtualCircuitsAction :  
+Object { name: "RuntimeMaui.ConfigAPITriggerCount", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigAPIResourceCount] - ListVirtualCircuitsAction :  
+Object { name: "RuntimeMaui.ConfigAPIResourceCount", value: 2, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigAPITriggerCount] - GetVirtualCircuitBulkAction :  
+Object { name: "RuntimeMaui.ConfigAPITriggerCount", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigAPIResourceCount] - GetVirtualCircuitBulkAction :  
+Object { name: "RuntimeMaui.ConfigAPIResourceCount", value: undefined, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+<empty string> vendors.console.49d0a293.js:2:794967
+metrics - [RuntimeMaui.ServiceCall.GetCrossConnect.duration] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.GetCrossConnect.duration", value: 262, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.GetCrossConnect.200] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.GetCrossConnect.200", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.200] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.200", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.2xx] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.2xx", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - Request.Response.SLA: 
+Object { name: "Request.Response.SLA", value: 1, timestamp: 1763450126637, dimensions: {…} }
+vendors.console.49d0a293.js:2:692641
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+<empty string> vendors.console.49d0a293.js:2:794967
+metrics - Request.Response.SLA: 
+Object { name: "Request.Response.SLA", value: 1, timestamp: 1763450127523, dimensions: {…} }
+vendors.console.49d0a293.js:2:692641
+metrics - [RuntimeMaui.ServiceCall.ListVirtualCircuits.duration] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.ListVirtualCircuits.duration", value: 246, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.ListVirtualCircuits.200] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.ListVirtualCircuits.200", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.200] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.200", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.2xx] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.2xx", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigAPITriggerCount] - ListVirtualCircuitsAction :  
+Object { name: "RuntimeMaui.ConfigAPITriggerCount", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigAPIResourceCount] - ListVirtualCircuitsAction :  
+Object { name: "RuntimeMaui.ConfigAPIResourceCount", value: 2, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigAPITriggerCount] - GetVirtualCircuitBulkAction :  
+Object { name: "RuntimeMaui.ConfigAPITriggerCount", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ConfigAPIResourceCount] - GetVirtualCircuitBulkAction :  
+Object { name: "RuntimeMaui.ConfigAPIResourceCount", value: undefined, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+<empty string> vendors.console.49d0a293.js:2:794967
+metrics - Request.Response.SLA: 
+Object { name: "Request.Response.SLA", value: 1, timestamp: 1763450136979, dimensions: {…} }
+vendors.console.49d0a293.js:2:692641
+metrics - [RuntimeMaui.ServiceCall.GetCrossConnect.duration] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.GetCrossConnect.duration", value: 604, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.GetCrossConnect.200] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.GetCrossConnect.200", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.200] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.200", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.2xx] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.2xx", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+<empty string> vendors.console.49d0a293.js:2:794967
+metrics - [RuntimeMaui.ServiceCall.ListVirtualCircuits.duration] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.ListVirtualCircuits.duration", value: 227, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.ListVirtualCircuits.200] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.ListVirtualCircuits.200", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.200] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.200", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.ServiceCall.2xx] - intent.fast-connect.cross-connect.details :  
+Object { name: "RuntimeMaui.ServiceCall.2xx", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - Request.Response.SLA: 
+Object { name: "Request.Response.SLA", value: 1, timestamp: 1763450137509, dimensions: {…} }
+vendors.console.49d0a293.js:2:692641
+metrics - [RuntimeMaui.ConfigAPITriggerCount] - ListVirtualCircuitsAction :  
+Object { name: "RuntimeMaui.ConfigAPITriggerCount", value: 1, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+metrics - [RuntimeMaui.pageWalking.walkCount] - intent.fast-connect.cross-connect.virtual-circuit.list :  
+Object { name: "RuntimeMaui.pageWalking.walkCount", value: 0, dimensions: {…} }
+vendor.oci.29e818.1762418008537.js:2:1412701
+
+​
+
