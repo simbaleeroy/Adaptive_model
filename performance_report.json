@@ -1,2 +1,2 @@
- ($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
-            $virtualCircuit?.type) !== VirtualCircuitTypeEnum.Internet &&
+($user?.forms?.[$formId]?.$formFields?.[VirtualCircuitFieldNames.Type] ??
+                          $virtualCircuit?.type) === VirtualCircuitTypeEnum.Internet ||
