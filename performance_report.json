@@ -1,113 +1,56 @@
-package com.oracle.pic.vpn.db.devices.model;
+public class AutoNetConfig {
+    private String id;
+    private String deviceId;
+    private String referenceId;
+    private Boolean isDrainRequired;
+    private String config;
+    private Date lastAttempt;
+    private Integer attempts;
+    private Boolean failed;
+    private Date dateCreated;
+    private Date lastUpdated;
+    private String stateComment;
+    private String changeTicket;
+    private State state;
 
-import com.google.api.client.util.Preconditions;
-import com.google.inject.Inject;
-import com.google.inject.Provider;
-import com.google.inject.name.Named;
-import com.oracle.pic.kiev.Transaction;
-import com.oracle.pic.kiev.mapping.Index;
-import com.oracle.pic.kiev.mapping.MappedDataStore;
-import com.oracle.pic.kiev.mapping.MappedHashBucket;
-import com.oracle.pic.kiev.mapping.PaginationToken;
-import com.oracle.pic.kiev.mapping.ScanPage;
-import com.oracle.pic.kiev.mapping.UniqueIndex;
-import com.oracle.pic.vpn.db.devices.DeviceBl;
-import com.oracle.pic.vpn.db.model.ArchiveDo;
+    // Getters and setters or use Lombok's @Data annotation
+    @Data
+    @Builder
+    public static class AutoNetConfig {
+        private String id;
+        private String deviceId;
+        private String referenceId;
+        private Boolean isDrainRequired;
+        private String config;
+        private Date lastAttempt;
+        private Integer attempts;
+        private Boolean failed;
+        private Date dateCreated;
+        private Date lastUpdated;
+        private String stateComment;
+        private String changeTicket;
+        private State state;
+    }
 
-import java.util.List;
-import java.util.Optional;
-import java.util.stream.Collectors;
-
-public class AutoNetConfigBl {
-  //private final Provider<DeviceBl> deviceBlProvider;
-  private final Index<String, AutoNetConfigDo> snippetsByDeviceId;
-  private final Index<String, AutoNetConfigDo> snippetsByObjectId;
-  private final Index<AutoNetConfigDo.State, AutoNetConfigDo> snippetsByStateId;
-  private final Index<DeviceAndStateKey, AutoNetConfigDo> snippetsByDeviceIdAndState;
-  private final UniqueIndex<GroupNameAndDeviceKey, AutoNetConfigDo> snippetByGroupNameAndDevice;
-  private final Index<String, AutoNetConfigDo> snippetsByDeviceConfigGroupName;
-
-  @Inject
-  public AutoNetConfigBl(@Named("synchronizerDatastore") MappedDataStore mappedDataStore,
-                         @Named("synchronizerArchive") MappedHashBucket<String, ArchiveDo> archiveBucket,
-                         MappedHashBucket<String, AutoNetConfigDo> bucket,
-                         Provider<DeviceBl> deviceBlProvider,
-                         @Named(AutoNetConfigDo.SNIPPET_BY_DEVICE_ID_IDX) Index<String, AutoNetConfigDo> snippetsByDeviceId,
-                         @Named(AutoNetConfigDo.SNIPPET_BY_OBJECT_ID_IDX) Index<String, AutoNetConfigDo> snippetsByObjectId,
-                         @Named(AutoNetConfigDo.SNIPPET_BY_STATE_IDX) Index<AutoNetConfigDo.State, AutoNetConfigDo> snippetsByStateId,
-                         @Named(AutoNetConfigDo.SNIPPET_BY_GROUP_NAME_AND_DEVICE_IDX) UniqueIndex<GroupNameAndDeviceKey, AutoNetConfigDo> snippetByGroupNameAndDevice,
-                         Index<DeviceAndStateKey, AutoNetConfigDo> snippetsByDeviceIdAndState,
-                         @Named(ConfigSnippetDo.SNIPPET_BY_DEVICE_GROUP_NAME_IDX) Index<String, AutoNetConfigDo> snippetsByDeviceConfigGroupName) {
-    super();
-    //this.deviceBlProvider = deviceBlProvider;
-    this.snippetsByDeviceId = snippetsByDeviceId;
-    this.snippetsByObjectId = snippetsByObjectId;
-    this.snippetsByStateId = snippetsByStateId;
-    this.snippetByGroupNameAndDevice = snippetByGroupNameAndDevice;
-    this.snippetsByDeviceIdAndState = snippetsByDeviceIdAndState;
-    this.snippetsByDeviceConfigGroupName = snippetsByDeviceConfigGroupName;
-  }
-
-  public List<AutoNetConfigDo> listSnippetsForDomainObject(Transaction t, String referenceId) {
-    // This assumes that each devices should only have at most 2.
-    Preconditions.checkNotNull(referenceId, "null referenceId passed into listSnippetsForDomainObject");
-    return snippetsByObjectId.get(t, referenceId, 2);//getTransactionMaxReads());
-  }
+    public enum State {
+        PENDING_VERIFICATION,
+        NE_VERIFIED,
+        DEPLOYING,
+        DEPLOYED,
+        PREVIOUSLY_DEPLOYED,
+        VERIFICATION_FAILED,
+        DEPLOY_FAILED,
+        ROLLBACK_IN_PROGRESS,
+        ROLLED_BACK
+    }
+}
 
 
-  public List<AutoNetConfigDo> listSnippetsForDomainObject(String referenceId) {
-    // This assumes that each devices should only have at most 2.
-    Preconditions.checkNotNull(referenceId, "null referenceId passed into listSnippetsForDomainObject");
-    List<AutoNetConfigDo> autoNetConfigDos = snippetsByObjectId.streamOf(snippetsByObjectId.scanBuilder().prefix(referenceId).build())
-            .collect(Collectors.toList());
-    return autoNetConfigDos;
-  }
-
-  public ScanPage<AutoNetConfigDo> listSnippetsForDeviceAndState(String deviceId, AutoNetConfigDo.State state,
-                                                                 Optional<PaginationToken> paginationToken,
-                                                                 int pageLimit) {
-    DeviceAndStateKey deviceAndStateKey =
-            DeviceAndStateKey.builder()
-                    .deviceId(deviceId)
-                    .autoNetState(state)
-                    .build();
-
-    return listSnippetsForDeviceAndState(deviceAndStateKey, paginationToken, pageLimit);
-  }
-
-  /**
-   * @return The config snippet with the given groupName for the specific device or an empty value
-   */
-  public Optional<AutoNetConfigDo> getAutoNetConfigByDeviceAndGroup(String deviceId, String groupName) {
-    GroupNameAndDeviceKey key = GroupNameAndDeviceKey.builder()
-            .deviceId(deviceId)
-            .groupName(groupName)
-            .build();
-    return snippetByGroupNameAndDevice.get(key);
-  }
-
-  public ScanPage<AutoNetConfigDo> listSnippetsForDeviceAndState(DeviceAndStateKey deviceAndState,
-                                                                 Optional<PaginationToken> paginationToken,
-                                                                 int pageLimit) {
-    return paginationToken.map(snippetsByDeviceIdAndState::scan)
-            .orElse(snippetsByDeviceIdAndState.beginPrefixScan(deviceAndState, pageLimit));
-  }
-  public ScanPage<AutoNetConfigDo> listSnippetsForDevice(String deviceId, Optional<PaginationToken> paginationToken,
-                                                         int pageLimit) {
-    return paginationToken.map(snippetsByDeviceId::scan)
-            .orElse(snippetsByDeviceId.beginPrefixScan(deviceId, pageLimit));
-  }
-  public ScanPage<AutoNetConfigDo> listSnippetsForDeviceConfigGroupName(String deviceConfigGroupName,
-                                                                        Optional<PaginationToken> paginationToken,
-                                                                        int pageLimit) {
-    return paginationToken.map(snippetsByDeviceConfigGroupName::scan)
-            .orElse(snippetsByDeviceConfigGroupName.beginPrefixScan(deviceConfigGroupName, pageLimit));
-  }
-
-  public ScanPage<AutoNetConfigDo> listSnippetsForState(AutoNetConfigDo.State state, Optional<PaginationToken> paginationToken,
-                                                        int pageLimit) {
-    return paginationToken.map(snippetsByStateId::scan)
-            .orElse(snippetsByStateId.beginPrefixScan(state, pageLimit));
-  }
-
+public PaginatedResponse<AutoNetConfig> listAutoNetConfigs(
+        @DefaultValue(LIST_LIMIT) @QueryParam(Params.LIMIT) int limit,
+        @QueryParam(Params.PAGE) String opaqueToken,
+        @QueryParam("referenceId") String referenceId,
+        @QueryParam("deviceId") String deviceId,
+        @QueryParam("state") String state) throws ValidationException {
+    //...
 }
