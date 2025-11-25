@@ -1,56 +1,127 @@
-public class AutoNetConfig {
-    private String id;
-    private String deviceId;
-    private String referenceId;
-    private Boolean isDrainRequired;
-    private String config;
-    private Date lastAttempt;
-    private Integer attempts;
-    private Boolean failed;
-    private Date dateCreated;
-    private Date lastUpdated;
-    private String stateComment;
-    private String changeTicket;
-    private State state;
+package com.oracle.pic.vpn.db.devices.model;
 
-    // Getters and setters or use Lombok's @Data annotation
-    @Data
-    @Builder
-    public static class AutoNetConfig {
-        private String id;
-        private String deviceId;
-        private String referenceId;
-        private Boolean isDrainRequired;
-        private String config;
-        private Date lastAttempt;
-        private Integer attempts;
-        private Boolean failed;
-        private Date dateCreated;
-        private Date lastUpdated;
-        private String stateComment;
-        private String changeTicket;
-        private State state;
-    }
+import com.oracle.pic.kiev.mapping.annotations.Column;
+import com.oracle.pic.kiev.mapping.annotations.ColumnType;
+import com.oracle.pic.kiev.mapping.annotations.KievEntity;
+import com.oracle.pic.kiev.mapping.annotations.KievIndex;
+import com.oracle.pic.vpn.db.model.BaseDo;
+import com.oracle.pic.vpn.db.model.Constants;
+import lombok.EqualsAndHashCode;
+import lombok.NonNull;
+import lombok.Value;
+import oracle.sql.CLOB;
 
-    public enum State {
-        PENDING_VERIFICATION,
-        NE_VERIFIED,
-        DEPLOYING,
-        DEPLOYED,
-        PREVIOUSLY_DEPLOYED,
-        VERIFICATION_FAILED,
-        DEPLOY_FAILED,
-        ROLLBACK_IN_PROGRESS,
-        ROLLED_BACK
-    }
-}
+import javax.annotation.Nullable;
+import java.util.Date;
+
+import static com.oracle.pic.kiev.mapping.annotations.ColumnType.BOOLEAN;
+import static com.oracle.pic.kiev.mapping.annotations.ColumnType.DATE;
+import static com.oracle.pic.kiev.mapping.annotations.ColumnType.ENUM_STRING;
+import static com.oracle.pic.kiev.mapping.annotations.ColumnType.INT;
+import static com.oracle.pic.kiev.mapping.annotations.ColumnType.STRING;
+import static com.oracle.pic.vpn.db.devices.model.ConfigSnippetDo.SNIPPET_BY_DEVICE_ID_AND_STATE_IDX;
+import static com.oracle.pic.vpn.db.devices.model.ConfigSnippetDo.SNIPPET_BY_DEVICE_ID_IDX;
+import static com.oracle.pic.vpn.db.devices.model.ConfigSnippetDo.SNIPPET_BY_OBJECT_ID_IDX;
+import static com.oracle.pic.vpn.db.devices.model.ConfigSnippetDo.SNIPPET_BY_STATE_IDX;
+
+//@EqualsAndHashCode(callSuper = true)
+//@Value
+@KievEntity(builderClass = AutoNetConfigDo.Builder.class, builderPrefix = "")
+@KievIndex(name = SNIPPET_BY_DEVICE_ID_IDX, unique = false, columns = {"deviceId"})
+@KievIndex(name = SNIPPET_BY_OBJECT_ID_IDX, unique = false, columns = {"referenceId"})
+@KievIndex(name = SNIPPET_BY_STATE_IDX, unique = false, columns = {"state(autonet)"})
+@KievIndex(name = SNIPPET_BY_DEVICE_ID_AND_STATE_IDX, unique = false, columns = {"deviceId", "state(autonet)"})
+public class AutoNetConfigDo /*extends BaseDo*/ {
+  public static final String SNIPPET_BY_DEVICE_ID_IDX = "snippetByDeviceId";
+  public static final String SNIPPET_BY_OBJECT_ID_IDX = "snippetByObjectId";
+  public static final String SNIPPET_BY_STATE_IDX = "snippetByState";
+  public static final String SNIPPET_BY_GROUP_NAME_AND_DEVICE_IDX = "snippetGroupAndDeviceId";
 
 
-public PaginatedResponse<AutoNetConfig> listAutoNetConfigs(
-        @DefaultValue(LIST_LIMIT) @QueryParam(Params.LIMIT) int limit,
-        @QueryParam(Params.PAGE) String opaqueToken,
-        @QueryParam("referenceId") String referenceId,
-        @QueryParam("deviceId") String deviceId,
-        @QueryParam("state") String state) throws ValidationException {
-    //...
+  @lombok.Builder(builderClassName = "Builder", toBuilder = true)
+  public AutoNetConfigDo (//String id,
+          String deviceId,
+          String referenceId,
+          Boolean isDrainRequired,
+          CLOB config,
+          Date lastAttempt,
+          Integer attempts,
+          Boolean failed,
+          Date dateCreated,
+          Date lastUpdated,
+          String stateComment,
+          String changeTicket,
+          State state
+  ) {
+    //super(id, dateCreated, lastUpdated, stateComment);
+    this.deviceId = deviceId;
+    this.referenceId = referenceId;
+    this.isDrainRequired = isDrainRequired;
+    this.config = config;
+    this.lastAttempt = lastAttempt;
+    this.attempts = attempts;
+    this.failed = failed;
+    this.dateCreated = dateCreated;
+    this.lastUpdated = lastUpdated;
+    this.stateComment = stateComment;
+    this.changeTicket = changeTicket;
+    this.state = state;
+
+  }
+
+  public enum State {
+    PENDING_VERIFICATION,
+    NE_VERIFIED,
+    DEPLOYING,
+    DEPLOYED,
+    PREVIOUSLY_DEPLOYED,
+    VERIFICATION_FAILED,
+    DEPLOY_FAILED,
+    ROLLBACK_IN_PROGRESS,
+    ROLLED_BACK
+  }
+  @NonNull
+  @Column(type = STRING, length = Constants.OBJECT_ID_LENGTH)
+  private String deviceId;
+
+  @NonNull
+  @Column(type = STRING, length = Constants.OBJECT_ID_LENGTH)
+  private String referenceId;
+
+  @NonNull
+  @Column(type = BOOLEAN)
+  private Boolean isDrainRequired;
+
+  @Nullable
+  @Column(type = ColumnType.CLOB, nullable = true)
+  private CLOB config;
+
+  @Column(type = DATE, nullable = true)
+  private Date lastAttempt;
+
+  @NonNull
+  @Column(type = INT)
+  private Integer attempts;
+
+  @NonNull
+  @Column(type = BOOLEAN)
+  private Boolean failed;
+
+  @Column(type = DATE, nullable = true)
+  private Date dateCreated;
+
+  @Column(type = DATE, nullable = true)
+  private Date lastUpdated;
+
+  @NonNull
+  @Column(type = STRING, length = Constants.OBJECT_ID_LENGTH)
+  private String stateComment;
+
+  @Column(type = STRING, length = Constants.DEFAULT_LENGTH, nullable = true)
+  private String changeTicket;
+
+  @NonNull
+  @Column(type = ENUM_STRING, length = Constants.DEFAULT_LENGTH)
+  private State state;
+
 }
