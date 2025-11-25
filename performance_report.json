@@ -1,162 +1,25 @@
-import com.google.common.collect.Lists;
-import com.oracle.pic.kiev.Transaction;
-import com.oracle.pic.kiev.mapping.Index;
-import com.oracle.pic.kiev.mapping.MappedDataStore;
-import com.oracle.pic.kiev.mapping.MappedHashBucket;
-import com.oracle.pic.kiev.mapping.PaginationToken;
-import com.oracle.pic.kiev.mapping.ScanPage;
-import com.oracle.pic.kiev.mapping.UniqueIndex;
-import com.oracle.pic.vpn.db.devices.DeviceBl;
-import com.oracle.pic.vpn.db.model.ArchiveDo;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+package com.oracle.pic.vpn.db.devices.model;
 
-import java.util.List;
-import java.util.Optional;
+import com.oracle.pic.kiev.mapping.annotations.Column;
+import com.oracle.pic.kiev.mapping.annotations.KievEntity;
+import lombok.Value;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static com.oracle.pic.kiev.mapping.annotations.ColumnType.ENUM_STRING;
+import static com.oracle.pic.kiev.mapping.annotations.ColumnType.STRING;
 
-@ExtendWith(MockitoExtension.class)
-public class AutoNetConfigBlTest {
+/**
+ * This class is used only as an index key for ConfigScheduleDo and ConfigSnippetDo.
+ * If these classes diverge then we should split this class into two different index
+ * keys (as it couples the implementation of the two).
+ */
+@Value
+@lombok.Builder(builderClassName = "Builder", toBuilder = true)
+@KievEntity(builderClass = DeviceAndStateKey.Builder.class, builderPrefix = "")
+public class DeviceAndStateKey {
 
-    @Mock
-    private MappedDataStore mappedDataStore;
+    @Column(type = STRING, length = 36, index = 1, name = "deviceId")
+    String deviceId;
 
-    @Mock
-    private MappedHashBucket<String, ArchiveDo> archiveBucket;
-
-    @Mock
-    private MappedHashBucket<String, AutoNetConfigDo> bucket;
-
-    @Mock
-    private Provider<DeviceBl> deviceBlProvider;
-
-    @Mock
-    private Index<String, AutoNetConfigDo> snippetsByDeviceId;
-
-    @Mock
-    private Index<String, AutoNetConfigDo> snippetsByObjectId;
-
-    @Mock
-    private Index<AutoNetConfigDo.State, AutoNetConfigDo> snippetsByStateId;
-
-    @Mock
-    private Index<DeviceAndStateKey, AutoNetConfigDo> snippetsByDeviceIdAndState;
-
-    @Mock
-    private UniqueIndex<GroupNameAndDeviceKey, AutoNetConfigDo> snippetByGroupNameAndDevice;
-
-    @Mock
-    private Index<String, AutoNetConfigDo> snippetsByDeviceConfigGroupName;
-
-    @InjectMocks
-    private AutoNetConfigBl autoNetConfigBl;
-
-    private AutoNetConfigDo autoNetConfigDo;
-    private Transaction transaction;
-
-    @BeforeEach
-    void setup() {
-        autoNetConfigDo = AutoNetConfigDo.builder()
-                .id("id")
-                .deviceId("deviceId")
-                .referenceId("referenceId")
-                .build();
-
-        transaction = mock(Transaction.class);
-    }
-
-    @Test
-    void testListSnippetsForDomainObjectWithTransaction() {
-        when(snippetsByObjectId.get(any(Transaction.class), anyString(), anyInt())).thenReturn(Lists.newArrayList(autoNetConfigDo));
-
-        List<AutoNetConfigDo> result = autoNetConfigBl.listSnippetsForDomainObject(transaction, "referenceId");
-
-        assertEquals(1, result.size());
-        assertEquals(autoNetConfigDo, result.get(0));
-        verify(snippetsByObjectId).get(transaction, "referenceId", 2);
-    }
-
-    @Test
-    void testListSnippetsForDomainObjectWithoutTransaction() {
-        when(snippetsByObjectId.scanBuilder()).thenReturn(mock(Index.ScanBuilder.class));
-        when(snippetsByObjectId.streamOf(any())).thenReturn(Lists.newArrayList(autoNetConfigDo).stream());
-
-        List<AutoNetConfigDo> result = autoNetConfigBl.listSnippetsForDomainObject("referenceId");
-
-        assertEquals(1, result.size());
-        assertEquals(autoNetConfigDo, result.get(0));
-        verify(snippetsByObjectId).streamOf(any());
-    }
-
-    @Test
-    void testListSnippetsForDomainObjectNullReferenceId() {
-        assertThrows(NullPointerException.class, () -> autoNetConfigBl.listSnippetsForDomainObject(null));
-    }
-
-    @Test
-    void testListSnippetsForDeviceAndState() {
-        DeviceAndStateKey deviceAndStateKey = DeviceAndStateKey.builder().deviceId("deviceId").state(AutoNetConfigDo.State.PENDING_VERIFICATION).build();
-        ScanPage<AutoNetConfigDo> scanPage = mock(ScanPage.class);
-        when(snippetsByDeviceIdAndState.beginPrefixScan(any(DeviceAndStateKey.class), anyInt())).thenReturn(scanPage);
-
-        ScanPage<AutoNetConfigDo> result = autoNetConfigBl.listSnippetsForDeviceAndState("deviceId", AutoNetConfigDo.State.PENDING_VERIFICATION, Optional.empty(), 10);
-
-        assertEquals(scanPage, result);
-        verify(snippetsByDeviceIdAndState).beginPrefixScan(deviceAndStateKey, 10);
-    }
-
-    @Test
-    void testGetAutoNetConfigByDeviceAndGroup() {
-        when(snippetByGroupNameAndDevice.get(any(GroupNameAndDeviceKey.class))).thenReturn(Optional.of(autoNetConfigDo));
-
-        Optional<AutoNetConfigDo> result = autoNetConfigBl.getAutoNetConfigByDeviceAndGroup("deviceId", "groupName");
-
-        assertEquals(Optional.of(autoNetConfigDo), result);
-        verify(snippetByGroupNameAndDevice).get(any(GroupNameAndDeviceKey.class));
-    }
-
-    @Test
-    void testListSnippetsForDevice() {
-        ScanPage<AutoNetConfigDo> scanPage = mock(ScanPage.class);
-        when(snippetsByDeviceId.beginPrefixScan(anyString(), anyInt())).thenReturn(scanPage);
-
-        ScanPage<AutoNetConfigDo> result = autoNetConfigBl.listSnippetsForDevice("deviceId", Optional.empty(), 10);
-
-        assertEquals(scanPage, result);
-        verify(snippetsByDeviceId).beginPrefixScan("deviceId", 10);
-    }
-
-    @Test
-    void testListSnippetsForDeviceConfigGroupName() {
-        ScanPage<AutoNetConfigDo> scanPage = mock(ScanPage.class);
-        when(snippetsByDeviceConfigGroupName.beginPrefixScan(anyString(), anyInt())).thenReturn(scanPage);
-
-        ScanPage<AutoNetConfigDo> result = autoNetConfigBl.listSnippetsForDeviceConfigGroupName("deviceConfigGroupName", Optional.empty(), 10);
-
-        assertEquals(scanPage, result);
-        verify(snippetsByDeviceConfigGroupName).beginPrefixScan("deviceConfigGroupName", 10);
-    }
-
-    @Test
-    void testListSnippetsForState() {
-        ScanPage<AutoNetConfigDo> scanPage = mock(ScanPage.class);
-        when(snippetsByStateId.beginPrefixScan(any(AutoNetConfigDo.State.class), anyInt())).thenReturn(scanPage);
-
-        ScanPage<AutoNetConfigDo> result = autoNetConfigBl.listSnippetsForState(AutoNetConfigDo.State.PENDING_VERIFICATION, Optional.empty(), 10);
-
-        assertEquals(scanPage, result);
-        verify(snippetsByStateId).beginPrefixScan(AutoNetConfigDo.State.PENDING_VERIFICATION, 10);
-    }
+    @Column(type = ENUM_STRING, length = 36, index = 2, name = "state")
+    ConfigSnippetDo.State state;
 }
