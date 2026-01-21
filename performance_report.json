@@ -1,31 +1,518 @@
-// When making the request
-const [updateData, { isLoading, isError, error }] = useUpdateDataMutation();
+import {
+    Callout,
+    Spinner,
+    useForm,
+    Form,
+    TextInput,
+    Dropdown,
+    Button,
+} from '@oracle/forge';
+import * as VpnApiClient from '@clients/vpn-api-client';
+import { useDrawer } from '@oracle/forge/components/Drawer/Drawer';
+import { GenericObject } from '@oracle/forge/utilities/global-types';
+import LandingPageLayout from '../../../components/layouts/LandingPageLayout';
+import CategoryLayout from '../../../components/layouts/categoryLayout/CategoryLayout';
+import LandingPageHeader from '../../../components/common/LandingPageHeader';
+import DevicesMenu from '../DevicesMenu';
+import AutoNetConfigDetailPageHeader from '../../../components/categoryComponents/devices/deviceDetails/AutoNetConfigDetailPageHeader';
+import RHSDrawer from '../../../components/common/RHSDrawer';
+import {
+    fetchAutoNetConfigsDetails,
+    fetchDeviceList,
+    updateAutoNetConfigsDetails,
+    devicesActions, fetchAutoNetConfigEventsList, updateAutoNetConfigDiff, deployAutoNetConfig, fetchDeviceDetails,
+} from '../../../store/devices/DevicesSlice';
+import {
+    fetchPropertyValue
+} from '../../../store/resourceInformation/ResourceInformationSlice';
+import styles from '../../../styles/Common.module.scss';
+import {
+    ConfigSnippet,
+    Device,
+    DeviceInterface, Event,
+    NetconfOutput, Property, UpdateAutoNetConfigRequestDetails, UpdateDeviceDetails,
+} from '@clients/vpn-api-client';
+import { useDispatch, useSelector } from 'react-redux';
+import { AppDispatch, RootState } from 'app/store';
+import { Categories, CategoriesTools } from '../../../constants/Constants';
+import React, { useState } from 'react';
+import { ApiCallState } from 'network/client/utils';
+import { useParams } from 'react-router-dom';
+import {getRegionIdfromRegion, getSwitchName} from '../../../utils/helpers';
+import AutoNetConfigDoDetails from '../../../components/categoryComponents/devices/deviceDetails/AutoNetConfigDoDetails';
+import ObjectEventsList from "../../../components/categoryComponents/resourceInformation/crossConnectGroup/ObjectEventList";
+import DeviceDoDetails from  "../../../components/categoryComponents/devices/deviceDetails/DeviceDoDetails";
+import { Dialog } from '@oracle/forge';
+import {Toaster} from "@blueprintjs/core";
+import {unwrapResult} from "@reduxjs/toolkit";
 
-// In your component or handler
-const handleUpdate = async (data) => {
-  try {
-    const response = await updateData({
-      regionId: data.regionId,
-      autoNetConfigFileHash: data.autoNetConfigFileHash,
-      deviceName: data.deviceName
-    }).unwrap();
-    
-    // Success case
-    console.log('Update successful:', response);
-    
-  } catch (err) {
-    // Extract status code from error
-    const status = err.status; // HTTP status code (404, 500, etc.)
-    const errorMessage = err.data?.message || 'Update failed';
-    
-    // Display to UI
-    displayError(status, errorMessage);
-    console.error('Error status:', status);
-  }
+
+interface AutoNetConfigsDetailProps {};
+
+type PathParams = {
+    id: string;
+};
+const toaster = Toaster.create();
+
+
+const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (props: AutoNetConfigsDetailProps,) => {
+
+    const dispatch = useDispatch<AppDispatch>();
+    const region = useSelector<RootState, string>((state) => state.common.region, );
+    const realm = useSelector<RootState, string>((state) => state.common.realm);
+    const [selected, setSelected] = useState('1');
+    const { id } = useParams<PathParams>();
+    const [formValues, setFormValues] = React.useState<GenericObject>({});
+
+    const form = useForm();
+
+    const { openDrawer: openUpdateDrawer, closeDrawer: closeUpdateDrawer, Drawer: UpdateDrawer } = useDrawer();
+
+    const deviceDetails = useSelector< RootState, ApiCallState< Device >> ((state) => state.devices.deviceDetails);
+    const autoNetConfigsDetails =useSelector< RootState, ApiCallState< VpnApiClient.AutoNetConfig >> ((state) => state.devices.autoNetConfigsDetails);
+    const devices = useSelector< RootState, ApiCallState< Device[] >> ((state) => state.devices.devices);
+    const autoNetConfigObjectEvents = useSelector< RootState, ApiCallState< Event[] >> ((state) =>state.devices.autoNetConfigEventList);
+    const updatedDetails = useSelector< RootState, ApiCallState< Device >> ((state) => state.devices.updatedAutoNetConfigsDetailsData);
+
+    React.useEffect( () => {
+        setSelected('1');
+        if( id !== undefined) {
+            // autonet configs details
+            dispatch(fetchAutoNetConfigsDetails({
+                regionId: getRegionIdfromRegion(region),
+                autoNetConfigId: id,
+            }));
+            // autonet config events
+            dispatch(fetchAutoNetConfigEventsList({
+                regionId: getRegionIdfromRegion(region),
+                autoNetConfigId: id,
+            }));
+            // deivces list
+            if( !devices.data )
+            {
+                dispatch(fetchDeviceList({
+                    regionId: getRegionIdfromRegion(region),
+                }));
+            }
+
+        }
+    }, [region, id]);
+
+    // may need to change this
+    React.useEffect( () => {
+        if( !!updatedDetails.data) {
+            dispatch(devicesActions.clearUpdateDeviceStateData());
+        }
+    }, [updatedDetails.data]);
+
+    const submitUpdatedAutoNetConfigsDetails = async (values: GenericObject) => {
+        const updatedData: UpdateAutoNetConfigRequestDetails = {
+            state: values["state"],
+            deviceId: values["deviceId"],
+            isDrainRequired: values["isDrainRequired"] === 'TRUE',
+            changeTicket: values["changeTicket"],
+        };
+
+        dispatch(
+            updateAutoNetConfigsDetails({
+                regionId: getRegionIdfromRegion(region),
+                autoNetConfigsId: autoNetConfigsDetails.data?.id || '',
+                updateAutoNetConfig: updatedData,
+            })
+        );
+    };
+    const stateOptions = [ 'PENDING_VERIFICATION', 'NE_VERIFIED', 'DEPLOYING', 'DEPLOYED', 'PREVIOUSLY_DEPLOYED',
+        'VERIFICATION_FAILED', 'DEPLOY_FAILED', 'ROLLBACK_IN_PROGRESS',
+        'ROLLED_BACK', ].map((value) => ({ label: value, value }));
+
+    const drainOptions = [ 'TRUE', 'FALSE' ].map((value) => ({ label: value, value }));
+
+    const getDeviceName = (id: string | undefined): string => {
+        const device = devices.data?.find((deviceInfo) => deviceInfo.id === id);
+        return device?.name ?? '-';
+    };
+
+
+    const [isUpdateConfigDialogOpen, setIsUpdateConfigDialogOpen] = React.useState(false);
+    const [isDeployConfigDialogOpen, setIsDeployConfigDialogOpen] = React.useState(false);
+    const [isUpdateConfigDiffDialogOpen, setIsUpdateConfigDiffDialogOpen] = React.useState(false);
+    const [updateConfigError, setUpdateConfigError] = React.useState('');
+    const [deployConfigError, setDeployConfigError] = React.useState('');
+    const [updateConfigDiffError, setUpdateConfigDiffError] = React.useState('');
+    const [isDeployConfigResultDialogOpen, setIsDeployConfigResultDialogOpen] = React.useState(false);
+    const [isUpdateConfigResultDialogOpen, setIsUpdateConfigResultDialogOpen] = React.useState(false);
+    const [isUpdateConfigDiffResultDialogOpen, setIsUpdateConfigDiffResultDialogOpen] = React.useState(false);
+
+    return (
+        <div style={{width: '100%'}}>
+            <div style={{ display : 'flex', justifyContent: 'space-between', padding: '1rem 1rem', flexDirection:'column' }}>
+                <AutoNetConfigDetailPageHeader id={id}/>
+
+                {autoNetConfigsDetails.loading &&
+                    <Spinner
+                        className={`${styles.SpinnerStyle}`}
+                        intent='primary'
+                        size='standard'
+                    />
+                }
+                {autoNetConfigsDetails.error &&
+                    <Callout
+                        intent="warning"
+                        header="ID Not Found"
+                        // children={ocid}
+                    />
+                }
+
+                {(id !== undefined && !!autoNetConfigsDetails && !autoNetConfigsDetails.loading ) &&
+                    <>
+                        <div>
+                            <ul className="bp3-tab-list" role="tablist">
+                                <li className="bp3-tab" role="tab" onClick={() => setSelected('1')} aria-selected={selected === '1'}>
+                                    Config Details
+                                </li>
+                                <li className="bp3-tab" role="tab" onClick={() => setSelected('2')} aria-selected={selected === '2'}>
+                                    Config
+                                </li>
+                                <li className="bp3-tab" role="tab" onClick={() => setSelected('3')} aria-selected={selected === '3'}>
+                                    Config Diff
+                                </li>
+                                <li className="bp3-tab" role="tab" onClick={() => setSelected('4')} aria-selected={selected === '4'}>
+                                    Object Events
+                                </li>
+
+                            </ul>
+                        </div>
+
+                        <div style={{display: 'flex', justifyContent: 'flex-end', paddingRight: '0.8rem'}}>
+                            <Button small={true} style={{marginRight:'0.5rem'}}
+                                    text="Update Config"
+                                    onClick={() => openUpdateDrawer()}
+                            />
+
+                            <Button
+                                small={true}
+                                style={{ backgroundColor: 'green', color: 'white' }}
+                                onClick={() => setIsDeployConfigDialogOpen(true)}
+                            >
+                                Deploy Config
+                            </Button>
+                            <Dialog
+                                isOpen={isDeployConfigDialogOpen}
+                                onClose={() => {
+                                    setIsDeployConfigDialogOpen(false);
+                                    setDeployConfigError('');
+                                }}
+                                title="Confirm Deploy Config"
+                                body={
+                                    <>
+                                        Are you sure you want to deploy the config?
+
+                                    </>
+                                }
+                                actions={
+                                    <>
+                                        <Button onClick={() => {
+                                            setIsDeployConfigDialogOpen(false);
+                                            dispatch(deployAutoNetConfig({
+                                                regionId: getRegionIdfromRegion(region),
+                                                autoNetConfigFileHash: autoNetConfigsDetails.data?.fileHash || '',
+                                                deviceName: deviceDetails.data?.name || getDeviceName(autoNetConfigsDetails.data?.deviceId)
+                                            })).then((response) => {
+                                                if (response.meta.requestStatus === 'rejected') {
+                                                    setDeployConfigError('Deploy config failed');
+                                                    setIsDeployConfigResultDialogOpen(true);
+                                                } else {
+                                                    toaster.show({
+                                                        intent: 'success',
+                                                        message: 'Deployment successful',
+                                                    });
+                                                    setIsDeployConfigResultDialogOpen(true);
+                                                }
+                                            });
+
+                                        }}>
+                                            Yes
+                                        </Button>
+                                        <Button onClick={() => {
+                                            setIsDeployConfigDialogOpen(false);
+                                            setDeployConfigError('');
+                                        }}>
+                                            No
+                                        </Button>
+                                    </>
+                                }
+                            />
+                            <Dialog
+                                isOpen={isDeployConfigResultDialogOpen}
+                                onClose={() => setIsDeployConfigResultDialogOpen(false)}
+                                title={deployConfigError ? 'Deployment Failed' : 'Deployment Successful'}
+                                body={
+                                    deployConfigError
+                                        // ? <div style={{ color: 'red' }}>
+                                        //     {deployConfigError.message}
+                                        // </div>
+                                           ? <div style={{ color: 'red' }}>{deployConfigError}</div>
+                                        : 'The config has been deployed successfully.'
+                                }
+                                actions={
+                                    <Button onClick={() => setIsDeployConfigResultDialogOpen(false)}>
+                                        OK
+                                    </Button>
+                                }
+                            />
+
+                            <Button
+                                small={true}
+                                onClick={() => setIsUpdateConfigDiffDialogOpen(true)}
+                            >
+                                Refresh Config Diff
+                            </Button>
+                            <Dialog
+                                isOpen={isUpdateConfigDiffDialogOpen}
+                                onClose={() => {
+                                    setIsUpdateConfigDiffDialogOpen(false);
+                                    setUpdateConfigDiffError('');
+                                }}
+                                title="Confirm Refresh Config Diff"
+                                body={
+                                    <>
+                                        Are you sure you want to refresh the config diff?
+                                        {/*{updateConfigDiffError && <div style={{ color: 'red' }}>{updateConfigDiffError}</div>}*/}
+                                    </>
+                                }
+                                actions={
+                                    <>
+                                        <Button onClick={() => {
+                                            setIsUpdateConfigDiffDialogOpen(false);
+                                            dispatch(updateAutoNetConfigDiff({
+                                                regionId: getRegionIdfromRegion(region),
+                                                autoNetConfigFileHash: autoNetConfigsDetails.data?.fileHash || ''
+                                            })).then((response) => {
+                                                if (response.meta.requestStatus === 'rejected') {
+                                                    setUpdateConfigDiffError('Failed to refresh config diff');
+                                                    setIsUpdateConfigDiffResultDialogOpen(true);
+                                                } else {
+                                                    toaster.show({
+                                                        intent: 'success',
+                                                        message: 'Config diff refreshed successfully',
+                                                    });
+                                                    setIsUpdateConfigDiffResultDialogOpen(true);
+                                                }
+                                            });
+                                        }}>
+                                            Yes
+                                        </Button>
+                                        <Button onClick={() => {
+                                            setIsUpdateConfigDiffDialogOpen(false);
+                                            setUpdateConfigDiffError('');
+                                        }}>
+                                            No
+                                        </Button>
+                                    </>
+                                }
+                            />
+
+                            <Dialog
+                                isOpen={isUpdateConfigDiffResultDialogOpen}
+                                onClose={() => setIsUpdateConfigDiffResultDialogOpen(false)}
+                                title={updateConfigDiffError ? 'Refresh Config Diff Failed' : 'Refresh Config Diff Successful'}
+                                body={
+                                    updateConfigDiffError
+                                        ? <div style={{ color: 'red' }}>{updateConfigDiffError}</div>
+                                        : 'The config diff has been refreshed successfully.'
+                                }
+                                actions={
+                                    <Button onClick={() => setIsUpdateConfigDiffResultDialogOpen(false)}>
+                                        OK
+                                    </Button>
+                                }
+                            />
+
+                            <Form
+                                form={form}
+                                onSubmit={(values) => {
+                                    setFormValues(values);
+                                    setIsUpdateConfigDialogOpen(true);
+                                }}
+                                onCancel={() => { closeUpdateDrawer() }}
+                            >
+                                <UpdateDrawer
+                                    onOpening={form.reset}
+                                    onClose={() => {form.reset}}
+                                    title={`Update autonet config details for ${autoNetConfigsDetails.data?.id}`}
+                                    size={'50%'}
+                                    footer={
+                                        <>
+                                            <Form.SubmitButton onClick={() => setIsUpdateConfigDialogOpen(true)}>Submit</Form.SubmitButton>
+                                            <Form.CancelButton onClick={closeUpdateDrawer}>Cancel</Form.CancelButton>
+                                        </>
+                                    }
+                                >
+                                    <div className={`${styles.Margin}`}>
+                                        <TextInput
+                                            stateKey="changeTicket"
+                                            header={'Change ticket'}
+                                            defaultValue={autoNetConfigsDetails.data?.changeTicket}
+                                        />
+                                        <Dropdown
+                                            stateKey="isDrainRequired"
+                                            header={'Drain Required?'}
+                                            defaultValue={autoNetConfigsDetails.data?.isDrainRequired?.toString()}
+                                            options={drainOptions}
+                                        />
+                                        <Dropdown
+                                            stateKey="state"
+                                            header={'Config State'}
+                                            defaultValue={autoNetConfigsDetails.data?.state}
+                                            options={stateOptions}
+                                        />
+                                    </div>
+                                </UpdateDrawer>
+                            </Form>
+                            <Dialog
+                                isOpen={isUpdateConfigDialogOpen}
+                                onClose={() => {
+                                    setIsUpdateConfigDialogOpen(false);
+                                    setUpdateConfigError('');
+                                }}
+                                title="Confirm Update Config"
+                                body={
+                                    <>
+                                        Are you sure you want to update the config?
+                                        {/*{updateConfigError && <div style={{ color: 'red' }}>{updateConfigError}</div>}*/}
+                                    </>
+                                }
+                                actions={
+                                    <>
+                                        <Button onClick={() => {
+                                            submitUpdatedAutoNetConfigsDetails(formValues);
+                                            setIsUpdateConfigDialogOpen(false);
+                                        }}>
+                                            Yes
+                                        </Button>
+                                        <Button onClick={() => {
+                                            setIsUpdateConfigDialogOpen(false);
+                                            setUpdateConfigError('');
+                                        }}>
+                                            No
+                                        </Button>
+                                    </>
+                                }
+                            />
+
+                            <Dialog
+                                isOpen={isUpdateConfigResultDialogOpen}
+                                onClose={() => setIsUpdateConfigResultDialogOpen(false)}
+                                title={updateConfigError ? 'Update Config Failed' : 'Update Config Successful'}
+                                body={
+                                    updateConfigError
+                                        ? <div style={{ color: 'red' }}>{updateConfigError}</div>
+                                        : 'The config has been updated successfully.'
+                                }
+                                actions={
+                                    <Button onClick={() => setIsUpdateConfigResultDialogOpen(false)}>
+                                        OK
+                                    </Button>
+                                }
+                            />
+                        </div>
+                    </>
+                }
+            </div>
+            {!autoNetConfigsDetails.loading &&
+                <>
+                    {(id !== undefined && !!autoNetConfigsDetails.data ) &&
+                        <>
+                            <div className="bp3-tabs" style={{width:'100%'}}>
+                                {/*add more values as needed*/}
+                                {/* 1 - Config Details */}
+                                {selected === '1' &&
+                                    <div className="bp3-tab-panel" role="tabpanel" aria-hidden={selected !== '1'} style={{borderTop: '1px solid lightgrey', paddingTop: '1rem'}}>
+                                        <AutoNetConfigDoDetails autoNetConfigDetails={autoNetConfigsDetails.data}  />
+                                    </div>}
+
+                                {/* 2 - Config */}
+                                {selected === '2' &&
+                                <div className="bp3-tab-panel" role="tabpanel" aria-hidden={selected !== '2'} style={{borderTop: '1px solid lightgrey', paddingTop: '1rem'}}>
+                                    <pre
+                                        style={{
+                                            whiteSpace: "pre-wrap",     // keep newlines + wrap long lines
+                                            wordBreak: "break-word",
+                                            margin: 0,
+                                            fontFamily: "monospace",
+                                            fontSize: "12px",
+                                            lineHeight: 1.4,
+                                            background: "#f7f7f7",
+                                            padding: "12px",
+                                            borderRadius: "6px",
+                                            border: "1px solid #ddd",
+                                            overflow: "visible",
+                                        }}
+                                    >
+                                        {autoNetConfigsDetails.data?.config ?? ""}
+                                    </pre>
+
+                                </div>}
+                                {/* 3 - Config Diff */}
+                                {selected === '3' &&
+                                    <div className="bp3-tab-panel" role="tabpanel" aria-hidden={selected !== '3'} style={{borderTop: '1px solid lightgrey', paddingTop: '1rem'}}>
+                                        <pre
+                                            style={{
+                                                whiteSpace: "pre-wrap",     // keep newlines + wrap long lines
+                                                wordBreak: "break-word",
+                                                margin: 0,
+                                                fontFamily: "monospace",
+                                                fontSize: "12px",
+                                                lineHeight: 1.4,
+                                                background: "#f7f7f7",
+                                                padding: "12px",
+                                                borderRadius: "6px",
+                                                border: "1px solid #ddd",
+                                                overflow: "visible",
+                                            }}
+                                        >
+                                      {autoNetConfigsDetails.data?.configDiff?.split('\n').map((line, index) => (
+                                          <span key={index} style={{
+                                              display: 'block',
+                                              background: line.startsWith('-') ? '#ffe6e6' : line.startsWith('+') ? '#e6ffe6' : 'transparent',
+                                          }}>
+                                                {line}
+                                            </span>
+                                      ))}
+
+                                    </pre>
+                                    </div>}
+
+                                {/* 4- Object Events*/}
+                                {selected === '4' &&
+                                    <div className="bp3-tab-panel" role="tabpanel" aria-hidden={selected !== '4'}>
+                                        <ObjectEventsList objectEvents={autoNetConfigObjectEvents.data}/>
+
+                                    </div>}
+                            </div>
+                        </>
+                    }
+                </>
+            }
+        </div>
+    );
 };
 
-function displayError(status, message) {
-  // Update your UI with the status
-  const errorElement = document.getElementById('error-message');
-  errorElement.textContent = `Error ${status}: ${message}`;
-}
+
+const AutoNetConfigsDetail: React.FC<AutoNetConfigsDetailProps> = (props: AutoNetConfigsDetailProps,) => {
+    return (
+        <LandingPageLayout
+            header={<LandingPageHeader showRegion={true} expectedCategory={Categories.devices.name} />}
+            content={
+                <CategoryLayout
+                    Menu={<DevicesMenu selectedTabId={CategoriesTools.Categories.devices.autoNetConfigsDetails.id}/>}
+                    selectedTool={<AutoNetConfigsDetailComponent/>}
+                />
+            }
+            rhsDrawer={RHSDrawer}
+        />
+
+    );
+};
+
+export default AutoNetConfigsDetail;
