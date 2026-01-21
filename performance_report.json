@@ -38,16 +38,16 @@ import { Categories, CategoriesTools } from '../../../constants/Constants';
 import React, { useState } from 'react';
 import { ApiCallState } from 'network/client/utils';
 import { useParams } from 'react-router-dom';
-import {getRegionIdfromRegion, getSwitchName} from '../../../utils/helpers';
+import { getRegionIdfromRegion, getSwitchName } from '../../../utils/helpers';
 import AutoNetConfigDoDetails from '../../../components/categoryComponents/devices/deviceDetails/AutoNetConfigDoDetails';
 import ObjectEventsList from "../../../components/categoryComponents/resourceInformation/crossConnectGroup/ObjectEventList";
-import DeviceDoDetails from  "../../../components/categoryComponents/devices/deviceDetails/DeviceDoDetails";
+import DeviceDoDetails from "../../../components/categoryComponents/devices/deviceDetails/DeviceDoDetails";
 import { Dialog } from '@oracle/forge';
-import {Toaster} from "@blueprintjs/core";
-import {unwrapResult} from "@reduxjs/toolkit";
+import { Toaster } from "@blueprintjs/core";
+import { unwrapResult } from "@reduxjs/toolkit";
 
 
-interface AutoNetConfigsDetailProps {};
+interface AutoNetConfigsDetailProps { };
 
 type PathParams = {
     id: string;
@@ -58,7 +58,7 @@ const toaster = Toaster.create();
 const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (props: AutoNetConfigsDetailProps,) => {
 
     const dispatch = useDispatch<AppDispatch>();
-    const region = useSelector<RootState, string>((state) => state.common.region, );
+    const region = useSelector<RootState, string>((state) => state.common.region,);
     const realm = useSelector<RootState, string>((state) => state.common.realm);
     const [selected, setSelected] = useState('1');
     const { id } = useParams<PathParams>();
@@ -68,15 +68,15 @@ const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (prop
 
     const { openDrawer: openUpdateDrawer, closeDrawer: closeUpdateDrawer, Drawer: UpdateDrawer } = useDrawer();
 
-    const deviceDetails = useSelector< RootState, ApiCallState< Device >> ((state) => state.devices.deviceDetails);
-    const autoNetConfigsDetails =useSelector< RootState, ApiCallState< VpnApiClient.AutoNetConfig >> ((state) => state.devices.autoNetConfigsDetails);
-    const devices = useSelector< RootState, ApiCallState< Device[] >> ((state) => state.devices.devices);
-    const autoNetConfigObjectEvents = useSelector< RootState, ApiCallState< Event[] >> ((state) =>state.devices.autoNetConfigEventList);
-    const updatedDetails = useSelector< RootState, ApiCallState< Device >> ((state) => state.devices.updatedAutoNetConfigsDetailsData);
+    const deviceDetails = useSelector<RootState, ApiCallState<Device>>((state) => state.devices.deviceDetails);
+    const autoNetConfigsDetails = useSelector<RootState, ApiCallState<VpnApiClient.AutoNetConfig>>((state) => state.devices.autoNetConfigsDetails);
+    const devices = useSelector<RootState, ApiCallState<Device[]>>((state) => state.devices.devices);
+    const autoNetConfigObjectEvents = useSelector<RootState, ApiCallState<Event[]>>((state) => state.devices.autoNetConfigEventList);
+    const updatedDetails = useSelector<RootState, ApiCallState<Device>>((state) => state.devices.updatedAutoNetConfigsDetailsData);
 
-    React.useEffect( () => {
+    React.useEffect(() => {
         setSelected('1');
-        if( id !== undefined) {
+        if (id !== undefined) {
             // autonet configs details
             dispatch(fetchAutoNetConfigsDetails({
                 regionId: getRegionIdfromRegion(region),
@@ -88,8 +88,7 @@ const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (prop
                 autoNetConfigId: id,
             }));
             // deivces list
-            if( !devices.data )
-            {
+            if (!devices.data) {
                 dispatch(fetchDeviceList({
                     regionId: getRegionIdfromRegion(region),
                 }));
@@ -99,8 +98,8 @@ const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (prop
     }, [region, id]);
 
     // may need to change this
-    React.useEffect( () => {
-        if( !!updatedDetails.data) {
+    React.useEffect(() => {
+        if (!!updatedDetails.data) {
             dispatch(devicesActions.clearUpdateDeviceStateData());
         }
     }, [updatedDetails.data]);
@@ -121,11 +120,11 @@ const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (prop
             })
         );
     };
-    const stateOptions = [ 'PENDING_VERIFICATION', 'NE_VERIFIED', 'DEPLOYING', 'DEPLOYED', 'PREVIOUSLY_DEPLOYED',
+    const stateOptions = ['PENDING_VERIFICATION', 'NE_VERIFIED', 'DEPLOYING', 'DEPLOYED', 'PREVIOUSLY_DEPLOYED',
         'VERIFICATION_FAILED', 'DEPLOY_FAILED', 'ROLLBACK_IN_PROGRESS',
-        'ROLLED_BACK', ].map((value) => ({ label: value, value }));
+        'ROLLED_BACK',].map((value) => ({ label: value, value }));
 
-    const drainOptions = [ 'TRUE', 'FALSE' ].map((value) => ({ label: value, value }));
+    const drainOptions = ['TRUE', 'FALSE'].map((value) => ({ label: value, value }));
 
     const getDeviceName = (id: string | undefined): string => {
         const device = devices.data?.find((deviceInfo) => deviceInfo.id === id);
@@ -140,13 +139,33 @@ const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (prop
     const [deployConfigError, setDeployConfigError] = React.useState('');
     const [updateConfigDiffError, setUpdateConfigDiffError] = React.useState('');
     const [isDeployConfigResultDialogOpen, setIsDeployConfigResultDialogOpen] = React.useState(false);
+    const extractStatusCode = (error: unknown): string | undefined => {
+        const err = error as {
+            status?: number | string;
+            statusCode?: number | string;
+            response?: { status?: number | string };
+            data?: { status?: number | string; statusCode?: number | string };
+            message?: string;
+        };
+        const directStatus = err?.status ?? err?.statusCode ?? err?.response?.status ?? err?.data?.status ?? err?.data?.statusCode;
+        if (directStatus !== undefined) {
+            return String(directStatus);
+        }
+        if (typeof err?.message === 'string') {
+            const match = err.message.match(/\b(\d{3})\b/);
+            if (match) {
+                return match[1];
+            }
+        }
+        return undefined;
+    };
     const [isUpdateConfigResultDialogOpen, setIsUpdateConfigResultDialogOpen] = React.useState(false);
     const [isUpdateConfigDiffResultDialogOpen, setIsUpdateConfigDiffResultDialogOpen] = React.useState(false);
 
     return (
-        <div style={{width: '100%'}}>
-            <div style={{ display : 'flex', justifyContent: 'space-between', padding: '1rem 1rem', flexDirection:'column' }}>
-                <AutoNetConfigDetailPageHeader id={id}/>
+        <div style={{ width: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '1rem 1rem', flexDirection: 'column' }}>
+                <AutoNetConfigDetailPageHeader id={id} />
 
                 {autoNetConfigsDetails.loading &&
                     <Spinner
@@ -159,11 +178,11 @@ const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (prop
                     <Callout
                         intent="warning"
                         header="ID Not Found"
-                        // children={ocid}
+                    // children={ocid}
                     />
                 }
 
-                {(id !== undefined && !!autoNetConfigsDetails && !autoNetConfigsDetails.loading ) &&
+                {(id !== undefined && !!autoNetConfigsDetails && !autoNetConfigsDetails.loading) &&
                     <>
                         <div>
                             <ul className="bp3-tab-list" role="tablist">
@@ -183,10 +202,10 @@ const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (prop
                             </ul>
                         </div>
 
-                        <div style={{display: 'flex', justifyContent: 'flex-end', paddingRight: '0.8rem'}}>
-                            <Button small={true} style={{marginRight:'0.5rem'}}
-                                    text="Update Config"
-                                    onClick={() => openUpdateDrawer()}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingRight: '0.8rem' }}>
+                            <Button small={true} style={{ marginRight: '0.5rem' }}
+                                text="Update Config"
+                                onClick={() => openUpdateDrawer()}
                             />
 
                             <Button
@@ -217,18 +236,22 @@ const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (prop
                                                 regionId: getRegionIdfromRegion(region),
                                                 autoNetConfigFileHash: autoNetConfigsDetails.data?.fileHash || '',
                                                 deviceName: deviceDetails.data?.name || getDeviceName(autoNetConfigsDetails.data?.deviceId)
-                                            })).then((response) => {
-                                                if (response.meta.requestStatus === 'rejected') {
-                                                    setDeployConfigError('Deploy config failed');
-                                                    setIsDeployConfigResultDialogOpen(true);
-                                                } else {
+                                            }))
+                                                .then(unwrapResult)
+                                                .then(() => {
+                                                    setDeployConfigError('');
                                                     toaster.show({
                                                         intent: 'success',
                                                         message: 'Deployment successful',
                                                     });
                                                     setIsDeployConfigResultDialogOpen(true);
-                                                }
-                                            });
+                                                })
+                                                .catch((error) => {
+                                                    const statusCode = extractStatusCode(error);
+                                                    const statusSuffix = statusCode ? ` (status ${statusCode})` : '';
+                                                    setDeployConfigError(`Deploy config failed${statusSuffix}`);
+                                                    setIsDeployConfigResultDialogOpen(true);
+                                                });
 
                                         }}>
                                             Yes
@@ -251,7 +274,7 @@ const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (prop
                                         // ? <div style={{ color: 'red' }}>
                                         //     {deployConfigError.message}
                                         // </div>
-                                           ? <div style={{ color: 'red' }}>{deployConfigError}</div>
+                                        ? <div style={{ color: 'red' }}>{deployConfigError}</div>
                                         : 'The config has been deployed successfully.'
                                 }
                                 actions={
@@ -338,7 +361,7 @@ const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (prop
                             >
                                 <UpdateDrawer
                                     onOpening={form.reset}
-                                    onClose={() => {form.reset}}
+                                    onClose={() => { form.reset }}
                                     title={`Update autonet config details for ${autoNetConfigsDetails.data?.id}`}
                                     size={'50%'}
                                     footer={
@@ -421,41 +444,19 @@ const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (prop
             </div>
             {!autoNetConfigsDetails.loading &&
                 <>
-                    {(id !== undefined && !!autoNetConfigsDetails.data ) &&
+                    {(id !== undefined && !!autoNetConfigsDetails.data) &&
                         <>
-                            <div className="bp3-tabs" style={{width:'100%'}}>
+                            <div className="bp3-tabs" style={{ width: '100%' }}>
                                 {/*add more values as needed*/}
                                 {/* 1 - Config Details */}
                                 {selected === '1' &&
-                                    <div className="bp3-tab-panel" role="tabpanel" aria-hidden={selected !== '1'} style={{borderTop: '1px solid lightgrey', paddingTop: '1rem'}}>
-                                        <AutoNetConfigDoDetails autoNetConfigDetails={autoNetConfigsDetails.data}  />
+                                    <div className="bp3-tab-panel" role="tabpanel" aria-hidden={selected !== '1'} style={{ borderTop: '1px solid lightgrey', paddingTop: '1rem' }}>
+                                        <AutoNetConfigDoDetails autoNetConfigDetails={autoNetConfigsDetails.data} />
                                     </div>}
 
                                 {/* 2 - Config */}
                                 {selected === '2' &&
-                                <div className="bp3-tab-panel" role="tabpanel" aria-hidden={selected !== '2'} style={{borderTop: '1px solid lightgrey', paddingTop: '1rem'}}>
-                                    <pre
-                                        style={{
-                                            whiteSpace: "pre-wrap",     // keep newlines + wrap long lines
-                                            wordBreak: "break-word",
-                                            margin: 0,
-                                            fontFamily: "monospace",
-                                            fontSize: "12px",
-                                            lineHeight: 1.4,
-                                            background: "#f7f7f7",
-                                            padding: "12px",
-                                            borderRadius: "6px",
-                                            border: "1px solid #ddd",
-                                            overflow: "visible",
-                                        }}
-                                    >
-                                        {autoNetConfigsDetails.data?.config ?? ""}
-                                    </pre>
-
-                                </div>}
-                                {/* 3 - Config Diff */}
-                                {selected === '3' &&
-                                    <div className="bp3-tab-panel" role="tabpanel" aria-hidden={selected !== '3'} style={{borderTop: '1px solid lightgrey', paddingTop: '1rem'}}>
+                                    <div className="bp3-tab-panel" role="tabpanel" aria-hidden={selected !== '2'} style={{ borderTop: '1px solid lightgrey', paddingTop: '1rem' }}>
                                         <pre
                                             style={{
                                                 whiteSpace: "pre-wrap",     // keep newlines + wrap long lines
@@ -471,22 +472,44 @@ const AutoNetConfigsDetailComponent: React.FC<AutoNetConfigsDetailProps> = (prop
                                                 overflow: "visible",
                                             }}
                                         >
-                                      {autoNetConfigsDetails.data?.configDiff?.split('\n').map((line, index) => (
-                                          <span key={index} style={{
-                                              display: 'block',
-                                              background: line.startsWith('-') ? '#ffe6e6' : line.startsWith('+') ? '#e6ffe6' : 'transparent',
-                                          }}>
-                                                {line}
-                                            </span>
-                                      ))}
+                                            {autoNetConfigsDetails.data?.config ?? ""}
+                                        </pre>
 
-                                    </pre>
+                                    </div>}
+                                {/* 3 - Config Diff */}
+                                {selected === '3' &&
+                                    <div className="bp3-tab-panel" role="tabpanel" aria-hidden={selected !== '3'} style={{ borderTop: '1px solid lightgrey', paddingTop: '1rem' }}>
+                                        <pre
+                                            style={{
+                                                whiteSpace: "pre-wrap",     // keep newlines + wrap long lines
+                                                wordBreak: "break-word",
+                                                margin: 0,
+                                                fontFamily: "monospace",
+                                                fontSize: "12px",
+                                                lineHeight: 1.4,
+                                                background: "#f7f7f7",
+                                                padding: "12px",
+                                                borderRadius: "6px",
+                                                border: "1px solid #ddd",
+                                                overflow: "visible",
+                                            }}
+                                        >
+                                            {autoNetConfigsDetails.data?.configDiff?.split('\n').map((line, index) => (
+                                                <span key={index} style={{
+                                                    display: 'block',
+                                                    background: line.startsWith('-') ? '#ffe6e6' : line.startsWith('+') ? '#e6ffe6' : 'transparent',
+                                                }}>
+                                                    {line}
+                                                </span>
+                                            ))}
+
+                                        </pre>
                                     </div>}
 
                                 {/* 4- Object Events*/}
                                 {selected === '4' &&
                                     <div className="bp3-tab-panel" role="tabpanel" aria-hidden={selected !== '4'}>
-                                        <ObjectEventsList objectEvents={autoNetConfigObjectEvents.data}/>
+                                        <ObjectEventsList objectEvents={autoNetConfigObjectEvents.data} />
 
                                     </div>}
                             </div>
@@ -505,8 +528,8 @@ const AutoNetConfigsDetail: React.FC<AutoNetConfigsDetailProps> = (props: AutoNe
             header={<LandingPageHeader showRegion={true} expectedCategory={Categories.devices.name} />}
             content={
                 <CategoryLayout
-                    Menu={<DevicesMenu selectedTabId={CategoriesTools.Categories.devices.autoNetConfigsDetails.id}/>}
-                    selectedTool={<AutoNetConfigsDetailComponent/>}
+                    Menu={<DevicesMenu selectedTabId={CategoriesTools.Categories.devices.autoNetConfigsDetails.id} />}
+                    selectedTool={<AutoNetConfigsDetailComponent />}
                 />
             }
             rhsDrawer={RHSDrawer}
