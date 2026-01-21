@@ -1,19 +1,31 @@
-response: {
-    arg: {
-        regionId: string
-        autoNetConfigFileHash: string
-        deviceName: string
-    }
-    requestId: string
-    requestStatus: "fulfilled"
-} | {
-    arg: {
-        regionId: string
-        autoNetConfigFileHash: string
-        deviceName: string
-    }
-    requestId: string
-    requestStatus: "rejected"
-    aborted: boolean
-    condition: boolean
+// When making the request
+const [updateData, { isLoading, isError, error }] = useUpdateDataMutation();
+
+// In your component or handler
+const handleUpdate = async (data) => {
+  try {
+    const response = await updateData({
+      regionId: data.regionId,
+      autoNetConfigFileHash: data.autoNetConfigFileHash,
+      deviceName: data.deviceName
+    }).unwrap();
+    
+    // Success case
+    console.log('Update successful:', response);
+    
+  } catch (err) {
+    // Extract status code from error
+    const status = err.status; // HTTP status code (404, 500, etc.)
+    const errorMessage = err.data?.message || 'Update failed';
+    
+    // Display to UI
+    displayError(status, errorMessage);
+    console.error('Error status:', status);
+  }
+};
+
+function displayError(status, message) {
+  // Update your UI with the status
+  const errorElement = document.getElementById('error-message');
+  errorElement.textContent = `Error ${status}: ${message}`;
 }
