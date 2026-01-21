@@ -1,68 +1,19 @@
- @GET
-    @Path("/autonetconfig")
-    @Produces({ "application/json" })
-    @Timed(name = "list-autonetconfig")
-    public Response listAutoNetConfig(
-            @QueryParam("deviceId") @Nullable String deviceId,
-            @QueryParam("state") @Nullable String stateStr,
-            @QueryParam("referenceId") @Nullable String referenceId,
-            @QueryParam("page") @Nullable String pageToken,
-            @QueryParam("limit") @DefaultValue(LIST_LIMIT) int limit) {
-        try {
-            ScanPage<AutoNetConfigDo> scanPage;
-            Optional<PaginationToken> paginationToken = Optional.empty();
-            if (StringUtils.isNotEmpty(pageToken)) {
-                try {
-                    paginationToken = Optional.of(PaginationTokenUtils.fromString(pageToken));
-                } catch (Exception e) {
-                    log.warn("Invalid pagination token: {}", pageToken, e);
-                    throw new BadRequestException("Invalid pagination token: " + pageToken);
-                }
-            }
-
-            if (referenceId != null) {
-                // List by referenceId (domain object)
-                List<AutoNetConfigDo> configs = autoNetConfigBl.listSnippetsForDomainObject(referenceId);
-                // Convert List to PaginatedResponse
-                return Response.ok()
-                        .entity(PaginatedResponse.builder()
-                                .items(configs)
-                                .hasMore(false)
-                                .build())
-                        .build();
-            } else if (deviceId != null && stateStr != null) {
-                // List by deviceId and state
-                AutoNetConfigDo.State state;
-                try {
-                    state = AutoNetConfigDo.State.valueOf(stateStr);
-                } catch (IllegalArgumentException e) {
-                    throw new BadRequestException("Invalid state value: " + stateStr);
-                }
-                scanPage = autoNetConfigBl.listSnippetsForDeviceAndState(deviceId, state, paginationToken, limit);
-            } else if (deviceId != null) {
-                // List by deviceId only
-                scanPage = autoNetConfigBl.listSnippetsForDevice(deviceId, paginationToken, limit);
-            } else if (stateStr != null) {
-                // List by state only
-                AutoNetConfigDo.State state;
-                try {
-                    state = AutoNetConfigDo.State.valueOf(stateStr);
-                } catch (IllegalArgumentException e) {
-                    throw new BadRequestException("Invalid state value: " + stateStr);
-                }
-                scanPage = autoNetConfigBl.listSnippetsForState(state, paginationToken, limit);
-            } else {
-                // No filters specified - return error
-                throw new BadRequestException(
-                        "At least one filter parameter (deviceId, state, or referenceId) must be provided");
-            }
-
-            PaginatedResponse<AutoNetConfigDo> response = PaginationUtils.toPaginatedResponse(scanPage);
-            return Response.ok(response).build();
-        } catch (BadRequestException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Error listing AutoNetConfig", e);
-            throw new javax.ws.rs.InternalServerErrorException("Failed to list AutoNetConfig: " + e.getMessage());
-        }
+response: {
+    arg: {
+        regionId: string
+        autoNetConfigFileHash: string
+        deviceName: string
     }
+    requestId: string
+    requestStatus: "fulfilled"
+} | {
+    arg: {
+        regionId: string
+        autoNetConfigFileHash: string
+        deviceName: string
+    }
+    requestId: string
+    requestStatus: "rejected"
+    aborted: boolean
+    condition: boolean
+}
